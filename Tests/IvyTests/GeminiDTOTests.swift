@@ -301,4 +301,145 @@ struct GeminiDTOTests {
         let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
         #expect(response.firstText == "Valid text from second candidate.")
     }
+
+    // MARK: - AnyCodable & Tool DTO Tests
+
+    @Test("AnyCodable encodes and decodes primitives, arrays, and dictionaries")
+    func testAnyCodablePrimitives() throws {
+        let strVal: AnyCodable = "Safari"
+        let intVal: AnyCodable = 42
+        let dblVal: AnyCodable = 3.14
+        let boolVal: AnyCodable = true
+        let nullVal: AnyCodable = nil
+        let dictVal: AnyCodable = ["appName": "Notes", "timeout": 10]
+        let arrVal: AnyCodable = ["a", "b", 3]
+
+        #expect(strVal.stringValue == "Safari")
+        #expect(intVal.intValue == 42)
+        #expect(dblVal.doubleValue == 3.14)
+        #expect(intVal.doubleValue == 42.0)
+        #expect(boolVal.boolValue == true)
+        #expect(nullVal.isNull == true)
+        #expect(dictVal.dictionaryValue?["appName"]?.stringValue == "Notes")
+        #expect(arrVal.arrayValue?.count == 3)
+
+        // Test JSON round-trip
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        let encodedDict = try encoder.encode(dictVal)
+        let decodedDict = try decoder.decode(AnyCodable.self, from: encodedDict)
+        #expect(decodedDict == dictVal)
+
+        let encodedArr = try encoder.encode(arrVal)
+        let decodedArr = try decoder.decode(AnyCodable.self, from: encodedArr)
+        #expect(decodedArr == arrVal)
+
+        let encodedNull = try encoder.encode(nullVal)
+        let decodedNull = try decoder.decode(AnyCodable.self, from: encodedNull)
+        #expect(decodedNull == .null)
+    }
+
+    @Test("GeminiRequest encodes tools with functionDeclarations correctly")
+    func testToolsEncoding() throws {
+        let openAppDecl = FunctionDeclaration(
+            name: "open_app",
+            description: "Opens a native macOS application by name.",
+            parameters: ToolParameters(
+                type: "OBJECT",
+                properties: [
+                    "name": ToolProperty(type: "STRING", description: "The name of the application")
+                ],
+                required: ["name"]
+            )
+        )
+
+        let request = GeminiRequest(
+            contents: [Content(role: "user", text: "Open Safari")],
+            tools: [ToolDeclarationWrapper(functionDeclarations: [openAppDecl])]
+        )
+
+        let data = try JSONEncoder().encode(request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tools = json["tools"] as? [[String: Any]],
+              let declarations = tools.first?["functionDeclarations"] as? [[String: Any]],
+              let firstDecl = declarations.first else {
+            Issue.record("Failed to serialize tools in GeminiRequest")
+            return
+        }
+
+        #expect(firstDecl["name"] as? String == "open_app")
+        #expect(firstDecl["description"] as? String == "Opens a native macOS application by name.")
+        guard let params = firstDecl["parameters"] as? [String: Any],
+              let props = params["properties"] as? [String: Any],
+              let nameProp = props["name"] as? [String: Any] else {
+            Issue.record("Missing parameters or properties")
+            return
+        }
+
+        #expect(nameProp["type"] as? String == "STRING")
+        #expect((params["required"] as? [String]) == ["name"])
+    }
+
+    @Test("GeminiResponse decodes candidate with functionCall")
+    func testDecodeFunctionCall() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "open_app",
+                      "args": {
+                        "name": "Safari"
+                      },
+                      "id": "call-123"
+                    }
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+
+        #expect(response.firstText == nil)
+        guard let call = response.firstFunctionCall else {
+            Issue.record("Expected firstFunctionCall to be present")
+            return
+        }
+
+        #expect(call.name == "open_app")
+        #expect(call.args["name"]?.stringValue == "Safari")
+        #expect(call.id == "call-123")
+        #expect(response.functionCalls.count == 1)
+    }
+
+    @Test("Part with functionResponse encodes and decodes properly")
+    func testFunctionResponsePart() throws {
+        let response = FunctionResponse(
+            name: "open_app",
+            response: ["result": "Opened Safari successfully."],
+            id: "call-123"
+        )
+        let part = Part(functionResponse: response)
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(part)
+
+        let decoder = JSONDecoder()
+        let decodedPart = try decoder.decode(Part.self, from: data)
+
+        #expect(decodedPart.functionResponse?.name == "open_app")
+        #expect(decodedPart.functionResponse?.response["result"]?.stringValue == "Opened Safari successfully.")
+        #expect(decodedPart.functionResponse?.id == "call-123")
+    }
 }
+

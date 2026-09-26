@@ -26,19 +26,90 @@ public struct GenerationConfig: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Function Calling & Tools DTOs
+
+public struct ToolDeclarationWrapper: Codable, Sendable, Equatable {
+    public let functionDeclarations: [FunctionDeclaration]
+
+    public init(functionDeclarations: [FunctionDeclaration]) {
+        self.functionDeclarations = functionDeclarations
+    }
+}
+
+public struct FunctionDeclaration: Codable, Sendable, Equatable {
+    public let name: String
+    public let description: String
+    public let parameters: ToolParameters?
+
+    public init(name: String, description: String, parameters: ToolParameters? = nil) {
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+    }
+}
+
+public struct ToolParameters: Codable, Sendable, Equatable {
+    public let type: String
+    public let properties: [String: ToolProperty]
+    public let required: [String]?
+
+    public init(type: String = "OBJECT", properties: [String: ToolProperty], required: [String]? = nil) {
+        self.type = type
+        self.properties = properties
+        self.required = required
+    }
+}
+
+public struct ToolProperty: Codable, Sendable, Equatable {
+    public let type: String
+    public let description: String
+
+    public init(type: String, description: String) {
+        self.type = type
+        self.description = description
+    }
+}
+
+public struct FunctionCall: Codable, Sendable, Equatable {
+    public let name: String
+    public let args: [String: AnyCodable]
+    public let id: String?
+
+    public init(name: String, args: [String: AnyCodable] = [:], id: String? = nil) {
+        self.name = name
+        self.args = args
+        self.id = id
+    }
+}
+
+public struct FunctionResponse: Codable, Sendable, Equatable {
+    public let name: String
+    public let response: [String: AnyCodable]
+    public let id: String?
+
+    public init(name: String, response: [String: AnyCodable], id: String? = nil) {
+        self.name = name
+        self.response = response
+        self.id = id
+    }
+}
+
 public struct GeminiRequest: Codable, Sendable, Equatable {
     public let systemInstruction: SystemInstruction?
     public let contents: [Content]
     public let generationConfig: GenerationConfig?
+    public let tools: [ToolDeclarationWrapper]?
 
     public init(
         systemInstruction: SystemInstruction? = nil,
         contents: [Content],
-        generationConfig: GenerationConfig? = nil
+        generationConfig: GenerationConfig? = nil,
+        tools: [ToolDeclarationWrapper]? = nil
     ) {
         self.systemInstruction = systemInstruction
         self.contents = contents
         self.generationConfig = generationConfig
+        self.tools = tools
     }
 }
 
@@ -72,10 +143,19 @@ public struct Content: Codable, Sendable, Equatable {
 public struct Part: Codable, Sendable, Equatable {
     public let text: String?
     public let thought: Bool?
+    public let functionCall: FunctionCall?
+    public let functionResponse: FunctionResponse?
 
-    public init(text: String?, thought: Bool? = nil) {
+    public init(
+        text: String? = nil,
+        thought: Bool? = nil,
+        functionCall: FunctionCall? = nil,
+        functionResponse: FunctionResponse? = nil
+    ) {
         self.text = text
         self.thought = thought
+        self.functionCall = functionCall
+        self.functionResponse = functionResponse
     }
 }
 
@@ -104,6 +184,35 @@ public struct GeminiResponse: Codable, Sendable, Equatable {
             }
         }
         return nil
+    }
+
+    /// Returns the first function call in candidate parts, if present.
+    public var firstFunctionCall: FunctionCall? {
+        guard let candidates else { return nil }
+        for candidate in candidates {
+            guard let parts = candidate.content?.parts else { continue }
+            for part in parts {
+                if let call = part.functionCall {
+                    return call
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Returns all function calls across candidate parts.
+    public var functionCalls: [FunctionCall] {
+        guard let candidates else { return [] }
+        var calls: [FunctionCall] = []
+        for candidate in candidates {
+            guard let parts = candidate.content?.parts else { continue }
+            for part in parts {
+                if let call = part.functionCall {
+                    calls.append(call)
+                }
+            }
+        }
+        return calls
     }
 }
 
