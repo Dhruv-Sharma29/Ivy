@@ -148,4 +148,46 @@ struct GeminiClientTests {
             )
         }
     }
+
+    @Test("Client maps HTTP 500 to serverError")
+    func testServerError() async {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let errorJSON = "{\"error\": {\"code\": 500, \"message\": \"Internal Server Error\", \"status\": \"INTERNAL\"}}"
+            return (response, errorJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        await #expect(throws: GeminiClientError.serverError(statusCode: 500, message: "Internal Server Error")) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "Hello")],
+                systemPrompt: "You are Ivy",
+                apiKey: "valid_key"
+            )
+        }
+    }
+
+    @Test("GeminiClientError descriptions are non-empty")
+    func testErrorDescriptions() {
+        let errors: [GeminiClientError] = [
+            .missingAPIKey,
+            .invalidURL,
+            .invalidAPIKey("bad"),
+            .rateLimited,
+            .serverError(statusCode: 500, message: "fail"),
+            .networkError("fail"),
+            .decodingError("fail"),
+            .emptyResponse
+        ]
+
+        for err in errors {
+            #expect(err.errorDescription != nil)
+            #expect(!err.errorDescription!.isEmpty)
+        }
+    }
 }

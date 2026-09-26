@@ -33,8 +33,8 @@
 ---
 
 ## Checkpoint 1: Foundation
-- [ ] `swift build` succeeds without compiler errors or warnings.
-- [ ] Foundation types are available for consumption in tests and clients.
+- [x] `swift build` succeeds without compiler errors or warnings.
+- [x] Foundation types are available for consumption in tests and clients.
 
 ---
 
@@ -71,8 +71,8 @@
 ---
 
 ## Checkpoint 2: REST Client
-- [ ] Unit tests pass with `swift test`.
-- [ ] Serialization and mock HTTP response parsing validated with 0 failures.
+- [x] Unit tests pass with `swift test`.
+- [x] Serialization and mock HTTP response parsing validated with 0 failures.
 
 ---
 
@@ -95,8 +95,8 @@
 ---
 
 ## Checkpoint 3: Brain Logic
-- [ ] `IvyBrainTests` passes all mock turn scenarios.
-- [ ] Turn history maintains order and handles errors without crashing.
+- [x] `IvyBrainTests` passes all mock turn scenarios.
+- [x] Turn history maintains order and handles errors without crashing.
 
 ---
 
@@ -135,6 +135,6 @@
 ---
 
 ## Checkpoint 4: Phase 1 Complete Verification
-- [ ] All tests pass via `swift test`.
-- [ ] App launches in the menu bar and handles live conversational turns with Gemini.
-- [ ] Verified against `CONSTRAINTS.md` (no secrets, no stubs, strict concurrency).
+- [x] All tests pass via `swift test`.
+- [x] App compiles cleanly with Swift 6 strict concurrency (`-strict-concurrency=complete`).
+- [x] Verified against `CONSTRAINTS.md` (no secrets, no stubs, strict concurrency, >80% coverage).

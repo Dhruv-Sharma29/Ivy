@@ -3,10 +3,11 @@ import IvyCore
 
 @main
 struct IvyApp: App {
+    @StateObject private var brain = IvyBrain()
+
     var body: some Scene {
-        MenuBarExtra("Ivy", systemImage: "sparkle") {
-            Text("Ivy is waking up...")
-                .padding()
+        MenuBarExtra("Ivy", systemImage: brain.statusIcon) {
+            IvyPopoverView(brain: brain)
         }
         .menuBarExtraStyle(.window)
     }

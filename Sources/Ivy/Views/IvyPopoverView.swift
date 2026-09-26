@@ -1,0 +1,203 @@
+import SwiftUI
+import IvyCore
+
+public struct IvyPopoverView: View {
+    @ObservedObject public var brain: IvyBrain
+    @State private var inputText: String = ""
+    @State private var showSettings: Bool = false
+
+    public init(brain: IvyBrain) {
+        self.brain = brain
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            headerView
+            Divider()
+
+            if showSettings {
+                settingsBar
+                Divider()
+            }
+
+            messageArea
+            Divider()
+            MessageInputBar(
+                text: $inputText,
+                isThinking: brain.isThinking
+            ) {
+                submitCurrentMessage()
+            }
+        }
+        .frame(width: 380, height: 520)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    // MARK: - Header
+    private var headerView: some View {
+        HStack {
+            Image(systemName: "sparkle")
+                .foregroundStyle(Color.accentColor)
+                .font(.system(size: 14, weight: .semibold))
+
+            Text("Ivy")
+                .font(.system(size: 14, weight: .bold))
+
+            statusBadge
+
+            Spacer()
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showSettings.toggle()
+                }
+            } label: {
+                Image(systemName: showSettings ? "gearshape.fill" : "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Configure Gemini API Key")
+
+            Button {
+                brain.clearHistory()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Clear Conversation")
+            .disabled(brain.messages.isEmpty)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }
+
+    // MARK: - Status Badge
+    @ViewBuilder
+    private var statusBadge: some View {
+        if brain.isThinking {
+            HStack(spacing: 4) {
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Thinking...")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        } else if brain.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text("Key Missing")
+                .font(.system(size: 10, weight: .medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.2))
+                .foregroundStyle(Color.orange)
+                .clipShape(Capsule())
+        }
+    }
+
+    // MARK: - Settings Bar
+    private var settingsBar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Gemini API Key")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            HStack {
+                SecureField("Enter Gemini API key", text: $brain.apiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+
+                if !brain.apiKey.isEmpty {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 13))
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    // MARK: - Messages Area
+    private var messageArea: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                if brain.messages.isEmpty {
+                    emptyStateView
+                } else {
+                    LazyVStack(spacing: 12) {
+                        ForEach(brain.messages) { message in
+                            ChatBubbleView(message: message)
+                                .id(message.id)
+                        }
+
+                        if brain.isThinking {
+                            HStack {
+                                Text("Ivy is formulating a sharp reply...")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .italic()
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .clipShape(Capsule())
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .id("thinkingIndicator")
+                        }
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 8)
+                }
+            }
+            .onChange(of: brain.messages.count) {
+                if let lastMessage = brain.messages.last {
+                    withAnimation {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: brain.isThinking) {
+                if brain.isThinking {
+                    withAnimation {
+                        proxy.scrollTo("thinkingIndicator", anchor: .bottom)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Empty State
+    private var emptyStateView: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            Image(systemName: "sparkles")
+                .font(.system(size: 36))
+                .foregroundStyle(Color.accentColor.opacity(0.8))
+
+            Text("Ivy is ready.")
+                .font(.system(size: 15, weight: .semibold))
+
+            Text("I'm waiting. Make it interesting or don't waste my time.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, minHeight: 320)
+    }
+
+    private func submitCurrentMessage() {
+        let textToSend = inputText
+        inputText = ""
+        Task {
+            await brain.send(textToSend)
+        }
+    }
+}

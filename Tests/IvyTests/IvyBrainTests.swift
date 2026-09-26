@@ -102,4 +102,16 @@ struct IvyBrainTests {
         #expect(brain.isThinking == false)
         #expect(brain.errorMessage == nil)
     }
+
+    @Test("Status icon updates based on state")
+    @MainActor
+    func testStatusIconTransitions() async {
+        let mock = MockGeminiClient()
+        let brain = IvyBrain(client: mock, apiKey: "valid_key")
+        #expect(brain.statusIcon == "sparkle")
+
+        mock.errorToThrow = URLError(.timedOut)
+        await brain.send("Will fail")
+        #expect(brain.statusIcon == "exclamationmark.bubble")
+    }
 }

@@ -82,4 +82,24 @@ struct GeminiDTOTests {
         #expect(response.error?.status == "INVALID_ARGUMENT")
         #expect(response.error?.message.contains("API key not valid") == true)
     }
+
+    @Test("GeminiDTO initializers and properties work as expected")
+    func testDTOInitializers() {
+        let part = Part(text: "Hello")
+        #expect(part.text == "Hello")
+
+        let sys = SystemInstruction(parts: [part])
+        #expect(sys.parts.count == 1)
+
+        let content = Content(role: "user", parts: [part])
+        #expect(content.role == "user")
+        #expect(content.parts.first?.text == "Hello")
+
+        let candidate = Candidate(content: content, finishReason: "STOP")
+        #expect(candidate.finishReason == "STOP")
+
+        let apiError = GeminiAPIError(code: 500, message: "Internal Error", status: "INTERNAL")
+        let errorResponse = GeminiResponse(candidates: nil, error: apiError)
+        #expect(errorResponse.error?.code == 500)
+    }
 }
