@@ -1,0 +1,14 @@
+Target dependency graph (5 targets)
+Target 'AllIncludingTests' in project 'Aggregate'
+➜ Explicit dependency on target 'IvyTests-product' in project 'Ivy'
+➜ Dependency on target 'IvyTests-product' in project 'Ivy' via transitive dependency through 'IvyTests-test-runner'
+➜ Explicit dependency on target 'IvyCore-product' in project 'Ivy'
+➜ Explicit dependency on target 'Ivy-product' in project 'Ivy'
+➜ Explicit dependency on target 'IvyCore' in project 'Ivy'
+Target 'Ivy-product' in project 'Ivy'
+➜ Explicit dependency on target 'IvyCore' in project 'Ivy'
+Target 'IvyCore-product' in project 'Ivy'
+➜ Explicit dependency on target 'IvyCore' in project 'Ivy'
+Target 'IvyTests-product' in project 'Ivy'
+➜ Explicit dependency on target 'IvyCore' in project 'Ivy'
+Target 'IvyCore' in project 'Ivy' (no dependencies)

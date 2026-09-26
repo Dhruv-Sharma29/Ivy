@@ -1,0 +1,4 @@
+module IvyCore {
+header "IvyCore-Swift.h"
+export *
+}
