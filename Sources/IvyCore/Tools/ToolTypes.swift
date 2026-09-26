@@ -67,7 +67,7 @@ public final class PassThroughSafetyGate: SafetyGateProtocol, Sendable {
         case .safe:
             return .approve
         case .risky:
-            return .reject(reason: "Tool '\(tool.name)' is classified as risky and requires user confirmation.")
+            return .reject(reason: "Execution rejected by safety policy: Tool '\(tool.name)' is classified as risky and requires user confirmation.")
         }
     }
 }

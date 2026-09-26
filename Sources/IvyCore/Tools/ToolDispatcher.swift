@@ -29,7 +29,7 @@ public final class ToolDispatcher: Sendable {
             return FunctionResponse(
                 name: call.name,
                 response: [
-                    "error": AnyCodable("Execution rejected by safety policy: \(reason)"),
+                    "error": AnyCodable(reason),
                     "success": AnyCodable(false)
                 ],
                 id: call.id
