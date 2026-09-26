@@ -22,6 +22,9 @@ let package = Package(
         .executableTarget(
             name: "Ivy",
             dependencies: ["IvyCore"],
+            exclude: [
+                "Resources/Info.plist"
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
