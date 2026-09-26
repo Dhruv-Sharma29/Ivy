@@ -11,7 +11,7 @@ The initiative is built incrementally across 7 phases, starting strictly with **
 - **Language**: Swift 6.4 (Strict Concurrency Checking enabled: `-strict-concurrency=complete`)
 - **Frameworks**: SwiftUI, AppKit (`NSWorkspace`, `NSAlert`), Foundation (`URLSession`), OSLog
 - **Target OS**: macOS 14.0+ (Sonoma) / macOS 15.0+ (Sequoia)
-- **API**: Gemini 2.0 Flash REST endpoint (`POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`)
+- **API**: Gemini 2.0 Flash REST endpoint (`POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`)
 - **Networking**: Native `URLSession` with `async/await` and custom JSON `Codable` models (zero third-party SDK dependencies)
 - **Build System**: Swift Package Manager (`Package.swift`) with separated `IvyCore` logic library, `Ivy` executable app target, and `IvyTests` test target.
 
@@ -250,7 +250,7 @@ public protocol GeminiClientProtocol: Sendable {
 ```
 
 ### URLSession Implementation
-- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}`
+- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={API_KEY}`
 - **HTTP Method**: `POST`
 - **Headers**: `Content-Type: application/json`
 - **Timeout**: 30 seconds request timeout

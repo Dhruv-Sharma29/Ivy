@@ -102,4 +102,53 @@ struct GeminiDTOTests {
         let errorResponse = GeminiResponse(candidates: nil, error: apiError)
         #expect(errorResponse.error?.code == 500)
     }
+
+    @Test("Gemini 3.8 thinkingConfig encodes thinking_level correctly")
+    func testThinkingConfigEncoding() throws {
+        let request = GeminiRequest(
+            contents: [Content(role: "user", text: "Explain quantum physics")],
+            generationConfig: GenerationConfig(thinkingConfig: ThinkingConfig(thinkingLevel: .low))
+        )
+
+        let data = try JSONEncoder().encode(request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let genConfig = json["generationConfig"] as? [String: Any],
+              let thinkConfig = genConfig["thinkingConfig"] as? [String: Any] else {
+            Issue.record("Failed to serialize generationConfig.thinkingConfig")
+            return
+        }
+
+        #expect(thinkConfig["thinking_level"] as? String == "low")
+    }
+
+    @Test("Gemini 3.8 thought parts are filtered from user-facing text")
+    func testThoughtPartsFiltered() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "thought": true,
+                    "text": "The user wants a sarcastic retort. Let me come up with something witty."
+                  },
+                  {
+                    "text": "Oh, wonderful. Another task for me."
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+
+        // Must filter out the internal thought and return only the final text
+        #expect(response.firstText == "Oh, wonderful. Another task for me.")
+    }
 }

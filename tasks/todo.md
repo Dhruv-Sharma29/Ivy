@@ -55,7 +55,7 @@
 - **Estimated scope:** M (2-3 files)
 
 ### Task 4: URLSession Gemini Client Implementation
-- **Description:** Implement `GeminiClientProtocol` and `URLSessionGeminiClient` making direct POST requests to `gemini-2.0-flash:generateContent`.
+- **Description:** Implement `GeminiClientProtocol` and `URLSessionGeminiClient` making direct POST requests to `gemini-3.8-flash:generateContent`.
 - **Acceptance criteria:**
   - Performs network request with proper headers, URL encoding, and API key query parameter.
   - Parses text response from candidates.

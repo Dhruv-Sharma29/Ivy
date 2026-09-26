@@ -53,7 +53,7 @@ struct GeminiClientTests {
         }
     }
 
-    @Test("Client sends valid request and parses successful response")
+    @Test("Client sends valid request targeting gemini-3.8-flash and parses response")
     func testSuccessfulGeneration() async throws {
         let mockResponseJSON = """
         {
@@ -61,6 +61,7 @@ struct GeminiClientTests {
             {
               "content": {
                 "parts": [
+                  { "thought": true, "text": "Analyzing the user's intent." },
                   { "text": "I suppose I can answer that for you." }
                 ],
                 "role": "model"
@@ -73,6 +74,7 @@ struct GeminiClientTests {
 
         MockURLProtocol.requestHandler = { request in
             #expect(request.httpMethod == "POST")
+            #expect(request.url?.absoluteString.contains("gemini-3.8-flash:generateContent") == true)
             #expect(request.url?.query?.contains("key=test_api_key_123") == true)
             #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
 
@@ -85,7 +87,7 @@ struct GeminiClientTests {
             return (response, mockResponseJSON.data(using: .utf8)!)
         }
 
-        let client = URLSessionGeminiClient(session: makeMockSession())
+        let client = URLSessionGeminiClient(session: makeMockSession(), thinkingLevel: .medium)
         let reply = try await client.generateContent(
             history: [ChatMessage(role: .user, text: "Do something")],
             systemPrompt: "You are Ivy",
@@ -123,6 +125,38 @@ struct GeminiClientTests {
                 history: [ChatMessage(role: .user, text: "Hello")],
                 systemPrompt: "You are Ivy",
                 apiKey: "bad_key"
+            )
+        }
+    }
+
+    @Test("Client maps HTTP 404 to modelNotFound error")
+    func testModelNotFoundError() async {
+        let errorJSON = """
+        {
+          "error": {
+            "code": 404,
+            "message": "This model is no longer available. Use gemini-3.8-flash.",
+            "status": "NOT_FOUND"
+          }
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 404,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, errorJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        await #expect(throws: GeminiClientError.modelNotFound("This model is no longer available. Use gemini-3.8-flash.")) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "Hello")],
+                systemPrompt: "You are Ivy",
+                apiKey: "valid_key"
             )
         }
     }
@@ -179,6 +213,7 @@ struct GeminiClientTests {
             .invalidURL,
             .invalidAPIKey("bad"),
             .rateLimited,
+            .modelNotFound("model missing"),
             .serverError(statusCode: 500, message: "fail"),
             .networkError("fail"),
             .decodingError("fail"),

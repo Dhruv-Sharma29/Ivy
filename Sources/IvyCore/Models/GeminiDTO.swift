@@ -1,12 +1,44 @@
 import Foundation
 
+public enum ThinkingLevel: String, Codable, Sendable {
+    case low
+    case medium
+    case high
+}
+
+public struct ThinkingConfig: Codable, Sendable, Equatable {
+    public let thinkingLevel: ThinkingLevel
+
+    public init(thinkingLevel: ThinkingLevel = .medium) {
+        self.thinkingLevel = thinkingLevel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case thinkingLevel = "thinking_level"
+    }
+}
+
+public struct GenerationConfig: Codable, Sendable, Equatable {
+    public let thinkingConfig: ThinkingConfig?
+
+    public init(thinkingConfig: ThinkingConfig? = nil) {
+        self.thinkingConfig = thinkingConfig
+    }
+}
+
 public struct GeminiRequest: Codable, Sendable, Equatable {
     public let systemInstruction: SystemInstruction?
     public let contents: [Content]
+    public let generationConfig: GenerationConfig?
 
-    public init(systemInstruction: SystemInstruction? = nil, contents: [Content]) {
+    public init(
+        systemInstruction: SystemInstruction? = nil,
+        contents: [Content],
+        generationConfig: GenerationConfig? = nil
+    ) {
         self.systemInstruction = systemInstruction
         self.contents = contents
+        self.generationConfig = generationConfig
     }
 }
 
@@ -39,9 +71,11 @@ public struct Content: Codable, Sendable, Equatable {
 
 public struct Part: Codable, Sendable, Equatable {
     public let text: String?
+    public let thought: Bool?
 
-    public init(text: String?) {
+    public init(text: String?, thought: Bool? = nil) {
         self.text = text
+        self.thought = thought
     }
 }
 
@@ -54,8 +88,15 @@ public struct GeminiResponse: Codable, Sendable, Equatable {
         self.error = error
     }
 
+    /// Returns the user-facing text response, filtering out internal reasoning thoughts.
     public var firstText: String? {
-        candidates?.first?.content?.parts.compactMap(\.text).joined()
+        guard let parts = candidates?.first?.content?.parts else { return nil }
+        let nonThoughtParts = parts.filter { $0.thought != true }
+        let candidateText = nonThoughtParts.compactMap(\.text).joined()
+        if !candidateText.isEmpty {
+            return candidateText
+        }
+        return parts.compactMap(\.text).joined()
     }
 }
 

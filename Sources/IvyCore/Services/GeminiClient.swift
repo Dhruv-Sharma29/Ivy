@@ -5,6 +5,7 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
     case invalidURL
     case invalidAPIKey(String)
     case rateLimited
+    case modelNotFound(String)
     case serverError(statusCode: Int, message: String)
     case networkError(String)
     case decodingError(String)
@@ -20,6 +21,8 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
             return "Invalid API key: \(msg)"
         case .rateLimited:
             return "Rate limited. Slow down, give me a second."
+        case .modelNotFound(let msg):
+            return "Gemini model not found (404): \(msg)"
         case .serverError(let code, let msg):
             return "Gemini server error (\(code)): \(msg)"
         case .networkError(let msg):
@@ -42,14 +45,17 @@ public protocol GeminiClientProtocol: Sendable {
 
 public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Sendable {
     private let session: URLSession
-    private let baseURLString: String
+    public let baseURLString: String
+    public let thinkingLevel: ThinkingLevel?
 
     public init(
         session: URLSession = .shared,
-        baseURLString: String = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        baseURLString: String = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+        thinkingLevel: ThinkingLevel? = .medium
     ) {
         self.session = session
         self.baseURLString = baseURLString
+        self.thinkingLevel = thinkingLevel
     }
 
     public func generateContent(
@@ -90,9 +96,14 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Send
         }
 
         let systemInstruction = systemPrompt.isEmpty ? nil : SystemInstruction(text: systemPrompt)
+        let generationConfig: GenerationConfig? = thinkingLevel.map {
+            GenerationConfig(thinkingConfig: ThinkingConfig(thinkingLevel: $0))
+        }
+
         let geminiRequest = GeminiRequest(
             systemInstruction: systemInstruction,
-            contents: contents
+            contents: contents,
+            generationConfig: generationConfig
         )
 
         let requestData: Data
@@ -136,6 +147,15 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Send
                 let bodyString = String(data: data, encoding: .utf8) ?? "Authentication failure"
                 throw GeminiClientError.invalidAPIKey(bodyString)
             }
+
+        case 404:
+            let errorMsg: String
+            if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
+                errorMsg = apiError.message
+            } else {
+                errorMsg = String(data: data, encoding: .utf8) ?? "Model not found"
+            }
+            throw GeminiClientError.modelNotFound(errorMsg)
 
         case 429:
             throw GeminiClientError.rateLimited
