@@ -114,4 +114,29 @@ struct ChatMessageTests {
         #expect(decodedRespMsg.functionResponse?.response["result"]?.stringValue == "Done")
         #expect(decodedRespMsg.functionResponse?.id == "call-99")
     }
+
+    @Test("ChatMessage preserves functionCallPart and thought_signature across JSON round-trip")
+    func testChatMessageWithFunctionCallPartAndThoughtSignature() throws {
+        let call = FunctionCall(name: "open_app", args: ["name": "Safari"], id: "call-101", thoughtSignature: "sig-chat-msg-001")
+        let part = Part(functionCall: call, thoughtSignature: "sig-chat-msg-001")
+        let message = ChatMessage(role: .model, text: "", functionCall: call, functionCallPart: part)
+
+        let data = try JSONEncoder().encode(message)
+        let decoded = try JSONDecoder().decode(ChatMessage.self, from: data)
+
+        #expect(decoded.functionCall?.name == "open_app")
+        #expect(decoded.functionCall?.thoughtSignature == "sig-chat-msg-001")
+        #expect(decoded.functionCallPart?.thoughtSignature == "sig-chat-msg-001")
+        #expect(decoded.functionCallPart?.functionCall?.name == "open_app")
+    }
+
+    @Test("ChatMessage initialized with legacy functionCall automatically sets functionCallPart with thoughtSignature")
+    func testChatMessageLegacyInitCarriesThoughtSignature() throws {
+        let call = FunctionCall(name: "run_applescript", args: ["script": "beep"], thoughtSignature: "sig-legacy-002")
+        let message = ChatMessage(role: .model, text: "", functionCall: call)
+
+        #expect(message.functionCall?.thoughtSignature == "sig-legacy-002")
+        #expect(message.functionCallPart?.thoughtSignature == "sig-legacy-002")
+        #expect(message.functionCallPart?.functionCall?.name == "run_applescript")
+    }
 }

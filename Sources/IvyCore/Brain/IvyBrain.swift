@@ -96,9 +96,18 @@ public final class IvyBrain: ObservableObject {
                 )
 
                 if !response.functionCalls.isEmpty {
-                    for call in response.functionCalls {
-                        // Append the model's tool call turn
-                        let callMsg = ChatMessage(role: .model, text: "", functionCall: call)
+                    for (index, call) in response.functionCalls.enumerated() {
+                        let matchingPart = (index < response.functionCallParts.count)
+                            ? response.functionCallParts[index]
+                            : Part(functionCall: call, thoughtSignature: call.thoughtSignature)
+
+                        // Append the model's tool call turn, preserving the exact Part and thought_signature
+                        let callMsg = ChatMessage(
+                            role: .model,
+                            text: "",
+                            functionCall: call,
+                            functionCallPart: matchingPart
+                        )
                         currentHistory.append(callMsg)
 
                         // Execute tool via dispatcher

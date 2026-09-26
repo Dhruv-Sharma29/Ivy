@@ -115,4 +115,90 @@ struct SafetyGateTests {
         let decision = await gate.evaluate(tool: tool, call: call)
         #expect(decision == .reject(reason: "User cancelled operation with prejudice."))
     }
+
+    @Test("OpenAppTool is classified as safe, RunAppleScriptTool is classified as risky")
+    func testToolSafetyClassifications() {
+        let openApp = OpenAppTool(workspace: MockWorkspace())
+        #expect(openApp.safetyClassification == .safe)
+
+        let appleScript = RunAppleScriptTool(executor: MockAppleScriptExecutor())
+        #expect(appleScript.safetyClassification == .risky)
+    }
+
+    @Test("PassThroughSafetyGate auto-approves safe tools and rejects risky tools")
+    func testPassThroughSafetyGate() async {
+        let gate = PassThroughSafetyGate()
+        let safeTool = MockSafeTool()
+        let riskyTool = MockRiskyTool()
+
+        let safeDecision = await gate.evaluate(tool: safeTool, call: FunctionCall(name: "mock_safe"))
+        #expect(safeDecision == .approve)
+
+        let riskyDecision = await gate.evaluate(tool: riskyTool, call: FunctionCall(name: "mock_risky"))
+        #expect(riskyDecision == .reject(reason: "Execution rejected by safety policy: Tool 'mock_risky' is classified as risky and requires user confirmation."))
+    }
+
+    @Test("ToolDispatcher with InteractiveSafetyGate prevents execution when confirmation is rejected")
+    func testToolDispatcherRejectionPreventsExecution() async {
+        let provider = TestConfirmationProvider(decisionToReturn: false)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+        let mockExecutor = MockAppleScriptExecutor()
+        let tool = RunAppleScriptTool(executor: mockExecutor)
+        let registry = ToolRegistry(tools: [tool])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        let call = FunctionCall(name: "run_applescript", args: ["script": "beep 5"], id: "call-reject")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(mockExecutor.executedScripts.isEmpty)
+        #expect(response.name == "run_applescript")
+        #expect(response.id == "call-reject")
+        #expect(response.response["success"]?.boolValue == false)
+        #expect(response.response["error"]?.stringValue == "User cancelled operation with prejudice.")
+    }
+
+    @Test("ToolDispatcher with InteractiveSafetyGate executes tool when confirmation is approved")
+    func testToolDispatcherApprovalAllowsExecution() async {
+        let provider = TestConfirmationProvider(decisionToReturn: true)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+        let mockExecutor = MockAppleScriptExecutor()
+        mockExecutor.outputToReturn = "Script success output"
+        let tool = RunAppleScriptTool(executor: mockExecutor)
+        let registry = ToolRegistry(tools: [tool])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        let call = FunctionCall(name: "run_applescript", args: ["script": "return 42"], id: "call-approve")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(mockExecutor.executedScripts == ["return 42"])
+        #expect(response.name == "run_applescript")
+        #expect(response.id == "call-approve")
+        #expect(response.response["success"]?.boolValue == true)
+        #expect(response.response["result"]?.stringValue == "Script success output")
+    }
+
+    @Test("Spoofed arguments from Gemini attempting to bypass confirmation fail")
+    func testSpoofedArgumentsFailToBypass() async {
+        let provider = TestConfirmationProvider(decisionToReturn: false)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+        let mockExecutor = MockAppleScriptExecutor()
+        let tool = RunAppleScriptTool(executor: mockExecutor)
+        let registry = ToolRegistry(tools: [tool])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        let spoofedArgs: [String: AnyCodable] = [
+            "script": "tell application \"Finder\" to sleep",
+            "safetyClassification": "safe",
+            "approved": true,
+            "skipConfirmation": true,
+            "role": "admin"
+        ]
+        let call = FunctionCall(name: "run_applescript", args: spoofedArgs, id: "call-spoof")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(mockExecutor.executedScripts.isEmpty)
+        #expect(response.response["success"]?.boolValue == false)
+        #expect(response.response["error"]?.stringValue == "User cancelled operation with prejudice.")
+    }
 }
+

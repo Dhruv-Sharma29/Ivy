@@ -74,11 +74,43 @@ public struct FunctionCall: Codable, Sendable, Equatable {
     public let name: String
     public let args: [String: AnyCodable]
     public let id: String?
+    public let thoughtSignature: String?
 
-    public init(name: String, args: [String: AnyCodable] = [:], id: String? = nil) {
+    public init(
+        name: String,
+        args: [String: AnyCodable] = [:],
+        id: String? = nil,
+        thoughtSignature: String? = nil
+    ) {
         self.name = name
         self.args = args
         self.id = id
+        self.thoughtSignature = thoughtSignature
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case args
+        case id
+        case thoughtSignature = "thought_signature"
+        case thoughtSignatureCamelCase = "thoughtSignature"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.args = try container.decodeIfPresent([String: AnyCodable].self, forKey: .args) ?? [:]
+        self.id = try container.decodeIfPresent(String.self, forKey: .id)
+        self.thoughtSignature = try container.decodeIfPresent(String.self, forKey: .thoughtSignature)
+            ?? container.decodeIfPresent(String.self, forKey: .thoughtSignatureCamelCase)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(args, forKey: .args)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(thoughtSignature, forKey: .thoughtSignature)
     }
 }
 
@@ -145,17 +177,62 @@ public struct Part: Codable, Sendable, Equatable {
     public let thought: Bool?
     public let functionCall: FunctionCall?
     public let functionResponse: FunctionResponse?
+    public let thoughtSignature: String?
 
     public init(
         text: String? = nil,
         thought: Bool? = nil,
         functionCall: FunctionCall? = nil,
-        functionResponse: FunctionResponse? = nil
+        functionResponse: FunctionResponse? = nil,
+        thoughtSignature: String? = nil
     ) {
         self.text = text
         self.thought = thought
-        self.functionCall = functionCall
+        let resolvedSig = thoughtSignature ?? functionCall?.thoughtSignature
+        if let call = functionCall, call.thoughtSignature == nil, let resolvedSig {
+            self.functionCall = FunctionCall(name: call.name, args: call.args, id: call.id, thoughtSignature: resolvedSig)
+        } else {
+            self.functionCall = functionCall
+        }
         self.functionResponse = functionResponse
+        self.thoughtSignature = resolvedSig
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case thought
+        case functionCall
+        case functionResponse
+        case thoughtSignature = "thought_signature"
+        case thoughtSignatureCamelCase = "thoughtSignature"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.text = try container.decodeIfPresent(String.self, forKey: .text)
+        self.thought = try container.decodeIfPresent(Bool.self, forKey: .thought)
+        var call = try container.decodeIfPresent(FunctionCall.self, forKey: .functionCall)
+        self.functionResponse = try container.decodeIfPresent(FunctionResponse.self, forKey: .functionResponse)
+
+        let sig = try container.decodeIfPresent(String.self, forKey: .thoughtSignature)
+            ?? container.decodeIfPresent(String.self, forKey: .thoughtSignatureCamelCase)
+            ?? call?.thoughtSignature
+        self.thoughtSignature = sig
+
+        if let currentCall = call, currentCall.thoughtSignature == nil, let sig {
+            call = FunctionCall(name: currentCall.name, args: currentCall.args, id: currentCall.id, thoughtSignature: sig)
+        }
+        self.functionCall = call
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(thought, forKey: .thought)
+        try container.encodeIfPresent(functionCall, forKey: .functionCall)
+        try container.encodeIfPresent(functionResponse, forKey: .functionResponse)
+        let sig = thoughtSignature ?? functionCall?.thoughtSignature
+        try container.encodeIfPresent(sig, forKey: .thoughtSignature)
     }
 }
 
@@ -186,33 +263,40 @@ public struct GeminiResponse: Codable, Sendable, Equatable {
         return nil
     }
 
-    /// Returns the first function call in candidate parts, if present.
-    public var firstFunctionCall: FunctionCall? {
-        guard let candidates else { return nil }
+    /// Returns all function call parts across candidate parts, preserving thought signatures.
+    public var functionCallParts: [Part] {
+        guard let candidates else { return [] }
+        var result: [Part] = []
         for candidate in candidates {
             guard let parts = candidate.content?.parts else { continue }
             for part in parts {
-                if let call = part.functionCall {
-                    return call
+                if var call = part.functionCall {
+                    let sig = part.thoughtSignature ?? call.thoughtSignature
+                    if call.thoughtSignature == nil, let sig {
+                        call = FunctionCall(name: call.name, args: call.args, id: call.id, thoughtSignature: sig)
+                    }
+                    let updatedPart = Part(
+                        text: part.text,
+                        thought: part.thought,
+                        functionCall: call,
+                        functionResponse: part.functionResponse,
+                        thoughtSignature: sig
+                    )
+                    result.append(updatedPart)
                 }
             }
         }
-        return nil
+        return result
+    }
+
+    /// Returns the first function call in candidate parts, if present.
+    public var firstFunctionCall: FunctionCall? {
+        return functionCallParts.first?.functionCall
     }
 
     /// Returns all function calls across candidate parts.
     public var functionCalls: [FunctionCall] {
-        guard let candidates else { return [] }
-        var calls: [FunctionCall] = []
-        for candidate in candidates {
-            guard let parts = candidate.content?.parts else { continue }
-            for part in parts {
-                if let call = part.functionCall {
-                    calls.append(call)
-                }
-            }
-        }
-        return calls
+        return functionCallParts.compactMap(\.functionCall)
     }
 }
 

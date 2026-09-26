@@ -15,6 +15,7 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public let isError: Bool
     public let functionCall: FunctionCall?
     public let functionResponse: FunctionResponse?
+    public let functionCallPart: Part?
 
     public init(
         id: UUID = UUID(),
@@ -23,14 +24,53 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         timestamp: Date = Date(),
         isError: Bool = false,
         functionCall: FunctionCall? = nil,
-        functionResponse: FunctionResponse? = nil
+        functionResponse: FunctionResponse? = nil,
+        functionCallPart: Part? = nil
     ) {
         self.id = id
         self.role = role
         self.text = text
         self.timestamp = timestamp
         self.isError = isError
-        self.functionCall = functionCall
+        let resolvedCall = functionCall ?? functionCallPart?.functionCall
+        self.functionCall = resolvedCall
         self.functionResponse = functionResponse
+        self.functionCallPart = functionCallPart ?? resolvedCall.map {
+            Part(functionCall: $0, thoughtSignature: $0.thoughtSignature)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, role, text, timestamp, isError, functionCall, functionResponse, functionCallPart
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.role = try container.decode(MessageRole.self, forKey: .role)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        self.isError = try container.decode(Bool.self, forKey: .isError)
+        let part = try container.decodeIfPresent(Part.self, forKey: .functionCallPart)
+        let call = try container.decodeIfPresent(FunctionCall.self, forKey: .functionCall)
+        self.functionResponse = try container.decodeIfPresent(FunctionResponse.self, forKey: .functionResponse)
+
+        let resolvedCall = call ?? part?.functionCall
+        self.functionCall = resolvedCall
+        self.functionCallPart = part ?? resolvedCall.map {
+            Part(functionCall: $0, thoughtSignature: $0.thoughtSignature)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(role, forKey: .role)
+        try container.encode(text, forKey: .text)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(isError, forKey: .isError)
+        try container.encodeIfPresent(functionCall, forKey: .functionCall)
+        try container.encodeIfPresent(functionResponse, forKey: .functionResponse)
+        try container.encodeIfPresent(functionCallPart, forKey: .functionCallPart)
     }
 }

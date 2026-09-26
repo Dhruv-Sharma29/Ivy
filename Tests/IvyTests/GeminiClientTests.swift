@@ -518,6 +518,268 @@ struct GeminiClientTests {
 
         #expect(result.text == "Safari is running.")
     }
+
+    @Test("Client parses functionCall response preserving thought_signature")
+    func testClientParsesFunctionCallWithThoughtSignature() async throws {
+        let mockResponseJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "open_app",
+                      "args": { "name": "Safari" },
+                      "id": "call-safari-sig"
+                    },
+                    "thought_signature": "cryptographic-signature-token-777"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, mockResponseJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        let result = try await client.generateContent(
+            history: [ChatMessage(role: .user, text: "Open Safari")],
+            systemPrompt: "Ivy prompt",
+            tools: nil,
+            apiKey: "valid_key"
+        )
+
+        #expect(result.functionCalls.count == 1)
+        #expect(result.functionCalls[0].name == "open_app")
+        #expect(result.functionCalls[0].thoughtSignature == "cryptographic-signature-token-777")
+        #expect(result.functionCallParts.count == 1)
+        #expect(result.functionCallParts[0].thoughtSignature == "cryptographic-signature-token-777")
+    }
+
+    @Test("Client reconstructs next request preserving original functionCall part and thought_signature")
+    func testClientReconstructsNextRequestWithOriginalFunctionCallPartAndSignature() async throws {
+        let mockResponseJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  { "text": "Safari is now ready." }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            guard let httpBody = request.extractBodyData(),
+                  let json = try? JSONSerialization.jsonObject(with: httpBody) as? [String: Any],
+                  let contents = json["contents"] as? [[String: Any]] else {
+                Issue.record("Failed to parse request JSON contents")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(contents.count == 3)
+
+            // Validate model turn has exact thought_signature
+            let modelTurn = contents[1]
+            #expect(modelTurn["role"] as? String == "model")
+            guard let modelParts = modelTurn["parts"] as? [[String: Any]], let modelPart = modelParts.first else {
+                Issue.record("Missing model parts")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(modelPart["thought_signature"] as? String == "sig-token-preserve-exact")
+            guard let callDict = modelPart["functionCall"] as? [String: Any] else {
+                Issue.record("Missing functionCall in model part")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            #expect(callDict["name"] as? String == "open_app")
+
+            // Validate functionResponse turn
+            let respTurn = contents[2]
+            #expect(respTurn["role"] as? String == "user")
+            guard let respParts = respTurn["parts"] as? [[String: Any]],
+                  let respDict = respParts.first?["functionResponse"] as? [String: Any] else {
+                Issue.record("Missing functionResponse in user turn")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            #expect(respDict["name"] as? String == "open_app")
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, mockResponseJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        let call = FunctionCall(name: "open_app", args: ["name": "Safari"], id: "call-safari-1", thoughtSignature: "sig-token-preserve-exact")
+        let part = Part(functionCall: call, thoughtSignature: "sig-token-preserve-exact")
+
+        let history: [ChatMessage] = [
+            ChatMessage(role: .user, text: "Open Safari"),
+            ChatMessage(role: .model, text: "", functionCall: call, functionCallPart: part),
+            ChatMessage(role: .function, text: "Safari opened.", functionResponse: FunctionResponse(name: "open_app", response: ["result": "Safari opened."]))
+        ]
+
+        let result = try await client.generateContent(
+            history: history,
+            systemPrompt: "You are Ivy",
+            tools: nil,
+            apiKey: "valid_key"
+        )
+
+        #expect(result.text == "Safari is now ready.")
+    }
+
+    @Test("Client preserves multiple tool-call turns with respective thought_signatures")
+    func testClientPreservesMultipleToolTurnsWithSignatures() async throws {
+        let mockResponseJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  { "text": "All tools completed." }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            guard let httpBody = request.extractBodyData(),
+                  let json = try? JSONSerialization.jsonObject(with: httpBody) as? [String: Any],
+                  let contents = json["contents"] as? [[String: Any]] else {
+                Issue.record("Failed to parse request JSON contents")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(contents.count == 5)
+
+            // Turn 1: model tool call with sig 1
+            let turn1Model = contents[1]
+            let turn1Parts = turn1Model["parts"] as? [[String: Any]]
+            #expect(turn1Parts?.first?["thought_signature"] as? String == "sig-tool-turn-1")
+
+            // Turn 2: model tool call with sig 2
+            let turn2Model = contents[3]
+            let turn2Parts = turn2Model["parts"] as? [[String: Any]]
+            #expect(turn2Parts?.first?["thought_signature"] as? String == "sig-tool-turn-2")
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, mockResponseJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        let call1 = FunctionCall(name: "run_applescript", args: ["script": "beep"], thoughtSignature: "sig-tool-turn-1")
+        let part1 = Part(functionCall: call1, thoughtSignature: "sig-tool-turn-1")
+
+        let call2 = FunctionCall(name: "open_app", args: ["name": "Notes"], thoughtSignature: "sig-tool-turn-2")
+        let part2 = Part(functionCall: call2, thoughtSignature: "sig-tool-turn-2")
+
+        let history: [ChatMessage] = [
+            ChatMessage(role: .user, text: "Do both tasks"),
+            ChatMessage(role: .model, text: "", functionCall: call1, functionCallPart: part1),
+            ChatMessage(role: .function, text: "Beeped.", functionResponse: FunctionResponse(name: "run_applescript", response: ["result": "beeped"])),
+            ChatMessage(role: .model, text: "", functionCall: call2, functionCallPart: part2),
+            ChatMessage(role: .function, text: "Opened Notes.", functionResponse: FunctionResponse(name: "open_app", response: ["result": "Opened Notes."]))
+        ]
+
+        let result = try await client.generateContent(
+            history: history,
+            systemPrompt: "You are Ivy",
+            tools: nil,
+            apiKey: "valid_key"
+        )
+
+        #expect(result.text == "All tools completed.")
+    }
+
+    @Test("Client handles missing thought_signature without error or signature fabrication")
+    func testClientHandlesMissingThoughtSignatureGracefully() async throws {
+        let mockResponseJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  { "text": "App opened successfully." }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            guard let httpBody = request.extractBodyData(),
+                  let json = try? JSONSerialization.jsonObject(with: httpBody) as? [String: Any],
+                  let contents = json["contents"] as? [[String: Any]] else {
+                Issue.record("Failed to parse request JSON contents")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            // Verify no thought_signature was fabricated
+            let modelTurn = contents[1]
+            let modelParts = modelTurn["parts"] as? [[String: Any]]
+            #expect(modelParts?.first?["thought_signature"] == nil)
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, mockResponseJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        let call = FunctionCall(name: "open_app", args: ["name": "Safari"])
+        let history: [ChatMessage] = [
+            ChatMessage(role: .user, text: "Open Safari"),
+            ChatMessage(role: .model, text: "", functionCall: call),
+            ChatMessage(role: .function, text: "Opened.", functionResponse: FunctionResponse(name: "open_app", response: ["result": "Opened."]))
+        ]
+
+        let result = try await client.generateContent(
+            history: history,
+            systemPrompt: "You are Ivy",
+            tools: nil,
+            apiKey: "valid_key"
+        )
+
+        #expect(result.text == "App opened successfully.")
+    }
 }
 
 // MARK: - Test Helpers

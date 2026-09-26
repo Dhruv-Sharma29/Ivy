@@ -153,4 +153,51 @@ struct RunAppleScriptToolTests {
             #expect(error is ToolError)
         }
     }
+
+    @Test("Multiline scripts execute and preserve line structure")
+    func testMultilineScriptExecution() async throws {
+        let mock = MockAppleScriptExecutor()
+        mock.outputToReturn = "multiline output"
+        let tool = RunAppleScriptTool(executor: mock)
+
+        let multiline = """
+        tell application "Finder"
+            set myVar to 10
+            return myVar
+        end tell
+        """
+        let result = try await tool.execute(arguments: ["script": AnyCodable(multiline)])
+
+        #expect(result.isError == false)
+        #expect(result.output == "multiline output")
+        #expect(mock.executedScripts == [multiline])
+    }
+
+    @Test("Unicode and international characters in AppleScript are preserved")
+    func testUnicodeScriptExecution() async throws {
+        let mock = MockAppleScriptExecutor()
+        mock.outputToReturn = "こんにちは"
+        let tool = RunAppleScriptTool(executor: mock)
+
+        let script = "return \"こんにちは 世界\""
+        let result = try await tool.execute(arguments: ["script": AnyCodable(script)])
+
+        #expect(result.isError == false)
+        #expect(result.output == "こんにちは")
+        #expect(mock.executedScripts == [script])
+    }
+
+    @Test("Generic NSError from executor is converted into structured failure ToolResult")
+    func testGenericNSErrorPropagation() async throws {
+        let mock = MockAppleScriptExecutor()
+        mock.errorToThrow = NSError(domain: "AppleScriptDomain", code: -1751, userInfo: [NSLocalizedDescriptionKey: "Invalid event"])
+        let tool = RunAppleScriptTool(executor: mock)
+
+        let result = try await tool.execute(arguments: ["script": "bad event"])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("AppleScript execution error"))
+        #expect(result.output.contains("Invalid event"))
+    }
 }
+

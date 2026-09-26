@@ -607,5 +607,142 @@ struct GeminiDTOTests {
         #expect(respDict["success"] as? Bool == true)
         #expect(respDict["code"] as? Int == 0)
     }
+
+    // MARK: - Thought Signature Tests
+
+    @Test("GeminiResponse decodes candidate with functionCall and thought_signature")
+    func testDecodeFunctionCallWithThoughtSignature() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "open_app",
+                      "args": { "name": "Safari" },
+                      "id": "call-1"
+                    },
+                    "thought_signature": "opaque-cryptographic-token-xyz"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+
+        #expect(response.functionCallParts.count == 1)
+        let part = response.functionCallParts[0]
+        #expect(part.thoughtSignature == "opaque-cryptographic-token-xyz")
+        #expect(part.functionCall?.name == "open_app")
+        #expect(part.functionCall?.thoughtSignature == "opaque-cryptographic-token-xyz")
+        #expect(response.firstFunctionCall?.thoughtSignature == "opaque-cryptographic-token-xyz")
+        #expect(response.functionCalls.first?.thoughtSignature == "opaque-cryptographic-token-xyz")
+    }
+
+    @Test("Part decodes thoughtSignature from camelCase key")
+    func testDecodePartThoughtSignatureCamelCase() throws {
+        let json = """
+        {
+          "functionCall": {
+            "name": "open_app",
+            "args": { "name": "Safari" }
+          },
+          "thoughtSignature": "camelCase-signature-token"
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let part = try JSONDecoder().decode(Part.self, from: data)
+
+        #expect(part.thoughtSignature == "camelCase-signature-token")
+        #expect(part.functionCall?.thoughtSignature == "camelCase-signature-token")
+    }
+
+    @Test("Part with thoughtSignature round-trips to snake_case thought_signature")
+    func testPartRoundTripPreservesThoughtSignature() throws {
+        let call = FunctionCall(name: "open_app", args: ["name": "Notes"])
+        let part = Part(functionCall: call, thoughtSignature: "test-sig-12345")
+
+        let encodedData = try JSONEncoder().encode(part)
+        guard let jsonObject = try JSONSerialization.jsonObject(with: encodedData) as? [String: Any] else {
+            Issue.record("Failed to parse encoded Part JSON")
+            return
+        }
+
+        #expect(jsonObject["thought_signature"] as? String == "test-sig-12345")
+        #expect(jsonObject["thoughtSignature"] == nil)
+
+        let decodedPart = try JSONDecoder().decode(Part.self, from: encodedData)
+        #expect(decodedPart.thoughtSignature == "test-sig-12345")
+        #expect(decodedPart.functionCall?.thoughtSignature == "test-sig-12345")
+    }
+
+    @Test("Missing thought_signature handles safely without crashing or fabricating signature")
+    func testMissingThoughtSignatureHandlingInPart() throws {
+        let json = """
+        {
+          "functionCall": {
+            "name": "open_app",
+            "args": { "name": "Safari" }
+          }
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let part = try JSONDecoder().decode(Part.self, from: data)
+
+        #expect(part.thoughtSignature == nil)
+        #expect(part.functionCall?.thoughtSignature == nil)
+
+        let encoded = try JSONEncoder().encode(part)
+        let jsonObject = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        #expect(jsonObject?["thought_signature"] == nil)
+    }
+
+    @Test("GeminiResponse decodes multiple function calls each preserving distinct thought signatures")
+    func testMultipleFunctionCallsEachWithThoughtSignatures() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": { "name": "run_applescript", "args": { "script": "beep" } },
+                    "thought_signature": "sig-applescript-001"
+                  },
+                  {
+                    "functionCall": { "name": "open_app", "args": { "name": "Safari" } },
+                    "thought_signature": "sig-openapp-002"
+                  }
+                ],
+                "role": "model"
+              }
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+
+        #expect(response.functionCallParts.count == 2)
+        #expect(response.functionCallParts[0].thoughtSignature == "sig-applescript-001")
+        #expect(response.functionCallParts[0].functionCall?.name == "run_applescript")
+        #expect(response.functionCallParts[1].thoughtSignature == "sig-openapp-002")
+        #expect(response.functionCallParts[1].functionCall?.name == "open_app")
+
+        #expect(response.functionCalls.count == 2)
+        #expect(response.functionCalls[0].thoughtSignature == "sig-applescript-001")
+        #expect(response.functionCalls[1].thoughtSignature == "sig-openapp-002")
+    }
 }
 

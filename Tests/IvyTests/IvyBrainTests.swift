@@ -458,7 +458,10 @@ struct IvyBrainTests {
             await brain.send("Beep once")
         }
 
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
 
         #expect(brain.pendingConfirmation != nil)
         #expect(brain.pendingConfirmation?.toolName == "run_applescript")
@@ -531,7 +534,10 @@ struct IvyBrainTests {
             await brain.send("Run something scary")
         }
 
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
 
         #expect(brain.pendingConfirmation != nil)
 
@@ -614,7 +620,10 @@ struct IvyBrainTests {
             await brain.handleConfirmation(req)
         }
 
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
         #expect(brain.pendingConfirmation != nil)
 
         brain.clearHistory()
@@ -623,5 +632,314 @@ struct IvyBrainTests {
         #expect(result == false)
         #expect(brain.pendingConfirmation == nil)
     }
+
+    @Test("AppleScript tool error is returned in functionResponse and explained by Gemini")
+    @MainActor
+    func testAppleScriptErrorFlow() async {
+        final class ErrorReportingClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var receivedFunctionResponse: FunctionResponse?
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "run_applescript", args: ["script": "bad script"], id: "call-err")]
+                    )
+                } else {
+                    receivedFunctionResponse = history.last(where: { $0.role == .function })?.functionResponse
+                    return ModelTurnResponse(
+                        text: "AppleScript failed: syntax error.",
+                        functionCalls: []
+                    )
+                }
+            }
+        }
+
+        let mockExecutor = MockAppleScriptExecutor()
+        mockExecutor.errorToThrow = ToolError.executionFailed("AppleScript syntax error -2741")
+        let client = ErrorReportingClient()
+
+        let toolRegistry = ToolRegistry(tools: [RunAppleScriptTool(executor: mockExecutor)])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Run broken script")
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(brain.pendingConfirmation != nil)
+
+        // User approves execution
+        brain.respondToPendingConfirmation(approved: true)
+
+        await sendTask.value
+
+        #expect(client.receivedFunctionResponse != nil)
+        #expect(client.receivedFunctionResponse?.response["success"]?.boolValue == false)
+        #expect(client.receivedFunctionResponse?.response["error"]?.stringValue?.contains("AppleScript syntax error -2741") == true)
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "AppleScript failed: syntax error.")
+    }
+
+    @Test("Chained multi-tool turns: run_applescript approved then open_app auto-executed in single send")
+    @MainActor
+    func testChainedMultiToolExecution() async {
+        final class ChainedClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    // Step 1: Model requests risky tool run_applescript
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "run_applescript", args: ["script": "tell app \"Finder\" to get name"], id: "call-as")]
+                    )
+                } else if step == 2 {
+                    // Step 2: Model receives AppleScript response and now calls safe tool open_app
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "open_app", args: ["name": "Notes"], id: "call-open")]
+                    )
+                } else {
+                    // Step 3: Model receives open_app response and emits final natural language reply
+                    return ModelTurnResponse(
+                        text: "Finder checked and Notes launched.",
+                        functionCalls: []
+                    )
+                }
+            }
+        }
+
+        let mockExecutor = MockAppleScriptExecutor()
+        mockExecutor.outputToReturn = "Finder"
+        let mockWS = MockWorkspace()
+        mockWS.knownApps["notes.app"] = URL(fileURLWithPath: "/System/Applications/Notes.app")
+
+        let toolRegistry = ToolRegistry(tools: [
+            RunAppleScriptTool(executor: mockExecutor),
+            OpenAppTool(workspace: mockWS)
+        ])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let client = ChainedClient()
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Check Finder and open Notes")
+        }
+
+        // Wait for first tool confirmation (run_applescript is risky)
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(brain.pendingConfirmation != nil)
+        #expect(brain.pendingConfirmation?.toolName == "run_applescript")
+
+        // Approve run_applescript
+        brain.respondToPendingConfirmation(approved: true)
+
+        await sendTask.value
+
+        // open_app should have auto-executed without second confirmation
+        #expect(client.step == 3)
+        #expect(mockExecutor.executedScripts.count == 1)
+        #expect(mockWS.openedURLs.count == 1)
+        #expect(brain.pendingConfirmation == nil)
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "Finder checked and Notes launched.")
+    }
+
+    @Test("IvyBrain preserves thought_signature across functionCall execution turn")
+    @MainActor
+    func testIvyBrainPreservesThoughtSignatureAcrossToolLoop() async {
+        final class SignatureRecordingClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var turn2History: [ChatMessage] = []
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    let call = FunctionCall(name: "open_app", args: ["name": "Safari"], id: "call-1", thoughtSignature: "opaque-sig-brain-001")
+                    let part = Part(functionCall: call, thoughtSignature: "opaque-sig-brain-001")
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [call],
+                        functionCallParts: [part]
+                    )
+                } else {
+                    turn2History = history
+                    return ModelTurnResponse(text: "Safari opened successfully with thought preserved.")
+                }
+            }
+        }
+
+        let client = SignatureRecordingClient()
+        let mockWS = MockWorkspace()
+        mockWS.knownApps["safari.app"] = URL(fileURLWithPath: "/Applications/Safari.app")
+        let toolRegistry = ToolRegistry(tools: [OpenAppTool(workspace: mockWS)])
+        let dispatcher = ToolDispatcher(registry: toolRegistry)
+
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        await brain.send("Open Safari")
+
+        #expect(client.step == 2)
+        #expect(client.turn2History.count == 3)
+
+        // Verify history sent in turn 2 contains original functionCallPart and thought_signature
+        let modelCallMsg = client.turn2History[1]
+        #expect(modelCallMsg.role == .model)
+        #expect(modelCallMsg.functionCall?.name == "open_app")
+        #expect(modelCallMsg.functionCall?.thoughtSignature == "opaque-sig-brain-001")
+        #expect(modelCallMsg.functionCallPart?.thoughtSignature == "opaque-sig-brain-001")
+
+        let funcRespMsg = client.turn2History[2]
+        #expect(funcRespMsg.role == .function)
+        #expect(funcRespMsg.functionResponse?.name == "open_app")
+
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "Safari opened successfully with thought preserved.")
+    }
+
+    @Test("IvyBrain preserves distinct thought_signatures across chained multi-tool execution")
+    @MainActor
+    func testIvyBrainChainedToolTurnsPreserveSeparateThoughtSignatures() async {
+        final class MultiTurnSignatureClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var turn3History: [ChatMessage] = []
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    let call1 = FunctionCall(name: "run_applescript", args: ["script": "beep"], thoughtSignature: "sig-turn1-chain")
+                    let part1 = Part(functionCall: call1, thoughtSignature: "sig-turn1-chain")
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [call1],
+                        functionCallParts: [part1]
+                    )
+                } else if step == 2 {
+                    let call2 = FunctionCall(name: "open_app", args: ["name": "Notes"], thoughtSignature: "sig-turn2-chain")
+                    let part2 = Part(functionCall: call2, thoughtSignature: "sig-turn2-chain")
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [call2],
+                        functionCallParts: [part2]
+                    )
+                } else {
+                    turn3History = history
+                    return ModelTurnResponse(text: "Both operations completed.")
+                }
+            }
+        }
+
+        let client = MultiTurnSignatureClient()
+        let mockWS = MockWorkspace()
+        mockWS.knownApps["notes.app"] = URL(fileURLWithPath: "/System/Applications/Notes.app")
+        let mockExecutor = MockAppleScriptExecutor()
+        mockExecutor.outputToReturn = "beeped"
+
+        let toolRegistry = ToolRegistry(tools: [
+            RunAppleScriptTool(executor: mockExecutor),
+            OpenAppTool(workspace: mockWS)
+        ])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Execute chain")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(brain.pendingConfirmation != nil)
+        brain.respondToPendingConfirmation(approved: true)
+
+        await sendTask.value
+
+        #expect(client.step == 3)
+        #expect(client.turn3History.count == 5)
+
+        // Turn 1 tool call
+        let turn1Msg = client.turn3History[1]
+        #expect(turn1Msg.functionCallPart?.thoughtSignature == "sig-turn1-chain")
+
+        // Turn 2 tool call
+        let turn2Msg = client.turn3History[3]
+        #expect(turn2Msg.functionCallPart?.thoughtSignature == "sig-turn2-chain")
+
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "Both operations completed.")
+    }
 }
+
 

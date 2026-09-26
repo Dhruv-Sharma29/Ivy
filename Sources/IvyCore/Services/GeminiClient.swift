@@ -38,10 +38,22 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
 public struct ModelTurnResponse: Sendable, Equatable {
     public let text: String?
     public let functionCalls: [FunctionCall]
+    public let functionCallParts: [Part]
 
-    public init(text: String? = nil, functionCalls: [FunctionCall] = []) {
+    public init(
+        text: String? = nil,
+        functionCalls: [FunctionCall] = [],
+        functionCallParts: [Part] = []
+    ) {
         self.text = text
         self.functionCalls = functionCalls
+        if functionCallParts.isEmpty && !functionCalls.isEmpty {
+            self.functionCallParts = functionCalls.map {
+                Part(functionCall: $0, thoughtSignature: $0.thoughtSignature)
+            }
+        } else {
+            self.functionCallParts = functionCallParts
+        }
     }
 }
 
@@ -141,8 +153,14 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
         // Build contents array from history (handling text, functionCall, and functionResponse)
         let contents: [Content] = history.compactMap { msg in
+            if let functionCallPart = msg.functionCallPart {
+                return Content(role: "model", parts: [functionCallPart])
+            }
             if let functionCall = msg.functionCall {
-                return Content(role: "model", parts: [Part(functionCall: functionCall)])
+                return Content(
+                    role: "model",
+                    parts: [Part(functionCall: functionCall, thoughtSignature: functionCall.thoughtSignature)]
+                )
             }
             if let functionResponse = msg.functionResponse {
                 return Content(role: "user", parts: [Part(functionResponse: functionResponse)])
@@ -200,13 +218,18 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
             }
 
             let functionCalls = geminiResponse.functionCalls
+            let functionCallParts = geminiResponse.functionCallParts
             let text = geminiResponse.firstText
 
             if functionCalls.isEmpty && (text == nil || text!.isEmpty) {
                 throw GeminiClientError.emptyResponse
             }
 
-            return ModelTurnResponse(text: text, functionCalls: functionCalls)
+            return ModelTurnResponse(
+                text: text,
+                functionCalls: functionCalls,
+                functionCallParts: functionCallParts
+            )
 
         case 400, 401, 403:
             if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
