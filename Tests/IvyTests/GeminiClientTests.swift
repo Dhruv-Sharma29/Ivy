@@ -388,4 +388,160 @@ struct GeminiClientTests {
             #expect(!err.errorDescription!.isEmpty)
         }
     }
+
+    // MARK: - Tool & Function Calling Tests
+
+    @Test("Client sends tools in request and parses functionCall response")
+    func testClientSendsToolsAndParsesFunctionCall() async throws {
+        let mockResponseJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "open_app",
+                      "args": { "name": "Safari" },
+                      "id": "call-safari-1"
+                    }
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            guard let httpBody = request.extractBodyData(),
+                  let json = try? JSONSerialization.jsonObject(with: httpBody) as? [String: Any],
+                  let tools = json["tools"] as? [[String: Any]] else {
+                Issue.record("Tools missing from request body")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(!tools.isEmpty)
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, mockResponseJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        let toolDecl = ToolDeclarationWrapper(functionDeclarations: [
+            FunctionDeclaration(
+                name: "open_app",
+                description: "Opens an application",
+                parameters: ToolParameters(properties: ["name": ToolProperty(type: "STRING", description: "app")])
+            )
+        ])
+
+        let result = try await client.generateContent(
+            history: [ChatMessage(role: .user, text: "Open Safari")],
+            systemPrompt: "Ivy prompt",
+            tools: [toolDecl],
+            apiKey: "valid_key"
+        )
+
+        #expect(result.text == nil)
+        #expect(result.functionCalls.count == 1)
+        #expect(result.functionCalls.first?.name == "open_app")
+        #expect(result.functionCalls.first?.args["name"]?.stringValue == "Safari")
+        #expect(result.functionCalls.first?.id == "call-safari-1")
+    }
+
+    @Test("Client properly serializes functionResponse in history")
+    func testClientEncodesFunctionResponseInHistory() async throws {
+        let mockResponseJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  { "text": "Safari is running." }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            guard let httpBody = request.extractBodyData(),
+                  let json = try? JSONSerialization.jsonObject(with: httpBody) as? [String: Any],
+                  let contents = json["contents"] as? [[String: Any]] else {
+                Issue.record("Invalid request JSON")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(contents.count == 3)
+            let lastContent = contents[2]
+            guard let parts = lastContent["parts"] as? [[String: Any]],
+                  let funcResp = parts.first?["functionResponse"] as? [String: Any] else {
+                Issue.record("functionResponse missing from history content")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(funcResp["name"] as? String == "open_app")
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, mockResponseJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        let history: [ChatMessage] = [
+            ChatMessage(role: .user, text: "Open Safari"),
+            ChatMessage(role: .model, text: "", functionCall: FunctionCall(name: "open_app", args: ["name": "Safari"])),
+            ChatMessage(role: .function, text: "Opened Safari successfully.", functionResponse: FunctionResponse(name: "open_app", response: ["result": "Opened Safari successfully."]))
+        ]
+
+        let result = try await client.generateContent(
+            history: history,
+            systemPrompt: "You are Ivy",
+            tools: nil,
+            apiKey: "valid_key"
+        )
+
+        #expect(result.text == "Safari is running.")
+    }
+}
+
+// MARK: - Test Helpers
+
+private extension URLRequest {
+    func extractBodyData() -> Data? {
+        if let body = self.httpBody {
+            return body
+        }
+        guard let stream = self.httpBodyStream else {
+            return nil
+        }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            if read > 0 {
+                data.append(buffer, count: read)
+            } else {
+                break
+            }
+        }
+        return data
+    }
 }

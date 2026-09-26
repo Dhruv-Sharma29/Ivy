@@ -35,12 +35,53 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
+public struct ModelTurnResponse: Sendable, Equatable {
+    public let text: String?
+    public let functionCalls: [FunctionCall]
+
+    public init(text: String? = nil, functionCalls: [FunctionCall] = []) {
+        self.text = text
+        self.functionCalls = functionCalls
+    }
+}
+
 public protocol GeminiClientProtocol: Sendable {
     func generateContent(
         history: [ChatMessage],
         systemPrompt: String,
         apiKey: String
     ) async throws -> String
+
+    func generateContent(
+        history: [ChatMessage],
+        systemPrompt: String,
+        tools: [ToolDeclarationWrapper]?,
+        apiKey: String
+    ) async throws -> ModelTurnResponse
+}
+
+public extension GeminiClientProtocol {
+    func generateContent(
+        history: [ChatMessage],
+        systemPrompt: String,
+        tools: [ToolDeclarationWrapper]?,
+        apiKey: String
+    ) async throws -> ModelTurnResponse {
+        let text = try await generateContent(history: history, systemPrompt: systemPrompt, apiKey: apiKey)
+        return ModelTurnResponse(text: text)
+    }
+
+    func generateContent(
+        history: [ChatMessage],
+        systemPrompt: String,
+        apiKey: String
+    ) async throws -> String {
+        let response = try await generateContent(history: history, systemPrompt: systemPrompt, tools: nil, apiKey: apiKey)
+        guard let text = response.text, !text.isEmpty else {
+            throw GeminiClientError.emptyResponse
+        }
+        return text
+    }
 }
 
 public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
@@ -63,6 +104,19 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
         systemPrompt: String,
         apiKey: String
     ) async throws -> String {
+        let response = try await generateContent(history: history, systemPrompt: systemPrompt, tools: nil, apiKey: apiKey)
+        guard let text = response.text, !text.isEmpty else {
+            throw GeminiClientError.emptyResponse
+        }
+        return text
+    }
+
+    public func generateContent(
+        history: [ChatMessage],
+        systemPrompt: String,
+        tools: [ToolDeclarationWrapper]?,
+        apiKey: String
+    ) async throws -> ModelTurnResponse {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else {
             throw GeminiClientError.missingAPIKey
@@ -85,8 +139,14 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
         request.setValue(trimmedKey, forHTTPHeaderField: "x-goog-api-key")
         request.timeoutInterval = 30.0
 
-        // Build contents array from history (filtering out empty messages)
+        // Build contents array from history (handling text, functionCall, and functionResponse)
         let contents: [Content] = history.compactMap { msg in
+            if let functionCall = msg.functionCall {
+                return Content(role: "model", parts: [Part(functionCall: functionCall)])
+            }
+            if let functionResponse = msg.functionResponse {
+                return Content(role: "user", parts: [Part(functionResponse: functionResponse)])
+            }
             guard !msg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return nil
             }
@@ -106,7 +166,8 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
         let geminiRequest = GeminiRequest(
             systemInstruction: systemInstruction,
             contents: contents,
-            generationConfig: generationConfig
+            generationConfig: generationConfig,
+            tools: tools
         )
 
         let requestData: Data
@@ -138,10 +199,14 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
                 throw GeminiClientError.decodingError(error.localizedDescription)
             }
 
-            guard let text = geminiResponse.firstText, !text.isEmpty else {
+            let functionCalls = geminiResponse.functionCalls
+            let text = geminiResponse.firstText
+
+            if functionCalls.isEmpty && (text == nil || text!.isEmpty) {
                 throw GeminiClientError.emptyResponse
             }
-            return text
+
+            return ModelTurnResponse(text: text, functionCalls: functionCalls)
 
         case 400, 401, 403:
             if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {

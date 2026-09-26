@@ -114,4 +114,181 @@ struct IvyBrainTests {
         await brain.send("Will fail")
         #expect(brain.statusIcon == "exclamationmark.bubble")
     }
+
+    // MARK: - Phase 2A Function Calling & Tool Integration Tests
+
+    @Test("IvyBrain executes functionCall, submits functionResponse, and delivers final model reply")
+    @MainActor
+    func testFunctionCallingExecutionLoop() async {
+        final class ScriptedGeminiClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var receivedHistories: [[ChatMessage]] = []
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                receivedHistories.append(history)
+                step += 1
+                if step == 1 {
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "open_app", args: ["name": "Safari"], id: "call-safari")]
+                    )
+                } else {
+                    return ModelTurnResponse(
+                        text: "Safari is open. What now?",
+                        functionCalls: []
+                    )
+                }
+            }
+        }
+
+        let scriptedClient = ScriptedGeminiClient()
+        let mockWorkspace = MockWorkspace()
+        mockWorkspace.knownApps["safari.app"] = URL(fileURLWithPath: "/Applications/Safari.app")
+        let toolRegistry = ToolRegistry(tools: [OpenAppTool(workspace: mockWorkspace)])
+        let dispatcher = ToolDispatcher(registry: toolRegistry)
+
+        let brain = IvyBrain(
+            client: scriptedClient,
+            toolDispatcher: dispatcher,
+            apiKey: "valid_key"
+        )
+
+        await brain.send("Open Safari please")
+
+        #expect(scriptedClient.step == 2)
+        #expect(mockWorkspace.openedURLs.count == 1)
+        #expect(mockWorkspace.openedURLs.first?.path == "/Applications/Safari.app")
+
+        // Check history in second turn contained the function response
+        let secondTurnHistory = scriptedClient.receivedHistories[1]
+        let hasFunctionResponse = secondTurnHistory.contains { $0.functionResponse?.name == "open_app" }
+        #expect(hasFunctionResponse == true)
+
+        // Check final user message and model response in brain.messages
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[0].role == .user)
+        #expect(brain.messages[0].text == "Open Safari please")
+        #expect(brain.messages[1].role == .model)
+        #expect(brain.messages[1].text == "Safari is open. What now?")
+        #expect(brain.isThinking == false)
+        #expect(brain.errorMessage == nil)
+    }
+
+    @Test("IvyBrain passes tool errors to model and receives explanation")
+    @MainActor
+    func testFunctionCallingErrorPassedToModel() async {
+        final class ErrorScriptedGeminiClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var lastFunctionResponse: FunctionResponse?
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "open_app", args: ["name": "NonExistentApp"], id: "call-fail")]
+                    )
+                } else {
+                    lastFunctionResponse = history.compactMap(\.functionResponse).first
+                    return ModelTurnResponse(
+                        text: "I looked everywhere, but that app doesn't exist.",
+                        functionCalls: []
+                    )
+                }
+            }
+        }
+
+        let scriptedClient = ErrorScriptedGeminiClient()
+        let mockWorkspace = MockWorkspace() // Empty workspace, will fail lookup
+        let toolRegistry = ToolRegistry(tools: [OpenAppTool(workspace: mockWorkspace)])
+        let dispatcher = ToolDispatcher(registry: toolRegistry)
+
+        let brain = IvyBrain(
+            client: scriptedClient,
+            toolDispatcher: dispatcher,
+            apiKey: "valid_key"
+        )
+
+        await brain.send("Open NonExistentApp")
+
+        #expect(scriptedClient.step == 2)
+        #expect(scriptedClient.lastFunctionResponse?.response["error"]?.stringValue?.contains("not found") == true)
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "I looked everywhere, but that app doesn't exist.")
+        #expect(brain.errorMessage == nil)
+    }
+
+    @Test("IvyBrain halts when tool execution limit is reached")
+    @MainActor
+    func testToolExecutionLimitEnforced() async {
+        final class InfiniteToolGeminiClient: GeminiClientProtocol, @unchecked Sendable {
+            var calls = 0
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                calls += 1
+                return ModelTurnResponse(
+                    text: nil,
+                    functionCalls: [FunctionCall(name: "open_app", args: ["name": "Safari"], id: "infinite-\(calls)")]
+                )
+            }
+        }
+
+        let client = InfiniteToolGeminiClient()
+        let mockWorkspace = MockWorkspace()
+        mockWorkspace.knownApps["safari.app"] = URL(fileURLWithPath: "/Applications/Safari.app")
+        let toolRegistry = ToolRegistry(tools: [OpenAppTool(workspace: mockWorkspace)])
+        let dispatcher = ToolDispatcher(registry: toolRegistry)
+
+        let brain = IvyBrain(
+            client: client,
+            toolDispatcher: dispatcher,
+            apiKey: "valid_key"
+        )
+
+        await brain.send("Infinite loop")
+
+        #expect(client.calls == 5)
+        #expect(brain.errorMessage == "Tool execution limit reached.")
+        #expect(brain.messages.last?.isError == true)
+        #expect(brain.isThinking == false)
+    }
 }

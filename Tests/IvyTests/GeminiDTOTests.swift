@@ -340,6 +340,25 @@ struct GeminiDTOTests {
         #expect(decodedNull == .null)
     }
 
+    @Test("AnyCodable direct initializers and float literals")
+    func testAnyCodableDirectInits() {
+        let str = AnyCodable("test")
+        let integer = AnyCodable(100)
+        let dbl = AnyCodable(99.9)
+        let boolean = AnyCodable(false)
+        let dict = AnyCodable(["key": AnyCodable("val")])
+        let arr = AnyCodable([AnyCodable(1)])
+        let floatLit: AnyCodable = 12.34
+
+        #expect(str.stringValue == "test")
+        #expect(integer.intValue == 100)
+        #expect(dbl.doubleValue == 99.9)
+        #expect(boolean.boolValue == false)
+        #expect(dict.dictionaryValue?["key"]?.stringValue == "val")
+        #expect(arr.arrayValue?.count == 1)
+        #expect(floatLit.doubleValue == 12.34)
+    }
+
     @Test("GeminiRequest encodes tools with functionDeclarations correctly")
     func testToolsEncoding() throws {
         let openAppDecl = FunctionDeclaration(

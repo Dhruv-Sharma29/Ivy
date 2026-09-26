@@ -121,4 +121,14 @@ struct OpenAppToolTests {
         #expect(result.output.contains("Failed to open 'Broken'"))
         #expect(result.output.contains("crashed"))
     }
+
+    @Test("SystemWorkspace resolves existing system application URL")
+    func testSystemWorkspaceLookup() {
+        let systemWorkspace = SystemWorkspace()
+        let safariURL = systemWorkspace.findApplicationURL(named: "Safari")
+        #expect(safariURL != nil)
+
+        let nonExistent = systemWorkspace.findApplicationURL(named: "NonExistentApp123456789")
+        #expect(nonExistent == nil)
+    }
 }

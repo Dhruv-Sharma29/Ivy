@@ -97,4 +97,43 @@ struct HistoryConversionTests {
         #expect(contents[0].parts.first?.text == "Valid question")
         #expect(contents[1].parts.first?.text == "Another valid question")
     }
+
+    @Test("History conversion correctly handles functionCall and functionResponse turns")
+    func testToolTurnHistoryConversion() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, text: "Open Calculator"),
+            ChatMessage(role: .model, text: "", functionCall: FunctionCall(name: "open_app", args: ["name": "Calculator"], id: "calc-1")),
+            ChatMessage(role: .function, text: "Opened Calculator.", functionResponse: FunctionResponse(name: "open_app", response: ["result": "Opened Calculator."], id: "calc-1")),
+            ChatMessage(role: .model, text: "Calculator is open.")
+        ]
+
+        let contents: [Content] = messages.compactMap { msg in
+            if let functionCall = msg.functionCall {
+                return Content(role: "model", parts: [Part(functionCall: functionCall)])
+            }
+            if let functionResponse = msg.functionResponse {
+                return Content(role: "user", parts: [Part(functionResponse: functionResponse)])
+            }
+            guard !msg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            let roleString = (msg.role == .user) ? "user" : "model"
+            return Content(role: roleString, text: msg.text)
+        }
+
+        #expect(contents.count == 4)
+        #expect(contents[0].role == "user")
+        #expect(contents[0].parts.first?.text == "Open Calculator")
+
+        #expect(contents[1].role == "model")
+        #expect(contents[1].parts.first?.functionCall?.name == "open_app")
+        #expect(contents[1].parts.first?.functionCall?.args["name"]?.stringValue == "Calculator")
+
+        #expect(contents[2].role == "user")
+        #expect(contents[2].parts.first?.functionResponse?.name == "open_app")
+        #expect(contents[2].parts.first?.functionResponse?.response["result"]?.stringValue == "Opened Calculator.")
+
+        #expect(contents[3].role == "model")
+        #expect(contents[3].parts.first?.text == "Calculator is open.")
+    }
 }

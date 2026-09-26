@@ -82,11 +82,36 @@ struct ChatMessageTests {
         #expect(MessageRole.user.rawValue == "user")
         #expect(MessageRole.model.rawValue == "model")
         #expect(MessageRole.system.rawValue == "system")
+        #expect(MessageRole.function.rawValue == "function")
 
-        for role in [MessageRole.user, MessageRole.model, MessageRole.system] {
+        for role in [MessageRole.user, MessageRole.model, MessageRole.system, MessageRole.function] {
             let data = try JSONEncoder().encode(role)
             let decoded = try JSONDecoder().decode(MessageRole.self, from: data)
             #expect(decoded == role)
         }
+    }
+
+    @Test("ChatMessage preserves functionCall and functionResponse across JSON round-trip")
+    func testChatMessageWithToolProperties() throws {
+        let call = FunctionCall(name: "open_app", args: ["name": "Notes"], id: "call-99")
+        let callMsg = ChatMessage(role: .model, text: "", functionCall: call)
+
+        let encoder = JSONEncoder()
+        let callData = try encoder.encode(callMsg)
+        let decodedCallMsg = try JSONDecoder().decode(ChatMessage.self, from: callData)
+
+        #expect(decodedCallMsg.functionCall?.name == "open_app")
+        #expect(decodedCallMsg.functionCall?.args["name"]?.stringValue == "Notes")
+        #expect(decodedCallMsg.functionCall?.id == "call-99")
+
+        let resp = FunctionResponse(name: "open_app", response: ["result": "Done"], id: "call-99")
+        let respMsg = ChatMessage(role: .function, text: "Done", functionResponse: resp)
+
+        let respData = try encoder.encode(respMsg)
+        let decodedRespMsg = try JSONDecoder().decode(ChatMessage.self, from: respData)
+
+        #expect(decodedRespMsg.functionResponse?.name == "open_app")
+        #expect(decodedRespMsg.functionResponse?.response["result"]?.stringValue == "Done")
+        #expect(decodedRespMsg.functionResponse?.id == "call-99")
     }
 }
