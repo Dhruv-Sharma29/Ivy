@@ -36,4 +36,22 @@ public final class ToolRegistry: Sendable {
             OpenAppTool(workspace: workspace)
         ])
     }
+
+    /// Returns a new ToolRegistry with the given tool registered.
+    /// If a tool with the same name already exists, it is replaced.
+    public func registering(_ tool: IvyTool) -> ToolRegistry {
+        var map = toolsByName
+        map[tool.name] = tool
+        return ToolRegistry(tools: Array(map.values))
+    }
+
+    /// Returns a new ToolRegistry with the given tools registered.
+    /// If tools with conflicting names exist, the newer tool takes precedence.
+    public func registering(contentsOf newTools: [IvyTool]) -> ToolRegistry {
+        var map = toolsByName
+        for tool in newTools {
+            map[tool.name] = tool
+        }
+        return ToolRegistry(tools: Array(map.values))
+    }
 }

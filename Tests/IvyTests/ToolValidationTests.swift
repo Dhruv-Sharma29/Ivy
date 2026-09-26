@@ -117,4 +117,35 @@ struct ToolValidationTests {
         let exec = ToolError.executionFailed("Crash")
         #expect(exec.errorDescription?.contains("Crash") == true)
     }
+
+    @Test("Valid Unicode and international application names pass validation")
+    func testUnicodeAppNames() throws {
+        let names = ["微信", "LINE", "カカオトーク", "CaféPlayer", "Übersicht"]
+        for name in names {
+            let sanitized = try ToolValidation.validateAppName(name)
+            #expect(sanitized == name)
+        }
+    }
+
+    @Test("Exact boundary length of 100 characters succeeds")
+    func testBoundaryLength() throws {
+        let exactly100 = String(repeating: "A", count: ToolValidation.maxAppNameLength)
+        let validated = try ToolValidation.validateAppName(exactly100)
+        #expect(validated.count == 100)
+
+        let exactly101 = String(repeating: "A", count: ToolValidation.maxAppNameLength + 1)
+        #expect(throws: ToolError.self) {
+            _ = try ToolValidation.validateAppName(exactly101)
+        }
+    }
+
+    @Test("Hidden application names prefixed with dot are rejected")
+    func testHiddenDotPrefixNames() {
+        let hidden = [".hiddenApp", ".DS_Store", "..privateApp"]
+        for bad in hidden {
+            #expect(throws: ToolError.self) {
+                _ = try ToolValidation.validateAppName(bad)
+            }
+        }
+    }
 }

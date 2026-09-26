@@ -460,5 +460,152 @@ struct GeminiDTOTests {
         #expect(decodedPart.functionResponse?.response["result"]?.stringValue == "Opened Safari successfully.")
         #expect(decodedPart.functionResponse?.id == "call-123")
     }
+
+    @Test("GeminiResponse decodes multiple function calls across candidate parts")
+    func testDecodeMultipleFunctionCalls() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "open_app",
+                      "args": { "name": "Safari" },
+                      "id": "call-1"
+                    }
+                  },
+                  {
+                    "functionCall": {
+                      "name": "open_app",
+                      "args": { "name": "Notes" },
+                      "id": "call-2"
+                    }
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+
+        #expect(response.functionCalls.count == 2)
+        #expect(response.functionCalls[0].name == "open_app")
+        #expect(response.functionCalls[0].args["name"]?.stringValue == "Safari")
+        #expect(response.functionCalls[0].id == "call-1")
+
+        #expect(response.functionCalls[1].name == "open_app")
+        #expect(response.functionCalls[1].args["name"]?.stringValue == "Notes")
+        #expect(response.functionCalls[1].id == "call-2")
+    }
+
+    @Test("GeminiResponse decodes functionCall with complex nested and varied argument types")
+    func testDecodeFunctionCallComplexArguments() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "complex_tool",
+                      "args": {
+                        "name": "MyApp",
+                        "retries": 3,
+                        "ratio": 0.75,
+                        "force": true,
+                        "metadata": {
+                          "env": "production"
+                        },
+                        "tags": ["alpha", "beta"]
+                      }
+                    }
+                  }
+                ],
+                "role": "model"
+              }
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+
+        guard let call = response.firstFunctionCall else {
+            Issue.record("Expected functionCall")
+            return
+        }
+
+        #expect(call.name == "complex_tool")
+        #expect(call.args["name"]?.stringValue == "MyApp")
+        #expect(call.args["retries"]?.intValue == 3)
+        #expect(call.args["ratio"]?.doubleValue == 0.75)
+        #expect(call.args["force"]?.boolValue == true)
+        #expect(call.args["metadata"]?.dictionaryValue?["env"]?.stringValue == "production")
+        #expect(call.args["tags"]?.arrayValue?.count == 2)
+    }
+
+    @Test("GeminiResponse decodes functionCall with empty arguments object")
+    func testDecodeFunctionCallEmptyArguments() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "no_args_tool",
+                      "args": {}
+                    }
+                  }
+                ],
+                "role": "model"
+              }
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+
+        #expect(response.firstFunctionCall?.name == "no_args_tool")
+        #expect(response.firstFunctionCall?.args.isEmpty == true)
+    }
+
+    @Test("FunctionResponse serializes exact REST structure with response dictionary")
+    func testFunctionResponseSerializationStructure() throws {
+        let response = FunctionResponse(
+            name: "open_app",
+            response: [
+                "result": "Opened Safari successfully.",
+                "success": true,
+                "code": 0
+            ],
+            id: "call-999"
+        )
+
+        let data = try JSONEncoder().encode(response)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let respDict = json["response"] as? [String: Any] else {
+            Issue.record("Invalid FunctionResponse JSON")
+            return
+        }
+
+        #expect(json["name"] as? String == "open_app")
+        #expect(json["id"] as? String == "call-999")
+        #expect(respDict["result"] as? String == "Opened Safari successfully.")
+        #expect(respDict["success"] as? Bool == true)
+        #expect(respDict["code"] as? Int == 0)
+    }
 }
 

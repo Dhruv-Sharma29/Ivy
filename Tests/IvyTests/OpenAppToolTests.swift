@@ -131,4 +131,64 @@ struct OpenAppToolTests {
         let nonExistent = systemWorkspace.findApplicationURL(named: "NonExistentApp123456789")
         #expect(nonExistent == nil)
     }
+
+    @Test("OpenAppTool handles application name that already ends with .app")
+    func testAppSuffixHandling() async throws {
+        let mock = MockWorkspace()
+        let calendarURL = URL(fileURLWithPath: "/System/Applications/Calendar.app")
+        mock.knownApps["calendar.app"] = calendarURL
+
+        let tool = OpenAppTool(workspace: mock)
+        let result = try await tool.execute(arguments: ["name": "Calendar.app"])
+
+        #expect(result.isError == false)
+        #expect(result.output.contains("Opened Calendar.app successfully."))
+        #expect(mock.openedURLs == [calendarURL])
+    }
+
+    @Test("OpenAppTool safely ignores superfluous arguments when parsing name")
+    func testSuperfluousArgumentsIgnored() async throws {
+        let mock = MockWorkspace()
+        let safariURL = URL(fileURLWithPath: "/Applications/Safari.app")
+        mock.knownApps["safari.app"] = safariURL
+
+        let tool = OpenAppTool(workspace: mock)
+        let result = try await tool.execute(arguments: [
+            "name": "Safari",
+            "extra": "ignore",
+            "number": 99,
+            "flag": true
+        ])
+
+        #expect(result.isError == false)
+        #expect(mock.openedURLs == [safariURL])
+    }
+
+    @Test("OpenAppTool rejects boolean, array, and null variants for name")
+    func testInvalidTypeVariants() async {
+        let mock = MockWorkspace()
+        let tool = OpenAppTool(workspace: mock)
+
+        await #expect(throws: ToolError.self) {
+            _ = try await tool.execute(arguments: ["name": true])
+        }
+
+        await #expect(throws: ToolError.self) {
+            _ = try await tool.execute(arguments: ["name": ["nested": "Safari"]])
+        }
+
+        await #expect(throws: ToolError.self) {
+            _ = try await tool.execute(arguments: ["name": ["item1", "item2"]])
+        }
+
+        await #expect(throws: ToolError.self) {
+            _ = try await tool.execute(arguments: ["name": nil])
+        }
+    }
+
+    @Test("SystemWorkspace with custom search directories returns nil for empty directory")
+    func testCustomEmptySearchDirectory() {
+        let emptyWS = SystemWorkspace(searchDirectories: ["/nonexistent_test_dir_12345"])
+        #expect(emptyWS.findApplicationURL(named: "Safari") == nil)
+    }
 }

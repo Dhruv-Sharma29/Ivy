@@ -138,4 +138,91 @@ struct ToolDispatcherTests {
         #expect(responses[0].response["result"]?.stringValue == "Echo: First")
         #expect(responses[1].response["result"]?.stringValue == "Echo: Second")
     }
+
+    @Test("ToolRegistry handles duplicate tool registration by overwriting with latest tool")
+    func testDuplicateRegistration() {
+        struct MockToolA: IvyTool, Sendable {
+            let name = "test_tool"
+            let description = "First version"
+            let declaration = FunctionDeclaration(name: "test_tool", description: "First version")
+            func execute(arguments: [String: AnyCodable]) async throws -> ToolResult { .success("v1") }
+        }
+
+        struct MockToolB: IvyTool, Sendable {
+            let name = "test_tool"
+            let description = "Second version"
+            let declaration = FunctionDeclaration(name: "test_tool", description: "Second version")
+            func execute(arguments: [String: AnyCodable]) async throws -> ToolResult { .success("v2") }
+        }
+
+        let registry = ToolRegistry(tools: [MockToolA(), MockToolB()])
+        #expect(registry.allTools.count == 1)
+        #expect(registry.tool(named: "test_tool")?.description == "Second version")
+        #expect(registry.toolDeclarations.first?.functionDeclarations.count == 1)
+    }
+
+    @Test("ToolRegistry registering and registering(contentsOf:) methods")
+    func testDynamicRegistrationMethods() {
+        let registry0 = ToolRegistry(tools: [])
+        #expect(registry0.allTools.isEmpty)
+        #expect(registry0.toolDeclarations.isEmpty)
+
+        let echo = MockEchoTool()
+        let registry1 = registry0.registering(echo)
+        #expect(registry1.allTools.count == 1)
+        #expect(registry1.tool(named: "echo_test") != nil)
+
+        let openApp = OpenAppTool(workspace: MockWorkspace())
+        let registry2 = registry1.registering(contentsOf: [openApp])
+        #expect(registry2.allTools.count == 2)
+        #expect(registry2.tool(named: "open_app") != nil)
+        #expect(registry2.tool(named: "echo_test") != nil)
+    }
+
+    @Test("ToolDispatcher successfully dispatches open_app through default registry")
+    func testOpenAppDispatch() async {
+        let mockWS = MockWorkspace()
+        mockWS.knownApps["safari.app"] = URL(fileURLWithPath: "/Applications/Safari.app")
+        let registry = ToolRegistry.defaultRegistry(workspace: mockWS)
+        let dispatcher = ToolDispatcher(registry: registry)
+
+        let call = FunctionCall(name: "open_app", args: ["name": "Safari"], id: "call-open-safari")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(response.name == "open_app")
+        #expect(response.id == "call-open-safari")
+        #expect(response.response["success"]?.boolValue == true)
+        #expect(response.response["result"]?.stringValue?.contains("Opened Safari successfully.") == true)
+        #expect(mockWS.openedURLs.count == 1)
+    }
+
+    @Test("ToolDispatcher captures open_app not found error in response")
+    func testOpenAppNotFoundDispatch() async {
+        let mockWS = MockWorkspace()
+        let registry = ToolRegistry.defaultRegistry(workspace: mockWS)
+        let dispatcher = ToolDispatcher(registry: registry)
+
+        let call = FunctionCall(name: "open_app", args: ["name": "UnknownApp123"], id: "call-unknown")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(response.name == "open_app")
+        #expect(response.id == "call-unknown")
+        #expect(response.response["success"]?.boolValue == false)
+        #expect(response.response["error"]?.stringValue?.contains("not found") == true)
+    }
+
+    @Test("ToolDispatcher captures open_app invalid argument in response")
+    func testOpenAppInvalidArgumentDispatch() async {
+        let mockWS = MockWorkspace()
+        let registry = ToolRegistry.defaultRegistry(workspace: mockWS)
+        let dispatcher = ToolDispatcher(registry: registry)
+
+        let call = FunctionCall(name: "open_app", args: ["name": "Safari; echo hacked"], id: "call-injection")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(response.name == "open_app")
+        #expect(response.id == "call-injection")
+        #expect(response.response["success"]?.boolValue == false)
+        #expect(response.response["error"]?.stringValue?.contains("invalid or unsafe") == true)
+    }
 }

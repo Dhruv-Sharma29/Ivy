@@ -291,4 +291,115 @@ struct IvyBrainTests {
         #expect(brain.messages.last?.isError == true)
         #expect(brain.isThinking == false)
     }
+
+    @Test("Phase 1 regression: consecutive pure-text conversation turns without tools")
+    @MainActor
+    func testPureTextMultiTurnRegression() async {
+        final class TwoTurnClient: GeminiClientProtocol, @unchecked Sendable {
+            var turn = 0
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                turn += 1
+                return "Turn \(turn) answer"
+            }
+        }
+
+        let client = TwoTurnClient()
+        let brain = IvyBrain(client: client, apiKey: "valid_key")
+
+        await brain.send("Message 1")
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "Turn 1 answer")
+
+        await brain.send("Message 2")
+        #expect(brain.messages.count == 4)
+        #expect(brain.messages[3].text == "Turn 2 answer")
+        #expect(brain.isThinking == false)
+        #expect(brain.errorMessage == nil)
+    }
+
+    @Test("Multi-turn conversation: tool execution turn followed by pure text follow-up")
+    @MainActor
+    func testMultiTurnFollowUpAfterToolCall() async {
+        final class MixedGeminiClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var turn2History: [ChatMessage] = []
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    // Turn 1a: model requests tool
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "open_app", args: ["name": "Notes"])]
+                    )
+                } else if step == 2 {
+                    // Turn 1b: model concludes after tool execution
+                    return ModelTurnResponse(text: "Notes is opened. Get typing.")
+                } else {
+                    // Turn 2: regular follow-up text turn
+                    turn2History = history
+                    return ModelTurnResponse(text: "No, I will not type for you.")
+                }
+            }
+        }
+
+        let client = MixedGeminiClient()
+        let mockWS = MockWorkspace()
+        mockWS.knownApps["notes.app"] = URL(fileURLWithPath: "/System/Applications/Notes.app")
+        let toolRegistry = ToolRegistry(tools: [OpenAppTool(workspace: mockWS)])
+        let dispatcher = ToolDispatcher(registry: toolRegistry)
+
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+
+        // First prompt invokes tool
+        await brain.send("Open Notes")
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "Notes is opened. Get typing.")
+        #expect(mockWS.openedURLs.count == 1)
+
+        // Second prompt is a follow-up conversation
+        await brain.send("Can you type my essay?")
+        #expect(brain.messages.count == 4)
+        #expect(brain.messages[3].text == "No, I will not type for you.")
+        #expect(client.turn2History.count >= 3)
+    }
+
+    @Test("IvyBrain handles unexpected generic error during send")
+    @MainActor
+    func testGenericErrorHandling() async {
+        final class ThrowingClient: GeminiClientProtocol, @unchecked Sendable {
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                throw NSError(domain: "POSIX", code: 54, userInfo: [NSLocalizedDescriptionKey: "Connection reset by peer"])
+            }
+        }
+
+        let brain = IvyBrain(client: ThrowingClient(), apiKey: "valid_key")
+        await brain.send("Will crash")
+
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].isError == true)
+        #expect(brain.messages[1].text.contains("Something broke: Connection reset by peer"))
+        #expect(brain.errorMessage == "Connection reset by peer")
+    }
 }
