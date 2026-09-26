@@ -143,17 +143,20 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Send
         case 400, 403:
             if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
                 throw GeminiClientError.invalidAPIKey(apiError.message)
-            } else {
-                let bodyString = String(data: data, encoding: .utf8) ?? "Authentication failure"
+            } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
                 throw GeminiClientError.invalidAPIKey(bodyString)
+            } else {
+                throw GeminiClientError.invalidAPIKey("Authentication failure (HTTP \(httpResponse.statusCode))")
             }
 
         case 404:
             let errorMsg: String
             if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
                 errorMsg = apiError.message
+            } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
+                errorMsg = bodyString
             } else {
-                errorMsg = String(data: data, encoding: .utf8) ?? "Model not found"
+                errorMsg = "Model not found"
             }
             throw GeminiClientError.modelNotFound(errorMsg)
 
@@ -164,8 +167,10 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Send
             let errorMsg: String
             if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
                 errorMsg = apiError.message
+            } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
+                errorMsg = bodyString
             } else {
-                errorMsg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+                errorMsg = "HTTP \(httpResponse.statusCode)"
             }
             throw GeminiClientError.serverError(statusCode: httpResponse.statusCode, message: errorMsg)
         }

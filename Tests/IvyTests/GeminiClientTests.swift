@@ -206,6 +206,136 @@ struct GeminiClientTests {
         }
     }
 
+    @Test("Client maps HTTP 403 Forbidden to invalidAPIKey error")
+    func testForbiddenError() async {
+        let errorJSON = """
+        {
+          "error": {
+            "code": 403,
+            "message": "The caller does not have permission",
+            "status": "PERMISSION_DENIED"
+          }
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 403,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, errorJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        await #expect(throws: GeminiClientError.invalidAPIKey("The caller does not have permission")) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "Hello")],
+                systemPrompt: "You are Ivy",
+                apiKey: "restricted_key"
+            )
+        }
+    }
+
+    @Test("Client maps HTTP 503 to serverError")
+    func testServiceUnavailableError() async {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 503,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data())
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        await #expect(throws: GeminiClientError.serverError(statusCode: 503, message: "HTTP 503")) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "Hello")],
+                systemPrompt: "You are Ivy",
+                apiKey: "valid_key"
+            )
+        }
+    }
+
+    @Test("Client maps malformed JSON to decodingError")
+    func testMalformedJSON() async {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, "not valid json at all".data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        do {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "Hello")],
+                systemPrompt: "You are Ivy",
+                apiKey: "valid_key"
+            )
+            Issue.record("Expected decodingError to be thrown")
+        } catch let GeminiClientError.decodingError(msg) {
+            #expect(!msg.isEmpty)
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
+    @Test("Client throws emptyResponse when candidate parts contain empty string")
+    func testEmptyCandidateText() async {
+        let emptyJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  { "text": "" }
+                ],
+                "role": "model"
+              }
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, emptyJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        await #expect(throws: GeminiClientError.emptyResponse) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "Hello")],
+                systemPrompt: "You are Ivy",
+                apiKey: "valid_key"
+            )
+        }
+    }
+
+    @Test("Client throws emptyResponse when all history messages are whitespace")
+    func testAllWhitespaceHistory() async {
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        await #expect(throws: GeminiClientError.emptyResponse) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "   "), ChatMessage(role: .model, text: "\n\t")],
+                systemPrompt: "You are Ivy",
+                apiKey: "valid_key"
+            )
+        }
+    }
+
     @Test("GeminiClientError descriptions are non-empty")
     func testErrorDescriptions() {
         let errors: [GeminiClientError] = [
