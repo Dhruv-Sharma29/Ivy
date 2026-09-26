@@ -1,0 +1,47 @@
+import Foundation
+
+/// Ivy tool for launching macOS applications via WorkspaceProtocol.
+public final class OpenAppTool: IvyTool, Sendable {
+    public let name: String = "open_app"
+    public let description: String = "Opens a native macOS application by name (e.g., Safari, Notes, Calendar, Slack)."
+
+    public let declaration: FunctionDeclaration = FunctionDeclaration(
+        name: "open_app",
+        description: "Opens a native macOS application by name (e.g., Safari, Notes, Calendar, Slack).",
+        parameters: ToolParameters(
+            type: "OBJECT",
+            properties: [
+                "name": ToolProperty(
+                    type: "STRING",
+                    description: "The name of the macOS application to launch (e.g., Safari, Notes, Calendar, Slack)."
+                )
+            ],
+            required: ["name"]
+        )
+    )
+
+    private let workspace: WorkspaceProtocol
+
+    public init(workspace: WorkspaceProtocol = SystemWorkspace()) {
+        self.workspace = workspace
+    }
+
+    public func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
+        guard let nameArg = arguments["name"]?.stringValue else {
+            throw ToolError.missingArgument("name")
+        }
+
+        let validatedName = try ToolValidation.validateAppName(nameArg)
+
+        guard let appURL = workspace.findApplicationURL(named: validatedName) else {
+            return ToolResult.failure("Application '\(validatedName)' not found. Make sure it is installed in /Applications.")
+        }
+
+        do {
+            try await workspace.openApplication(at: appURL)
+            return ToolResult.success("Opened \(validatedName) successfully.")
+        } catch {
+            return ToolResult.failure("Failed to open '\(validatedName)': \(error.localizedDescription)")
+        }
+    }
+}
