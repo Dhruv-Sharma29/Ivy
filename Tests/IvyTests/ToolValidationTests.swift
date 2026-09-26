@@ -148,4 +148,50 @@ struct ToolValidationTests {
             }
         }
     }
+
+    @Test("Application names beginning with hyphen are rejected to prevent option injection")
+    func testLeadingHyphenOptionInjection() {
+        let flags = ["-rf", "--version", "-a", "--help", "-v"]
+        for flag in flags {
+            #expect(throws: ToolError.self) {
+                _ = try ToolValidation.validateAppName(flag)
+            }
+        }
+    }
+
+    @Test("Application names with colons and double quotes are rejected")
+    func testColonsAndQuotes() {
+        let invalid = ["Safari:evil", "Notes\"app", "App:Sub:Name"]
+        for bad in invalid {
+            #expect(throws: ToolError.self) {
+                _ = try ToolValidation.validateAppName(bad)
+            }
+        }
+    }
+
+    @Test("Application names with arbitrary control characters are rejected")
+    func testArbitraryControlCharacters() {
+        let controlStrings = ["Safari\u{0007}", "App\u{001B}[31m", "Test\u{007F}"]
+        for bad in controlStrings {
+            #expect(throws: ToolError.self) {
+                _ = try ToolValidation.validateAppName(bad)
+            }
+        }
+    }
+
+    @Test("Application names with invisible or BiDi override characters are rejected")
+    func testInvisibleAndBiDiCharacters() {
+        let sneaky = [
+            "Safari\u{202E}app",   // Right-to-Left Override
+            "\u{200B}Safari",     // Zero-Width Space
+            "Notes\u{FEFF}",      // Byte Order Mark / Zero-Width No-Break Space
+            "App\u{200D}Name"     // Zero-Width Joiner
+        ]
+        for bad in sneaky {
+            #expect(throws: ToolError.self) {
+                _ = try ToolValidation.validateAppName(bad)
+            }
+        }
+    }
 }
+

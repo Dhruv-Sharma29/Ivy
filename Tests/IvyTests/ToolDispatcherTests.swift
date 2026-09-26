@@ -225,4 +225,68 @@ struct ToolDispatcherTests {
         #expect(response.response["success"]?.boolValue == false)
         #expect(response.response["error"]?.stringValue?.contains("invalid or unsafe") == true)
     }
+
+    // MARK: - SafetyGate Integration Tests
+
+    private struct MockRiskyTool: IvyTool {
+        let name = "risky_tool"
+        let description = "A test tool classified as risky"
+        let declaration = FunctionDeclaration(name: "risky_tool", description: "Risky")
+        var safetyClassification: ToolSafetyClassification { .risky }
+
+        func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
+            .success("Executed risky tool")
+        }
+    }
+
+    @Test("ToolDispatcher rejects risky tool under default PassThroughSafetyGate")
+    func testRiskyToolRejectedByDefaultSafetyGate() async {
+        let riskyTool = MockRiskyTool()
+        let registry = ToolRegistry(tools: [riskyTool])
+        let dispatcher = ToolDispatcher(registry: registry)
+
+        let call = FunctionCall(name: "risky_tool", args: [:], id: "risky-1")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(response.name == "risky_tool")
+        #expect(response.id == "risky-1")
+        #expect(response.response["success"]?.boolValue == false)
+        #expect(response.response["error"]?.stringValue?.contains("Execution rejected by safety policy") == true)
+        #expect(response.response["error"]?.stringValue?.contains("requires user confirmation") == true)
+    }
+
+    @Test("ToolDispatcher respects custom SafetyGate approval and rejection")
+    func testCustomSafetyGate() async {
+        final class BlockingSafetyGate: SafetyGateProtocol, Sendable {
+            func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision {
+                .reject(reason: "Policy violation: all tools disabled")
+            }
+        }
+
+        let echo = MockEchoTool()
+        let registry = ToolRegistry(tools: [echo])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: BlockingSafetyGate())
+
+        let call = FunctionCall(name: "echo_test", args: ["msg": "Hello"], id: "blocked-1")
+        let response = await dispatcher.dispatch(call)
+
+        #expect(response.response["success"]?.boolValue == false)
+        #expect(response.response["error"]?.stringValue?.contains("Policy violation: all tools disabled") == true)
+    }
+
+    @Test("ToolRegistry inspection methods: hasTool, count, and isEmpty")
+    func testRegistryInspection() {
+        let empty = ToolRegistry(tools: [])
+        #expect(empty.isEmpty == true)
+        #expect(empty.count == 0)
+        #expect(empty.hasTool(named: "open_app") == false)
+
+        let echo = MockEchoTool()
+        let registry = ToolRegistry(tools: [echo])
+        #expect(registry.isEmpty == false)
+        #expect(registry.count == 1)
+        #expect(registry.hasTool(named: "echo_test") == true)
+        #expect(registry.hasTool(named: "non_existent") == false)
+    }
 }
+

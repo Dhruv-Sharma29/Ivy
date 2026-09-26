@@ -18,6 +18,21 @@ public final class ToolRegistry: Sendable {
         toolsByName[name]
     }
 
+    /// Checks if a tool with the given name is registered.
+    public func hasTool(named name: String) -> Bool {
+        toolsByName[name] != nil
+    }
+
+    /// Total number of registered tools.
+    public var count: Int {
+        toolsByName.count
+    }
+
+    /// Indicates whether the registry has no registered tools.
+    public var isEmpty: Bool {
+        toolsByName.isEmpty
+    }
+
     /// All registered tools.
     public var allTools: [IvyTool] {
         Array(toolsByName.values)

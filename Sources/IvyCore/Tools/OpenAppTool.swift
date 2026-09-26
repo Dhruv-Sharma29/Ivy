@@ -20,6 +20,8 @@ public final class OpenAppTool: IvyTool, Sendable {
         )
     )
 
+    public var safetyClassification: ToolSafetyClassification { .safe }
+
     private let workspace: WorkspaceProtocol
 
     public init(workspace: WorkspaceProtocol = SystemWorkspace()) {
@@ -27,8 +29,12 @@ public final class OpenAppTool: IvyTool, Sendable {
     }
 
     public func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
-        guard let nameArg = arguments["name"]?.stringValue else {
+        guard let nameValue = arguments["name"] else {
             throw ToolError.missingArgument("name")
+        }
+
+        guard let nameArg = nameValue.stringValue else {
+            throw ToolError.invalidArgument("Argument 'name' must be a string.")
         }
 
         let validatedName = try ToolValidation.validateAppName(nameArg)

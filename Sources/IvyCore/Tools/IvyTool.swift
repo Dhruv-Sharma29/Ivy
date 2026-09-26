@@ -11,6 +11,15 @@ public protocol IvyTool: Sendable {
     /// The Gemini FunctionDeclaration schema describing parameters.
     var declaration: FunctionDeclaration { get }
 
+    /// Safety classification of the tool (safe vs risky).
+    var safetyClassification: ToolSafetyClassification { get }
+
     /// Executes the tool with parsed arguments and returns a ToolResult.
     func execute(arguments: [String: AnyCodable]) async throws -> ToolResult
+}
+
+public extension IvyTool {
+    var safetyClassification: ToolSafetyClassification {
+        .safe
+    }
 }

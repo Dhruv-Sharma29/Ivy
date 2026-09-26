@@ -40,14 +40,57 @@ public enum ToolError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
+/// Safety risk level for an Ivy tool.
+public enum ToolSafetyClassification: String, Sendable, Codable, Equatable {
+    case safe
+    case risky
+}
+
+/// The outcome of a SafetyGate evaluation before tool dispatch.
+public enum SafetyDecision: Sendable, Equatable {
+    case approve
+    case reject(reason: String)
+}
+
+/// Interception protocol for inspecting and authorizing tool executions.
+public protocol SafetyGateProtocol: Sendable {
+    /// Evaluates whether a tool call may proceed.
+    func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision
+}
+
+/// Default Phase 2A SafetyGate implementation that auto-approves safe tools.
+public final class PassThroughSafetyGate: SafetyGateProtocol, Sendable {
+    public init() {}
+
+    public func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision {
+        switch tool.safetyClassification {
+        case .safe:
+            return .approve
+        case .risky:
+            return .reject(reason: "Tool '\(tool.name)' is classified as risky and requires user confirmation.")
+        }
+    }
+}
+
 /// Validation utilities for tool inputs.
 public enum ToolValidation {
     /// Maximum allowed length for an application name.
     public static let maxAppNameLength = 100
 
     /// Validates and sanitizes a macOS application name.
-    /// Rejects empty strings, path traversals, shell metacharacters, and overly long inputs.
+    /// Rejects empty strings, path traversals, shell metacharacters, control characters,
+    /// command-line option injection, and BiDi spoofing sequences.
     public static func validateAppName(_ rawName: String) throws -> String {
+        // Reject invisible characters and Unicode bidirectional overrides (BiDi spoofing) on raw scalars
+        let invisibleOrBiDiScalars: Set<UInt32> = [
+            0x200B, 0x200C, 0x200D, 0x200E, 0x200F,
+            0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+            0xFEFF
+        ]
+        if rawName.unicodeScalars.contains(where: { invisibleOrBiDiScalars.contains($0.value) }) {
+            throw ToolError.invalidArgument("Application name cannot contain invisible or bidirectional formatting characters.")
+        }
+
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw ToolError.invalidArgument("Application name cannot be empty.")
@@ -57,17 +100,29 @@ public enum ToolValidation {
             throw ToolError.invalidArgument("Application name exceeds maximum length of \(maxAppNameLength) characters.")
         }
 
+        // Prevent command-line flag / option injection (e.g. -rf, --version)
+        if trimmed.hasPrefix("-") {
+            throw ToolError.invalidArgument("Application name cannot begin with a hyphen.")
+        }
+
         // Reject directory path traversals, hidden files, and separators
         if trimmed == "." || trimmed == ".." || trimmed.hasPrefix(".") || trimmed.contains("..") || trimmed.contains("/") || trimmed.contains("\\") {
             throw ToolError.invalidArgument("Application name cannot contain path separators or traversal sequences.")
         }
 
-        // Reject shell metacharacters, control characters, and injection vectors
-        let dangerousChars = CharacterSet(charactersIn: ";`$|&><*?~^\0\n\r\t{}[]()")
+        // Reject shell metacharacters, injection vectors, colons, and quotes
+        let dangerousChars = CharacterSet(charactersIn: ";`$|&><*?~^\0\n\r\t{}[]():\"")
         if trimmed.rangeOfCharacter(from: dangerousChars) != nil {
             throw ToolError.invalidArgument("Application name contains invalid or unsafe characters.")
+        }
+
+        // Reject all Unicode and ASCII control characters
+        if trimmed.rangeOfCharacter(from: .controlCharacters) != nil {
+            throw ToolError.invalidArgument("Application name cannot contain control characters.")
         }
 
         return trimmed
     }
 }
+
+
