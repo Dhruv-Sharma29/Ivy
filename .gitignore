@@ -4,3 +4,7 @@
 *.xcworkspace
 .DS_Store
 DerivedData/
+.vscode/
+.codebase-memory/
+.env
+.env.*
