@@ -123,6 +123,28 @@ public enum ToolValidation {
 
         return trimmed
     }
+
+    /// Maximum allowed length for an AppleScript payload (64 KB).
+    public static let maxScriptLength = 65_536
+
+    /// Validates an AppleScript payload before execution.
+    /// Rejects empty scripts, scripts exceeding size limits, and embedded null bytes.
+    public static func validateAppleScript(_ rawScript: String) throws -> String {
+        let trimmed = rawScript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ToolError.invalidArgument("AppleScript cannot be empty.")
+        }
+
+        guard rawScript.count <= maxScriptLength else {
+            throw ToolError.invalidArgument("AppleScript exceeds maximum allowed length of \(maxScriptLength) characters.")
+        }
+
+        if rawScript.contains("\0") {
+            throw ToolError.invalidArgument("AppleScript contains invalid null bytes.")
+        }
+
+        return trimmed
+    }
 }
 
 
