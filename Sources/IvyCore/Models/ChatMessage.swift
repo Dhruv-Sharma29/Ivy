@@ -32,7 +32,12 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         self.text = text
         self.timestamp = timestamp
         self.isError = isError
-        let resolvedCall = functionCall ?? functionCallPart?.functionCall
+        var resolvedCall = functionCallPart?.functionCall ?? functionCall
+        if resolvedCall?.thoughtSignature == nil, let sig = functionCallPart?.thoughtSignature {
+            resolvedCall = resolvedCall.map {
+                FunctionCall(name: $0.name, args: $0.args, id: $0.id, thoughtSignature: sig)
+            }
+        }
         self.functionCall = resolvedCall
         self.functionResponse = functionResponse
         self.functionCallPart = functionCallPart ?? resolvedCall.map {
@@ -55,7 +60,12 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         let call = try container.decodeIfPresent(FunctionCall.self, forKey: .functionCall)
         self.functionResponse = try container.decodeIfPresent(FunctionResponse.self, forKey: .functionResponse)
 
-        let resolvedCall = call ?? part?.functionCall
+        var resolvedCall = part?.functionCall ?? call
+        if resolvedCall?.thoughtSignature == nil, let sig = part?.thoughtSignature {
+            resolvedCall = resolvedCall.map {
+                FunctionCall(name: $0.name, args: $0.args, id: $0.id, thoughtSignature: sig)
+            }
+        }
         self.functionCall = resolvedCall
         self.functionCallPart = part ?? resolvedCall.map {
             Part(functionCall: $0, thoughtSignature: $0.thoughtSignature)

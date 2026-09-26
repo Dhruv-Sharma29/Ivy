@@ -110,7 +110,8 @@ public struct FunctionCall: Codable, Sendable, Equatable {
         try container.encode(name, forKey: .name)
         try container.encode(args, forKey: .args)
         try container.encodeIfPresent(id, forKey: .id)
-        try container.encodeIfPresent(thoughtSignature, forKey: .thoughtSignature)
+        // NOTE: thought_signature is a Part-level field in the Gemini REST API.
+        // It must NEVER be serialized inside the function_call object.
     }
 }
 

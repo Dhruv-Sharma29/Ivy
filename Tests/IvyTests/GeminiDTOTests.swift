@@ -744,5 +744,31 @@ struct GeminiDTOTests {
         #expect(response.functionCalls[0].thoughtSignature == "sig-applescript-001")
         #expect(response.functionCalls[1].thoughtSignature == "sig-openapp-002")
     }
+
+    @Test("FunctionCall encoding NEVER emits thought_signature inside functionCall object")
+    func testFunctionCallEncodingNeverEmitsThoughtSignature() throws {
+        let call = FunctionCall(name: "open_app", args: ["name": "Safari"], id: "call-1", thoughtSignature: "opaque-sig-never-inside")
+
+        // 1. Direct FunctionCall encoding
+        let callData = try JSONEncoder().encode(call)
+        let callJSON = try JSONSerialization.jsonObject(with: callData) as? [String: Any]
+        #expect(callJSON?["name"] as? String == "open_app")
+        #expect(callJSON?["thought_signature"] == nil)
+        #expect(callJSON?["thoughtSignature"] == nil)
+
+        // 2. Part encoding containing the FunctionCall
+        let part = Part(functionCall: call, thoughtSignature: "opaque-sig-never-inside")
+        let partData = try JSONEncoder().encode(part)
+        let partJSON = try JSONSerialization.jsonObject(with: partData) as? [String: Any]
+
+        #expect(partJSON?["thought_signature"] as? String == "opaque-sig-never-inside")
+        guard let nestedCall = partJSON?["functionCall"] as? [String: Any] else {
+            Issue.record("Missing functionCall in part JSON")
+            return
+        }
+        #expect(nestedCall["name"] as? String == "open_app")
+        #expect(nestedCall["thought_signature"] == nil)
+        #expect(nestedCall["thoughtSignature"] == nil)
+    }
 }
 

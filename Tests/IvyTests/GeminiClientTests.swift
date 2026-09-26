@@ -611,6 +611,8 @@ struct GeminiClientTests {
                 return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
             }
             #expect(callDict["name"] as? String == "open_app")
+            #expect(callDict["thought_signature"] == nil)
+            #expect(callDict["thoughtSignature"] == nil)
 
             // Validate functionResponse turn
             let respTurn = contents[2]
@@ -683,11 +685,17 @@ struct GeminiClientTests {
             let turn1Model = contents[1]
             let turn1Parts = turn1Model["parts"] as? [[String: Any]]
             #expect(turn1Parts?.first?["thought_signature"] as? String == "sig-tool-turn-1")
+            let callDict1 = turn1Parts?.first?["functionCall"] as? [String: Any]
+            #expect(callDict1?["thought_signature"] == nil)
+            #expect(callDict1?["thoughtSignature"] == nil)
 
             // Turn 2: model tool call with sig 2
             let turn2Model = contents[3]
             let turn2Parts = turn2Model["parts"] as? [[String: Any]]
             #expect(turn2Parts?.first?["thought_signature"] as? String == "sig-tool-turn-2")
+            let callDict2 = turn2Parts?.first?["functionCall"] as? [String: Any]
+            #expect(callDict2?["thought_signature"] == nil)
+            #expect(callDict2?["thoughtSignature"] == nil)
 
             let response = HTTPURLResponse(
                 url: request.url!,
