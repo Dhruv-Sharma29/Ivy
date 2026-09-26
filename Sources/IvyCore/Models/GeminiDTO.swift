@@ -90,13 +90,20 @@ public struct GeminiResponse: Codable, Sendable, Equatable {
 
     /// Returns the user-facing text response, filtering out internal reasoning thoughts.
     public var firstText: String? {
-        guard let parts = candidates?.first?.content?.parts else { return nil }
-        let nonThoughtParts = parts.filter { $0.thought != true }
-        let candidateText = nonThoughtParts.compactMap(\.text).joined()
-        if !candidateText.isEmpty {
-            return candidateText
+        guard let candidates else { return nil }
+        for candidate in candidates {
+            guard let parts = candidate.content?.parts else { continue }
+            let nonThoughtParts = parts.filter { $0.thought != true }
+            let candidateText = nonThoughtParts.compactMap(\.text).joined()
+            if !candidateText.isEmpty {
+                return candidateText
+            }
+            let fallbackText = parts.compactMap(\.text).joined()
+            if !fallbackText.isEmpty {
+                return fallbackText
+            }
         }
-        return parts.compactMap(\.text).joined()
+        return nil
     }
 }
 

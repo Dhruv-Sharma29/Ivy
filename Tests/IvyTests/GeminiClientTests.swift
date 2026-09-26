@@ -77,6 +77,7 @@ struct GeminiClientTests {
             #expect(request.url?.absoluteString.contains("gemini-3.8-flash:generateContent") == true)
             #expect(request.url?.query?.contains("key=test_api_key_123") == true)
             #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+            #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "test_api_key_123")
 
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -95,6 +96,38 @@ struct GeminiClientTests {
         )
 
         #expect(reply == "I suppose I can answer that for you.")
+    }
+
+    @Test("Client maps HTTP 401 Unauthorized to invalidAPIKey error")
+    func testUnauthorized401Error() async {
+        let errorJSON = """
+        {
+          "error": {
+            "code": 401,
+            "message": "API key expired or unauthorized",
+            "status": "UNAUTHENTICATED"
+          }
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 401,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, errorJSON.data(using: .utf8)!)
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+        await #expect(throws: GeminiClientError.invalidAPIKey("API key expired or unauthorized")) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "Hello")],
+                systemPrompt: "You are Ivy",
+                apiKey: "expired_key"
+            )
+        }
     }
 
     @Test("Client maps HTTP 400 with invalid API key to invalidAPIKey error")

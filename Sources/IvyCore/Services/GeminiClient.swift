@@ -43,7 +43,7 @@ public protocol GeminiClientProtocol: Sendable {
     ) async throws -> String
 }
 
-public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Sendable {
+public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
     private let session: URLSession
     public let baseURLString: String
     public let thinkingLevel: ThinkingLevel?
@@ -69,9 +69,11 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Send
         }
 
         var urlComponents = URLComponents(string: baseURLString)
-        urlComponents?.queryItems = [
-            URLQueryItem(name: "key", value: trimmedKey)
-        ]
+        if urlComponents?.queryItems?.contains(where: { $0.name == "key" }) != true {
+            var items = urlComponents?.queryItems ?? []
+            items.append(URLQueryItem(name: "key", value: trimmedKey))
+            urlComponents?.queryItems = items
+        }
 
         guard let url = urlComponents?.url else {
             throw GeminiClientError.invalidURL
@@ -80,6 +82,7 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Send
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(trimmedKey, forHTTPHeaderField: "x-goog-api-key")
         request.timeoutInterval = 30.0
 
         // Build contents array from history (filtering out empty messages)
@@ -140,7 +143,7 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, @unchecked Send
             }
             return text
 
-        case 400, 403:
+        case 400, 401, 403:
             if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
                 throw GeminiClientError.invalidAPIKey(apiError.message)
             } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {

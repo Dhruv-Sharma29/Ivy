@@ -194,10 +194,11 @@ public struct IvyPopoverView: View {
     }
 
     private func submitCurrentMessage() {
-        let textToSend = inputText
+        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !brain.isThinking else { return }
         inputText = ""
         Task {
-            await brain.send(textToSend)
+            await brain.send(trimmed)
         }
     }
 }

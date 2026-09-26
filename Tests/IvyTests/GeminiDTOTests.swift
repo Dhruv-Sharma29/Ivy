@@ -274,4 +274,31 @@ struct GeminiDTOTests {
         let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
         #expect(response.firstText == "Only thought content available.")
     }
+
+    @Test("GeminiResponse searches subsequent candidates if first candidate has no valid content")
+    func testCandidateFallbackWhenFirstCandidateEmpty() throws {
+        let json = """
+        {
+          "candidates": [
+            {
+              "content": null,
+              "finishReason": "SAFETY"
+            },
+            {
+              "content": {
+                "parts": [
+                  { "text": "Valid text from second candidate." }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(GeminiResponse.self, from: data)
+        #expect(response.firstText == "Valid text from second candidate.")
+    }
 }
