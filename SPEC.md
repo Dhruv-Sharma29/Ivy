@@ -1,7 +1,7 @@
 # Spec: Ivy — Native macOS Assistant
 
 ## Objective
-Ivy is a lightweight, responsive native macOS menu bar assistant built in Swift and SwiftUI, powered by Google's Gemini 2.0 Flash REST API (without the Google GenAI SDK). Ivy has a distinctive persona: sharp, sarcastic, witty, and impatient with vagueness, but reliably effective. Ivy pairs conversational AI with local macOS system automation (AppleScript, shell, application control, calendar, file management), backed by an uncompromising in-character confirmation gate for risky/destructive actions.
+Ivy is a lightweight, responsive native macOS menu bar assistant built in Swift and SwiftUI, powered by Google's Gemini 3.8 Flash REST API (without the Google GenAI SDK). Ivy has a distinctive persona: sharp, sarcastic, witty, and impatient with vagueness, but reliably effective. Ivy pairs conversational AI with local macOS system automation (AppleScript, shell, application control, calendar, file management), backed by an uncompromising in-character confirmation gate for risky/destructive actions.
 
 The initiative is built incrementally across 7 phases, starting strictly with **Phase 1: Core text-only menu bar chat loop**.
 
@@ -11,7 +11,7 @@ The initiative is built incrementally across 7 phases, starting strictly with **
 - **Language**: Swift 6.4 (Strict Concurrency Checking enabled: `-strict-concurrency=complete`)
 - **Frameworks**: SwiftUI, AppKit (`NSWorkspace`, `NSAlert`), Foundation (`URLSession`), OSLog
 - **Target OS**: macOS 14.0+ (Sonoma) / macOS 15.0+ (Sequoia)
-- **API**: Gemini 2.0 Flash REST endpoint (`POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`)
+- **API**: Gemini 3.8 Flash REST endpoint (`POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`)
 - **Networking**: Native `URLSession` with `async/await` and custom JSON `Codable` models (zero third-party SDK dependencies)
 - **Build System**: Swift Package Manager (`Package.swift`) with separated `IvyCore` logic library, `Ivy` executable app target, and `IvyTests` test target.
 
@@ -398,6 +398,6 @@ Confirmation uses a native modal `NSAlert` or in-popover confirmation banner. If
 - [ ] Ivy lives in the macOS menu bar with an icon (`sparkle`).
 - [ ] Clicking the icon reveals a polished popover with conversation history and input bar.
 - [ ] User can enter an API key via UI or environment variable (`GEMINI_API_KEY`).
-- [ ] Sending a message sends the turn history + Ivy system prompt to `gemini-2.0-flash`.
+- [ ] Sending a message sends the turn history + Ivy system prompt to `gemini-3.8-flash`.
 - [ ] Model responds in Ivy's distinctive sarcastic tone and appears in the chat scroll.
 - [ ] Error states (invalid key, network offline) display helpful, in-character alerts.
