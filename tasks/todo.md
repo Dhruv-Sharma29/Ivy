@@ -143,7 +143,7 @@
 
 ## Phase 2A: Gemini Function-Calling Infrastructure & open_app
 
-### Task 8: AnyCodable & Gemini REST Tool DTOs
+### Task 8: AnyCodable & Gemini REST Tool DTOs [x]
 - **Description:** Implement `AnyCodable` and extend `GeminiDTO.swift` with `ToolDeclarationWrapper`, `FunctionDeclaration`, `ToolParameters`, `ToolProperty`, `FunctionCall`, and `FunctionResponse`.
 - **Acceptance criteria:**
   - Round-trip JSON encode/decode tests pass for function declarations, calls, and responses.
@@ -152,7 +152,7 @@
 - **Dependencies:** Task 7
 - **Estimated scope:** S (2 files)
 
-### Task 9: Tool Protocol, Results, Errors & Argument Validation
+### Task 9: Tool Protocol, Results, Errors & Argument Validation [x]
 - **Description:** Define `IvyTool` protocol, `ToolResult`, `ToolError`, and application name validation utilities.
 - **Acceptance criteria:**
   - `IvyTool` defines tool metadata, function declarations, and async execution interface.
@@ -162,7 +162,7 @@
 - **Dependencies:** Task 8
 - **Estimated scope:** S (2 files)
 
-### Task 10: Workspace Abstraction & OpenAppTool
+### Task 10: Workspace Abstraction & OpenAppTool [x]
 - **Description:** Create `WorkspaceProtocol`, `SystemWorkspace` (using `NSWorkspace`), and `OpenAppTool`.
 - **Acceptance criteria:**
   - `OpenAppTool` executes `open_app(name: String)` safely via `WorkspaceProtocol`.
@@ -172,7 +172,7 @@
 - **Dependencies:** Task 9
 - **Estimated scope:** M (3 files)
 
-### Task 11: ToolRegistry & ToolDispatcher
+### Task 11: ToolRegistry & ToolDispatcher [x]
 - **Description:** Implement `ToolRegistry` and `ToolDispatcher` for tool lookup and execution routing.
 - **Acceptance criteria:**
   - `ToolRegistry` registers tools and exposes `[ToolDeclarationWrapper]` for Gemini.
@@ -182,7 +182,7 @@
 - **Dependencies:** Task 10
 - **Estimated scope:** M (3 files)
 
-### Task 12: Gemini Client Function-Calling Support & IvyBrain Multi-Turn Integration
+### Task 12: Gemini Client Function-Calling Support & IvyBrain Multi-Turn Integration [x]
 - **Description:** Enhance `GeminiClientProtocol` and `URLSessionGeminiClient` to handle tools and function calls. Integrate `ToolDispatcher` into `IvyBrain` multi-turn loop.
 - **Acceptance criteria:**
   - `IvyBrain` detects function calls, dispatches execution, posts results back to Gemini, and delivers final in-character message.
@@ -198,8 +198,8 @@
 ---
 
 ## Checkpoint 5: Phase 2A Verification
-- [ ] Swift 6 strict concurrency compiles with zero warnings/errors.
-- [ ] All unit tests pass with zero failures.
-- [ ] Code coverage exceeds 80%.
-- [ ] No stubs, no secrets, no unauthorized tools (no shell, AppleScript, file op, calendar).
+- [x] Swift 6 strict concurrency compiles with zero warnings/errors.
+- [x] All unit tests pass with zero failures (78 tests passing).
+- [x] Code coverage exceeds 80% (91.30% overall coverage across IvyCore).
+- [x] No stubs, no secrets, no unauthorized tools (no shell, AppleScript, file op, calendar).
 
