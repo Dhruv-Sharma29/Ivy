@@ -402,4 +402,226 @@ struct IvyBrainTests {
         #expect(brain.messages[1].text.contains("Something broke: Connection reset by peer"))
         #expect(brain.errorMessage == "Connection reset by peer")
     }
+
+    // MARK: - Phase 2B Confirmation & AppleScript Flow Tests
+
+    @Test("IvyBrain presents confirmation for run_applescript, executes upon approval, and returns final reply")
+    @MainActor
+    func testAppleScriptExecutionWithApproval() async {
+        final class AppleScriptClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var receivedHistories: [[ChatMessage]] = []
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                receivedHistories.append(history)
+                step += 1
+                if step == 1 {
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "run_applescript", args: ["script": "beep 1"], id: "call-beep")]
+                    )
+                } else {
+                    return ModelTurnResponse(
+                        text: "I ran the script. Did you hear it?",
+                        functionCalls: []
+                    )
+                }
+            }
+        }
+
+        let mockExecutor = MockAppleScriptExecutor()
+        mockExecutor.outputToReturn = "beeped"
+        let client = AppleScriptClient()
+
+        let toolRegistry = ToolRegistry(tools: [RunAppleScriptTool(executor: mockExecutor)])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Beep once")
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(brain.pendingConfirmation != nil)
+        #expect(brain.pendingConfirmation?.toolName == "run_applescript")
+        #expect(brain.pendingConfirmation?.detail == "beep 1")
+        #expect(brain.statusIcon == "exclamationmark.shield")
+
+        brain.respondToPendingConfirmation(approved: true)
+
+        await sendTask.value
+
+        #expect(mockExecutor.executedScripts == ["beep 1"])
+        #expect(brain.pendingConfirmation == nil)
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "I ran the script. Did you hear it?")
+    }
+
+    @Test("IvyBrain presents confirmation for run_applescript, halts on cancellation, and sends cancellation to Gemini")
+    @MainActor
+    func testAppleScriptExecutionWithCancellation() async {
+        final class CancelClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var receivedCancellation = false
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "run_applescript", args: ["script": "dangerous()"], id: "call-danger")]
+                    )
+                } else {
+                    let functionMsg = history.last(where: { $0.role == .function })
+                    if let err = functionMsg?.functionResponse?.response["error"]?.stringValue,
+                       err.contains("User cancelled operation with prejudice.") {
+                        receivedCancellation = true
+                    }
+                    return ModelTurnResponse(
+                        text: "Fine, chickened out as expected.",
+                        functionCalls: []
+                    )
+                }
+            }
+        }
+
+        let mockExecutor = MockAppleScriptExecutor()
+        let client = CancelClient()
+
+        let toolRegistry = ToolRegistry(tools: [RunAppleScriptTool(executor: mockExecutor)])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Run something scary")
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(brain.pendingConfirmation != nil)
+
+        brain.respondToPendingConfirmation(approved: false)
+
+        await sendTask.value
+
+        #expect(mockExecutor.executedScripts.isEmpty)
+        #expect(client.receivedCancellation == true)
+        #expect(brain.pendingConfirmation == nil)
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "Fine, chickened out as expected.")
+    }
+
+    @Test("Safe tool open_app auto-executes under InteractiveSafetyGate without prompting for confirmation")
+    @MainActor
+    func testSafeToolAutoExecutesWithoutConfirmation() async {
+        final class OpenClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                apiKey: String
+            ) async throws -> String {
+                return "fallback"
+            }
+
+            func generateContent(
+                history: [ChatMessage],
+                systemPrompt: String,
+                tools: [ToolDeclarationWrapper]?,
+                apiKey: String
+            ) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [FunctionCall(name: "open_app", args: ["name": "Safari"], id: "call-open")]
+                    )
+                } else {
+                    return ModelTurnResponse(
+                        text: "Safari opened.",
+                        functionCalls: []
+                    )
+                }
+            }
+        }
+
+        let mockWS = MockWorkspace()
+        mockWS.knownApps["safari.app"] = URL(fileURLWithPath: "/Applications/Safari.app")
+        let toolRegistry = ToolRegistry(tools: [OpenAppTool(workspace: mockWS)])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: OpenClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        await brain.send("Open Safari")
+
+        #expect(brain.pendingConfirmation == nil)
+        #expect(mockWS.openedURLs.count == 1)
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text == "Safari opened.")
+    }
+
+    @Test("clearHistory cancels pending confirmation cleanly")
+    @MainActor
+    func testClearHistoryCancelsPendingConfirmation() async {
+        let brain = IvyBrain(apiKey: "valid_key")
+
+        let req = ConfirmationRequest(
+            toolName: "run_applescript",
+            title: "Test",
+            prompt: "Test prompt",
+            detail: "test script"
+        )
+
+        let task = Task {
+            await brain.handleConfirmation(req)
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(brain.pendingConfirmation != nil)
+
+        brain.clearHistory()
+
+        let result = await task.value
+        #expect(result == false)
+        #expect(brain.pendingConfirmation == nil)
+    }
 }
+

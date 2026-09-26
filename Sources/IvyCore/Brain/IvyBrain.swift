@@ -6,28 +6,43 @@ public final class IvyBrain: ObservableObject {
     @Published public private(set) var messages: [ChatMessage] = []
     @Published public private(set) var isThinking: Bool = false
     @Published public private(set) var errorMessage: String? = nil
+    @Published public private(set) var pendingConfirmation: ConfirmationRequest? = nil
     @Published public var apiKey: String
 
     public let toolDispatcher: ToolDispatcher
     private let client: GeminiClientProtocol
     private let systemPrompt: String
+    private var confirmationContinuation: CheckedContinuation<Bool, Never>? = nil
+    private let confirmationBridge: ConfirmationBridge?
 
     public init(
         client: GeminiClientProtocol = URLSessionGeminiClient(),
-        toolDispatcher: ToolDispatcher = ToolDispatcher(registry: .defaultRegistry()),
+        toolDispatcher: ToolDispatcher? = nil,
         apiKey: String? = nil,
         systemPrompt: String = IvyPersona.systemPrompt,
         initialMessages: [ChatMessage] = []
     ) {
         self.client = client
-        self.toolDispatcher = toolDispatcher
         self.systemPrompt = systemPrompt
         self.messages = initialMessages
         self.apiKey = apiKey ?? ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
+
+        if let toolDispatcher {
+            self.toolDispatcher = toolDispatcher
+            self.confirmationBridge = nil
+        } else {
+            let bridge = ConfirmationBridge()
+            let safetyGate = InteractiveSafetyGate(confirmationProvider: bridge)
+            self.toolDispatcher = ToolDispatcher(registry: .defaultRegistry(), safetyGate: safetyGate)
+            self.confirmationBridge = bridge
+            bridge.handler = self
+        }
     }
 
     public var statusIcon: String {
-        if isThinking {
+        if pendingConfirmation != nil {
+            return "exclamationmark.shield"
+        } else if isThinking {
             return "sparkle.magnifyingglass"
         } else if errorMessage != nil {
             return "exclamationmark.bubble"
@@ -36,10 +51,18 @@ public final class IvyBrain: ObservableObject {
         }
     }
 
+    /// Responds to the currently pending confirmation request with the user's decision.
+    public func respondToPendingConfirmation(approved: Bool) {
+        guard let continuation = confirmationContinuation else { return }
+        confirmationContinuation = nil
+        pendingConfirmation = nil
+        continuation.resume(returning: approved)
+    }
+
     public func send(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard !isThinking else { return }
+        guard !isThinking, pendingConfirmation == nil else { return }
 
         errorMessage = nil
         let userMessage = ChatMessage(role: .user, text: trimmed)
@@ -113,8 +136,24 @@ public final class IvyBrain: ObservableObject {
     }
 
     public func clearHistory() {
+        if let continuation = confirmationContinuation {
+            confirmationContinuation = nil
+            pendingConfirmation = nil
+            continuation.resume(returning: false)
+        }
         messages.removeAll()
         errorMessage = nil
         isThinking = false
+    }
+}
+
+// MARK: - ConfirmationHandler Conformance
+
+extension IvyBrain: ConfirmationHandler {
+    public func handleConfirmation(_ request: ConfirmationRequest) async -> Bool {
+        self.pendingConfirmation = request
+        return await withCheckedContinuation { continuation in
+            self.confirmationContinuation = continuation
+        }
     }
 }

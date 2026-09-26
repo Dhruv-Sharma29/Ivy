@@ -30,6 +30,28 @@ public protocol ConfirmationProvider: Sendable {
     func requestConfirmation(for request: ConfirmationRequest) async -> Bool
 }
 
+/// A handler running on MainActor that presents and responds to confirmation requests.
+@MainActor
+public protocol ConfirmationHandler: AnyObject {
+    /// Handles presenting the confirmation request to the user and awaits their decision.
+    func handleConfirmation(_ request: ConfirmationRequest) async -> Bool
+}
+
+/// A MainActor-isolated ConfirmationProvider bridging async tool execution to the UI.
+@MainActor
+public final class ConfirmationBridge: ConfirmationProvider {
+    public weak var handler: (any ConfirmationHandler)?
+
+    public init(handler: (any ConfirmationHandler)? = nil) {
+        self.handler = handler
+    }
+
+    public func requestConfirmation(for request: ConfirmationRequest) async -> Bool {
+        guard let handler else { return false }
+        return await handler.handleConfirmation(request)
+    }
+}
+
 /// A closure-backed ConfirmationProvider for unit testing and custom policy routing.
 public final class ClosureConfirmationProvider: ConfirmationProvider, Sendable {
     private let handler: @Sendable (ConfirmationRequest) async -> Bool

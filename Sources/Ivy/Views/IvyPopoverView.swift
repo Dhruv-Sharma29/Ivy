@@ -22,9 +22,19 @@ public struct IvyPopoverView: View {
 
             messageArea
             Divider()
+
+            if let request = brain.pendingConfirmation {
+                ConfirmationCardView(request: request) { approved in
+                    brain.respondToPendingConfirmation(approved: approved)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                Divider()
+            }
+
             MessageInputBar(
                 text: $inputText,
-                isThinking: brain.isThinking
+                isThinking: brain.isThinking || brain.pendingConfirmation != nil
             ) {
                 submitCurrentMessage()
             }
@@ -78,7 +88,20 @@ public struct IvyPopoverView: View {
     // MARK: - Status Badge
     @ViewBuilder
     private var statusBadge: some View {
-        if brain.isThinking {
+        if brain.pendingConfirmation != nil {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                Text("Approval Required")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.15))
+                    .foregroundStyle(.orange)
+                    .clipShape(Capsule())
+            }
+        } else if brain.isThinking {
             HStack(spacing: 4) {
                 ProgressView()
                     .controlSize(.mini)
@@ -195,7 +218,7 @@ public struct IvyPopoverView: View {
 
     private func submitCurrentMessage() {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !brain.isThinking else { return }
+        guard !trimmed.isEmpty, !brain.isThinking, brain.pendingConfirmation == nil else { return }
         inputText = ""
         Task {
             await brain.send(trimmed)
