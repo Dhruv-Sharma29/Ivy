@@ -188,16 +188,18 @@ struct GeminiLiveVoiceCoordinatorTests {
         await coordinator.stopSession()
     }
 
-    @Test("User speaking during playback interrupts playback immediately")
+    @Test("Normal speech does not interrupt playback; only wake phrase interrupts")
     func testUserInterruption() async throws {
         let mockSession = MockGeminiLiveSession()
         let mockCapture = MockAudioCapture(isPermissionGranted: true)
         let mockPlayer = MockLiveAudioPlayer()
+        let mockDetector = MockWakeWordDetector(shouldTrigger: false)
 
         let coordinator = GeminiLiveVoiceCoordinator(
             session: mockSession,
             audioCapture: mockCapture,
-            audioPlayer: mockPlayer
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
         )
 
         await coordinator.startSession()
@@ -211,8 +213,17 @@ struct GeminiLiveVoiceCoordinatorTests {
         }
         #expect(coordinator.state == .speaking)
 
-        // User speaks (mic captures audio)
+        // Normal user speech (mic captures audio, but no wake phrase)
         mockCapture.simulateAudioChunk(Data([0x33, 0x44]))
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        // Ivy must still be speaking!
+        #expect(coordinator.state == .speaking)
+        #expect(!mockPlayer.isStopped)
+
+        // User says "Hey Ivy" (wake detector triggers)
+        mockDetector.setShouldTrigger(true)
+        mockCapture.simulateAudioChunk(Data([0x55, 0x66]))
 
         for _ in 0..<50 {
             if coordinator.state == .listening { break }

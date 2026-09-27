@@ -179,6 +179,8 @@ public struct IvyPopoverView: View {
             return "Thinking"
         case .speaking:
             return "Speaking"
+        case .interrupting:
+            return "Interrupting"
         case .idle, .error:
             return ""
         }
@@ -236,7 +238,9 @@ public struct IvyPopoverView: View {
         case .thinking:
             return "Ivy is thinking..."
         case .speaking:
-            return "Ivy is speaking (speak to interrupt)"
+            return "Ivy is speaking (say \"Hey Ivy\" to interrupt)"
+        case .interrupting:
+            return "Interrupting..."
         case .idle, .error:
             return ""
         }

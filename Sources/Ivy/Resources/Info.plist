@@ -18,5 +18,7 @@
     <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Ivy needs access to your microphone for live voice conversations.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Ivy uses speech recognition to detect the "Hey Ivy" wake phrase for interruption.</string>
 </dict>
 </plist>

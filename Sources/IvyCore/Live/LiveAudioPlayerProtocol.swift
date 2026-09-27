@@ -6,6 +6,9 @@ import os
 public protocol LiveAudioPlayerProtocol: Sendable {
     var isPlaying: Bool { get }
     func playChunk(_ data: Data) async throws
+    /// Awaits until all scheduled audio buffers have finished playing through the output hardware.
+    func waitUntilFinished() async
+    /// Immediately halts playback and purges all queued buffers.
     func stop() async
 }
 
@@ -15,14 +18,17 @@ public final class MockLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Send
         var playedChunks: [Data] = []
         var isPlaying: Bool = false
         var isStopped: Bool = false
+        var autoDrain: Bool = true
         var playError: Error? = nil
+        var waitContinuations: [CheckedContinuation<Void, Never>] = []
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
-    public init(playError: Error? = nil) {
+    public init(playError: Error? = nil, autoDrain: Bool = true) {
         state.withLock {
             $0.playError = playError
+            $0.autoDrain = autoDrain
         }
     }
 
@@ -42,6 +48,10 @@ public final class MockLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Send
         state.withLock { $0.playError = error }
     }
 
+    public func setAutoDrain(_ autoDrain: Bool) {
+        state.withLock { $0.autoDrain = autoDrain }
+    }
+
     public func playChunk(_ data: Data) async throws {
         let errorToThrow = state.withLock { s -> Error? in
             if let error = s.playError {
@@ -58,18 +68,64 @@ public final class MockLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Send
         }
     }
 
+    public func waitUntilFinished() async {
+        let (shouldWait, isAuto) = state.withLock { s -> (Bool, Bool) in
+            return (s.isPlaying, s.autoDrain)
+        }
+        guard shouldWait else { return }
+
+        if isAuto {
+            finishPlayback()
+            return
+        }
+
+        await withCheckedContinuation { cont in
+            state.withLock { s in
+                if !s.isPlaying {
+                    cont.resume()
+                } else {
+                    s.waitContinuations.append(cont)
+                }
+            }
+        }
+    }
+
+    public func finishPlayback() {
+        let continuations = state.withLock { s -> [CheckedContinuation<Void, Never>] in
+            s.isPlaying = false
+            let conts = s.waitContinuations
+            s.waitContinuations = []
+            return conts
+        }
+        for cont in continuations {
+            cont.resume()
+        }
+    }
+
     public func stop() async {
-        state.withLock { s in
+        let continuations = state.withLock { s -> [CheckedContinuation<Void, Never>] in
             s.isPlaying = false
             s.isStopped = true
+            let conts = s.waitContinuations
+            s.waitContinuations = []
+            return conts
+        }
+        for cont in continuations {
+            cont.resume()
         }
     }
 
     public func reset() {
-        state.withLock { s in
+        let continuations = state.withLock { s -> [CheckedContinuation<Void, Never>] in
             s.playedChunks.removeAll()
             s.isPlaying = false
             s.isStopped = false
+            let conts = s.waitContinuations
+            s.waitContinuations = []
+            return conts
+        }
+        for cont in continuations {
+            cont.resume()
         }
     }
 }
@@ -78,6 +134,8 @@ public final class MockLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Send
 public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Sendable {
     private struct State {
         var isPlaying: Bool = false
+        var activeBuffers: Int = 0
+        var waitContinuations: [CheckedContinuation<Void, Never>] = []
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -138,16 +196,56 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
             playerNode.play()
         }
 
-        state.withLock { $0.isPlaying = true }
+        state.withLock { s in
+            s.isPlaying = true
+            s.activeBuffers += 1
+        }
 
-        playerNode.scheduleBuffer(pcmBuffer, completionHandler: nil)
+        playerNode.scheduleBuffer(pcmBuffer) { [weak self] in
+            guard let self else { return }
+            let continuations = self.state.withLock { s -> [CheckedContinuation<Void, Never>] in
+                s.activeBuffers = max(0, s.activeBuffers - 1)
+                if s.activeBuffers == 0 {
+                    s.isPlaying = false
+                    let pending = s.waitContinuations
+                    s.waitContinuations = []
+                    return pending
+                }
+                return []
+            }
+            for cont in continuations {
+                cont.resume()
+            }
+        }
+    }
+
+    public func waitUntilFinished() async {
+        let shouldWait = state.withLock { $0.activeBuffers > 0 }
+        guard shouldWait else { return }
+
+        await withCheckedContinuation { cont in
+            state.withLock { s in
+                if s.activeBuffers == 0 {
+                    cont.resume()
+                } else {
+                    s.waitContinuations.append(cont)
+                }
+            }
+        }
     }
 
     public func stop() async {
-        let wasPlaying = state.withLock { s -> Bool in
+        let (wasPlaying, continuations) = state.withLock { s -> (Bool, [CheckedContinuation<Void, Never>]) in
             let was = s.isPlaying
             s.isPlaying = false
-            return was
+            s.activeBuffers = 0
+            let pending = s.waitContinuations
+            s.waitContinuations = []
+            return (was, pending)
+        }
+
+        for cont in continuations {
+            cont.resume()
         }
 
         if wasPlaying {
