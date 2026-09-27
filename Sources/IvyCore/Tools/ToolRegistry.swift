@@ -49,12 +49,15 @@ public final class ToolRegistry: Sendable {
     public static func defaultRegistry(
         workspace: WorkspaceProtocol = SystemWorkspace(),
         appleScriptExecutor: AppleScriptExecutorProtocol = SystemAppleScriptExecutor(),
-        calendarExecutor: CalendarExecutorProtocol = SystemCalendarExecutor()
+        calendarExecutor: CalendarExecutorProtocol = SystemCalendarExecutor(),
+        fileExecutor: FileExecutorProtocol = SystemFileExecutor(),
+        allowedFileRoot: URL? = nil
     ) -> ToolRegistry {
         ToolRegistry(tools: [
             OpenAppTool(workspace: workspace),
             RunAppleScriptTool(executor: appleScriptExecutor),
-            CalendarEventTool(executor: calendarExecutor)
+            CalendarEventTool(executor: calendarExecutor),
+            FileOpTool(executor: fileExecutor, allowedRoot: allowedFileRoot)
         ])
     }
 

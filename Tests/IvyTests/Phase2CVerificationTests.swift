@@ -809,7 +809,8 @@ struct Phase2CRegressionTests {
         #expect(registry.hasTool(named: "open_app"))
         #expect(registry.hasTool(named: "run_applescript"))
         #expect(registry.hasTool(named: "calendar_event"))
-        #expect(registry.count == 3)
+        #expect(registry.hasTool(named: "file_op"))
+        #expect(registry.count == 4)
 
         let bridge = ConfirmationBridge()
         let gate = InteractiveSafetyGate(confirmationProvider: bridge)
