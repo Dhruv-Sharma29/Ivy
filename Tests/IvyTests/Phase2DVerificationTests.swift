@@ -310,6 +310,111 @@ struct Phase2DConfirmationWorkflowTests {
         #expect(mock.files[filePath] == "entry 1")
     }
 
+    @Test("Pending delete confirmation pauses execution until decision")
+    @MainActor
+    func testPendingDeletePausesExecution() async {
+        let mock = MockFileExecutor()
+        let filePath = sandboxURL.appendingPathComponent("discard.txt").path
+        mock.files[filePath] = "content to delete"
+        let tool = FileOpTool(executor: mock, allowedRoot: sandboxURL)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        final class DeleteClient: GeminiClientProtocol, @unchecked Sendable {
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                if history.contains(where: { $0.role == .function }) {
+                    return ModelTurnResponse(text: "File deleted successfully.")
+                }
+                return ModelTurnResponse(
+                    text: nil,
+                    functionCalls: [FunctionCall(name: "file_op", args: [
+                        "action": AnyCodable("delete"),
+                        "path": AnyCodable("/Users/testuser/Sandbox/discard.txt")
+                    ], id: "call-del1")]
+                )
+            }
+        }
+
+        let brain = IvyBrain(client: DeleteClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Delete discard.txt")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        #expect(brain.pendingConfirmation != nil)
+        #expect(brain.pendingConfirmation?.title == "Delete File")
+        #expect(mock.recordedCalls.isEmpty)
+        #expect(mock.files[filePath] != nil)
+
+        brain.respondToPendingConfirmation(approved: true)
+        await sendTask.value
+
+        #expect(mock.recordedCalls.count == 1)
+        #expect(mock.recordedCalls[0].action == .delete)
+        #expect(mock.files[filePath] == nil)
+        #expect(brain.messages.last?.text == "File deleted successfully.")
+    }
+
+    @Test("Repeated approval cannot execute delete twice")
+    @MainActor
+    func testRepeatedDeleteApprovalIdempotency() async {
+        let mock = MockFileExecutor()
+        let filePath = sandboxURL.appendingPathComponent("scratch.txt").path
+        mock.files[filePath] = "scratch data"
+        let tool = FileOpTool(executor: mock, allowedRoot: sandboxURL)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        final class OnceDeleteClient: GeminiClientProtocol, @unchecked Sendable {
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                if history.contains(where: { $0.role == .function }) {
+                    return ModelTurnResponse(text: "Deleted.")
+                }
+                return ModelTurnResponse(
+                    text: nil,
+                    functionCalls: [FunctionCall(name: "file_op", args: [
+                        "action": AnyCodable("delete"),
+                        "path": AnyCodable("/Users/testuser/Sandbox/scratch.txt")
+                    ], id: "call-del-once")]
+                )
+            }
+        }
+
+        let brain = IvyBrain(client: OnceDeleteClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Delete scratch.txt")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        brain.respondToPendingConfirmation(approved: true)
+        // Rapid repeated approval clicks
+        brain.respondToPendingConfirmation(approved: true)
+        brain.respondToPendingConfirmation(approved: true)
+
+        await sendTask.value
+
+        #expect(mock.recordedCalls.count == 1)
+        #expect(mock.files[filePath] == nil)
+    }
+
     @Test("Gemini-generated text cannot approve risky file operations")
     @MainActor
     func testGeminiTextCannotApproveFileOp() async {
@@ -626,6 +731,93 @@ struct Phase2DGeminiFunctionCallingTests {
         await brain.send("Read absent.txt")
 
         #expect(brain.messages.last?.text.contains("File not found") == true)
+    }
+
+    @Test("Multi-turn sequential file operations preserve respective thought_signatures and responses")
+    @MainActor
+    func testMultiTurnSequentialFileOpTurns() async {
+        final class MultiTurnFileClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            var signaturesSeen: [String] = []
+
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    let part = Part(
+                        functionCall: FunctionCall(name: "file_op", args: [
+                            "action": AnyCodable("read"),
+                            "path": AnyCodable("/Users/testuser/Sandbox/source.txt")
+                        ], id: "call-step-1"),
+                        thoughtSignature: "sig_seq_1"
+                    )
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [part.functionCall!],
+                        functionCallParts: [part],
+                        thoughtSignature: "sig_seq_1"
+                    )
+                } else if step == 2 {
+                    if let m1 = history.first(where: { $0.role == .model && $0.thoughtSignature != nil }) {
+                        signaturesSeen.append(m1.thoughtSignature ?? "")
+                    }
+                    let part = Part(
+                        functionCall: FunctionCall(name: "file_op", args: [
+                            "action": AnyCodable("write"),
+                            "path": AnyCodable("/Users/testuser/Sandbox/backup.txt"),
+                            "content": AnyCodable("Source: sample content")
+                        ], id: "call-step-2"),
+                        thoughtSignature: "sig_seq_2"
+                    )
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [part.functionCall!],
+                        functionCallParts: [part],
+                        thoughtSignature: "sig_seq_2"
+                    )
+                } else if step == 3 {
+                    let modelSignatures = history.filter({ $0.role == .model }).compactMap({ $0.thoughtSignature })
+                    signaturesSeen = modelSignatures
+                    return ModelTurnResponse(text: "Backup completed successfully.")
+                }
+                throw GeminiClientError.emptyResponse
+            }
+        }
+
+        let mock = MockFileExecutor()
+        mock.files["/Users/testuser/Sandbox/source.txt"] = "sample content"
+        let tool = FileOpTool(executor: mock, allowedRoot: sandboxURL)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let client = MultiTurnFileClient()
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Backup source.txt")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        #expect(brain.pendingConfirmation != nil)
+        #expect(brain.pendingConfirmation?.title == "Write File")
+
+        brain.respondToPendingConfirmation(approved: true)
+        await sendTask.value
+
+        #expect(mock.recordedCalls.count == 2)
+        #expect(mock.recordedCalls[0].action == .read)
+        #expect(mock.recordedCalls[1].action == .write)
+        #expect(mock.files["/Users/testuser/Sandbox/backup.txt"] == "Source: sample content")
+        #expect(client.signaturesSeen.contains("sig_seq_1"))
+        #expect(client.signaturesSeen.contains("sig_seq_2"))
+        #expect(brain.messages.last?.text == "Backup completed successfully.")
     }
 }
 

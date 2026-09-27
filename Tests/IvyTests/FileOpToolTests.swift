@@ -348,6 +348,223 @@ struct FileOpToolTests {
         #expect(result.output.contains("File exceeds maximum read size limit"))
     }
 
+    @Test("Unexpected non-string argument types throw invalidArgument")
+    func testUnexpectedArgumentTypes() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        // Non-string action
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable(123),
+                "path": AnyCodable("/Users/testuser/Sandbox/note.txt")
+            ])
+        }
+
+        // Non-string path
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable(true)
+            ])
+        }
+
+        // Non-string content for write
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("write"),
+                "path": AnyCodable("/Users/testuser/Sandbox/note.txt"),
+                "content": AnyCodable(999)
+            ])
+        }
+    }
+
+    @Test("Path normalization resolves relative segments and double slashes")
+    func testPathNormalization() throws {
+        let normalized = try ToolValidation.validateFilePath(
+            "/Users/testuser/Sandbox/./folder//file.txt",
+            allowedRoot: testSandboxURL
+        )
+        #expect(normalized == "/Users/testuser/Sandbox/folder/file.txt")
+    }
+
+    @Test("../../ traversal sequences are strictly rejected")
+    func testDoubleDotTraversalRejection() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("/Users/testuser/Sandbox/../../etc/shadow")
+            ])
+        }
+
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("/Users/testuser/Sandbox/folder/..")
+            ])
+        }
+    }
+
+    @Test("Path exceeding maximum length of 4096 characters throws invalidArgument")
+    func testPathExceedingMaxLength() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+        let longPath = "/Users/testuser/Sandbox/" + String(repeating: "a", count: 4100)
+
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable(longPath)
+            ])
+        }
+    }
+
+    @Test("Symlink escaping permitted scope is rejected")
+    func testSymlinkEscapingPermittedScope() throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let outsideDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: outsideDir) }
+
+        let symlinkURL = tempDir.appendingPathComponent("escape_link")
+        try fm.createSymbolicLink(at: symlinkURL, withDestinationURL: outsideDir)
+
+        #expect(throws: ToolError.self) {
+            try ToolValidation.validateFilePath(symlinkURL.path, allowedRoot: tempDir)
+        }
+    }
+
+    @Test("Write error: FileOpError.parentDirectoryNotFound returns failure ToolResult")
+    func testParentDirectoryNotFoundReturnsFailure() async throws {
+        let mock = MockFileExecutor()
+        let filePath = testSandboxURL.appendingPathComponent("nonexistent/dir/file.txt").path
+        mock.errorToThrow = FileOpError.parentDirectoryNotFound("/Users/testuser/Sandbox/nonexistent/dir")
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        let result = try await tool.execute(arguments: [
+            "action": AnyCodable("write"),
+            "path": AnyCodable(filePath),
+            "content": AnyCodable("payload")
+        ])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("Parent directory does not exist"))
+    }
+
+    @Test("Write error: FileOpError.permissionDenied returns failure ToolResult")
+    func testWritePermissionDeniedReturnsFailure() async throws {
+        let mock = MockFileExecutor()
+        let filePath = testSandboxURL.appendingPathComponent("readonly.txt").path
+        mock.errorToThrow = FileOpError.permissionDenied(filePath)
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        let result = try await tool.execute(arguments: [
+            "action": AnyCodable("write"),
+            "path": AnyCodable(filePath),
+            "content": AnyCodable("content")
+        ])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("Permission denied"))
+    }
+
+    @Test("Delete error: FileOpError.permissionDenied returns failure ToolResult")
+    func testDeletePermissionDeniedReturnsFailure() async throws {
+        let mock = MockFileExecutor()
+        let filePath = testSandboxURL.appendingPathComponent("system.txt").path
+        mock.errorToThrow = FileOpError.permissionDenied(filePath)
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        let result = try await tool.execute(arguments: [
+            "action": AnyCodable("delete"),
+            "path": AnyCodable(filePath)
+        ])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("Permission denied"))
+    }
+
+    @Test("Delete error: FileOpError.fileNotFound returns failure ToolResult")
+    func testDeleteFileNotFoundReturnsFailure() async throws {
+        let mock = MockFileExecutor()
+        let filePath = testSandboxURL.appendingPathComponent("missing.txt").path
+        mock.errorToThrow = FileOpError.fileNotFound(filePath)
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        let result = try await tool.execute(arguments: [
+            "action": AnyCodable("delete"),
+            "path": AnyCodable(filePath)
+        ])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("File not found"))
+    }
+
+    @Test("Unexpected arguments outside schema throw invalidArgument")
+    func testUnexpectedArgumentsThrow() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        // Unknown key
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("/Users/testuser/Sandbox/file.txt"),
+                "force": AnyCodable(true)
+            ])
+        }
+
+        // 'content' passed to read action
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("/Users/testuser/Sandbox/file.txt"),
+                "content": AnyCodable("unexpected")
+            ])
+        }
+
+        // 'content' passed to delete action
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("delete"),
+                "path": AnyCodable("/Users/testuser/Sandbox/file.txt"),
+                "content": AnyCodable("unexpected")
+            ])
+        }
+    }
+
+    @Test("SystemFileExecutor rejects directory targets across read, write, and delete")
+    func testSystemFileExecutorRejectsDirectories() async throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let executor = SystemFileExecutor()
+
+        // Read directory
+        await #expect(throws: FileOpError.isDirectory(tempDir.path)) {
+            _ = try await executor.readFile(at: tempDir.path)
+        }
+
+        // Write to existing directory
+        await #expect(throws: FileOpError.isDirectory(tempDir.path)) {
+            _ = try await executor.writeFile(at: tempDir.path, content: "data")
+        }
+
+        // Delete directory
+        await #expect(throws: FileOpError.isDirectory(tempDir.path)) {
+            _ = try await executor.deleteFile(at: tempDir.path)
+        }
+    }
+
     @Test("SystemFileExecutor conforms to FileExecutorProtocol")
     func testSystemExecutorConformance() {
         let executor: any FileExecutorProtocol = SystemFileExecutor()

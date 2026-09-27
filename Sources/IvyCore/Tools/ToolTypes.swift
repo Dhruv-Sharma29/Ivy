@@ -300,7 +300,8 @@ public enum ToolValidation {
             expandedPath = baseRoot.appendingPathComponent(trimmed).path
         }
 
-        let standardizedURL = URL(fileURLWithPath: expandedPath).standardized
+        let cleanedPath = (expandedPath as NSString).standardizingPath
+        let standardizedURL = URL(fileURLWithPath: cleanedPath).standardized
         let standardizedPath = standardizedURL.path
 
         // Check against sensitive credential path segments
@@ -336,6 +337,14 @@ public enum ToolValidation {
         }
         guard let action = FileAction(rawValue: actionString.lowercased()) else {
             throw ToolError.invalidArgument("Invalid file action '\(actionString)'. Supported actions: read, write, delete.")
+        }
+
+        // Check for unexpected arguments
+        let allowedKeys: Set<String> = action == .write ? ["action", "path", "content"] : ["action", "path"]
+        for key in args.keys {
+            if !allowedKeys.contains(key) {
+                throw ToolError.invalidArgument("Unexpected argument: '\(key)'.")
+            }
         }
 
         guard let pathValue = args["path"] else {
