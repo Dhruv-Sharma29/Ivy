@@ -817,3 +817,178 @@ struct Phase3ProtocolLoggingAndConcurrencyTests {
         #expect(mockWorkspace.openedURLs.isEmpty)
     }
 }
+
+// MARK: - Suite 6: Hardening & Defense in Depth Tests
+
+@Suite("Phase 3 - Hardening & Defense in Depth Tests", .serialized)
+struct Phase3DefenseInDepthTests {
+    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
+
+    @Test("file_op write confirmation detail includes content preview and transparency")
+    func testFileOpWriteConfirmationDetailTransparency() async {
+        let provider = Phase3AuditConfirmationProvider(decisionToReturn: false)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+        let mockFile = MockFileExecutor()
+        let fileTool = FileOpTool(executor: mockFile, allowedRoot: sandboxURL)
+        let dispatcher = ToolDispatcher(registry: ToolRegistry(tools: [fileTool]), safetyGate: gate)
+
+        let call = FunctionCall(
+            name: "file_op",
+            args: [
+                "action": AnyCodable("write"),
+                "path": AnyCodable("/sandbox/important.txt"),
+                "content": AnyCodable("Hello secure world! This is confidential configuration.")
+            ],
+            id: "write-transparency-1"
+        )
+
+        _ = await dispatcher.dispatch(call)
+
+        #expect(provider.callCount == 1)
+        let req = provider.recordedRequests.first
+        #expect(req != nil)
+        #expect(req?.title == "Write File")
+        #expect(req?.detail.contains("Action: Write File") == true)
+        #expect(req?.detail.contains("Target Path:") == true)
+        #expect(req?.detail.contains("Content (") == true && req?.detail.contains("chars):") == true)
+        #expect(req?.detail.contains("Hello secure world!") == true)
+        #expect(req?.detail.contains("Existing content may be overwritten.") == true)
+    }
+
+    @Test("Tilde user directory expansion (~user) is strictly rejected")
+    func testTildeOtherUserExpansionRejected() {
+        let pathsToTest = [
+            "~root/notes.txt",
+            "~daemon/config.json",
+            "~nobody/secret",
+            "~otheruser/Documents"
+        ]
+
+        for path in pathsToTest {
+            #expect(throws: ToolError.self) {
+                try ToolValidation.validateFilePath(path, allowedRoot: sandboxURL)
+            }
+        }
+    }
+
+    @Test("Standardized path system root escape is strictly rejected")
+    func testStandardizedPathSystemRootRejected() {
+        #expect(throws: ToolError.self) {
+            try ToolValidation.validateFilePath("/System/Library/CoreServices", allowedRoot: sandboxURL)
+        }
+        #expect(throws: ToolError.self) {
+            try ToolValidation.validateFilePath("/bin/zsh", allowedRoot: sandboxURL)
+        }
+    }
+
+    @Test("Mismatched confirmation ID is strictly ignored by respondToPendingConfirmation")
+    @MainActor
+    func testConfirmationGuardMismatchedIdIgnored() async {
+        let mockShell = MockShellExecutor()
+        let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
+        let bridge = ConfirmationBridge()
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
+
+        let client = Phase3ScriptedGeminiClient { step, _ in
+            if step == 1 {
+                return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("whoami")], id: "mismatch-1")])
+            }
+            return ModelTurnResponse(text: "Done", functionCalls: [])
+        }
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+        bridge.handler = brain
+
+        let task = Task { await brain.send("Run whoami") }
+        for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+
+        #expect(brain.pendingConfirmation != nil)
+        let realId = brain.pendingConfirmation?.id
+
+        // Passing a mismatched UUID must NOT resolve the confirmation!
+        let fakeId = UUID()
+        brain.respondToPendingConfirmation(id: fakeId, approved: true)
+
+        #expect(brain.pendingConfirmation != nil)
+        #expect(brain.pendingConfirmation?.id == realId)
+        #expect(mockShell.recordedCommands.isEmpty)
+
+        // Cancel with real ID
+        brain.respondToPendingConfirmation(id: realId, approved: false)
+        await task.value
+        #expect(mockShell.recordedCommands.isEmpty)
+    }
+
+    @Test("GeminiClient error messages sanitize and redact API key")
+    func testGeminiClientSanitizesKeyInErrorMessages() async {
+        let fakeKey = "AIzaSyD-SecretKey123456789"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [Phase3MockURLProtocol.self]
+        let session = URLSession(configuration: config)
+
+        Phase3MockURLProtocol.requestHandler = { req in
+            let errorJSON = """
+            {
+                "error": {
+                    "code": 400,
+                    "message": "API key \(fakeKey) is invalid. Check credentials.",
+                    "status": "INVALID_ARGUMENT"
+                }
+            }
+            """
+            let resp = HTTPURLResponse(url: req.url ?? URL(string: "https://generativelanguage.googleapis.com")!, statusCode: 400, httpVersion: nil, headerFields: ["Content-Type": "application/json"]) ?? HTTPURLResponse()
+            return (resp, errorJSON.data(using: .utf8) ?? Data())
+        }
+        defer {
+            Phase3MockURLProtocol.requestHandler = nil
+        }
+
+        let client = URLSessionGeminiClient(session: session)
+        do {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "ping")],
+                systemPrompt: "",
+                apiKey: fakeKey
+            )
+            #expect(Bool(false), "Expected invalidAPIKey error")
+        } catch let err as GeminiClientError {
+            let desc = err.localizedDescription
+            #expect(!desc.contains(fakeKey))
+            #expect(desc.contains("[REDACTED_API_KEY]"))
+        } catch {
+            #expect(Bool(false), "Unexpected error type: \(error)")
+        }
+    }
+}
+
+// MARK: - Dedicated Isolated URL Protocol for Phase 3 Tests
+
+private final class Phase3MockURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        guard let handler = Phase3MockURLProtocol.requestHandler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+

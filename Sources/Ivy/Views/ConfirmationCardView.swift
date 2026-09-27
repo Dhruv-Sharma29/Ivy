@@ -4,6 +4,7 @@ import IvyCore
 public struct ConfirmationCardView: View {
     public let request: ConfirmationRequest
     public let onConfirm: (Bool) -> Void
+    @State private var hasResponded: Bool = false
 
     public init(request: ConfirmationRequest, onConfirm: @escaping (Bool) -> Void) {
         self.request = request
@@ -57,6 +58,8 @@ public struct ConfirmationCardView: View {
 
             HStack(spacing: 10) {
                 Button(role: .cancel) {
+                    guard !hasResponded else { return }
+                    hasResponded = true
                     onConfirm(false)
                 } label: {
                     Text("Cancel")
@@ -64,8 +67,11 @@ public struct ConfirmationCardView: View {
                 }
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.escape, modifiers: [])
+                .disabled(hasResponded)
 
                 Button {
+                    guard !hasResponded else { return }
+                    hasResponded = true
                     onConfirm(true)
                 } label: {
                     Text("Do it")
@@ -75,6 +81,7 @@ public struct ConfirmationCardView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.orange)
                 .keyboardShortcut(.return, modifiers: [])
+                .disabled(hasResponded)
             }
         }
         .padding(12)

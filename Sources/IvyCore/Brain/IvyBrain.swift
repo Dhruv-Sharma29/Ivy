@@ -54,8 +54,8 @@ public final class IvyBrain: ObservableObject {
     /// Responds to the currently pending confirmation request with the user's decision.
     /// If an optional request `id` is specified, it guarantees that only the matching pending confirmation is answered.
     public func respondToPendingConfirmation(id: UUID? = nil, approved: Bool) {
-        guard let continuation = confirmationContinuation else { return }
-        if let id, let pending = pendingConfirmation, pending.id != id {
+        guard let continuation = confirmationContinuation, let pending = pendingConfirmation else { return }
+        if let id, pending.id != id {
             return
         }
         confirmationContinuation = nil

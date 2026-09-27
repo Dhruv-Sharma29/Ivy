@@ -300,6 +300,11 @@ public enum ToolValidation {
             throw ToolError.invalidArgument("Path traversal sequence '..' is prohibited.")
         }
 
+        // Reject arbitrary other-user tilde expansion (e.g. ~root, ~daemon, ~otheruser)
+        if trimmed.hasPrefix("~") && trimmed != "~" && !trimmed.hasPrefix("~/") {
+            throw ToolError.invalidArgument("User directory expansion '~user' is prohibited.")
+        }
+
         // Check prohibited system roots directly
         for sysRoot in prohibitedSystemRoots {
             if trimmed == sysRoot || trimmed.hasPrefix(sysRoot + "/") {
@@ -321,6 +326,13 @@ public enum ToolValidation {
         let cleanedPath = (expandedPath as NSString).standardizingPath
         let standardizedURL = URL(fileURLWithPath: cleanedPath).standardized
         let standardizedPath = standardizedURL.path
+
+        // Check prohibited system roots on standardized path
+        for sysRoot in prohibitedSystemRoots {
+            if standardizedPath == sysRoot || standardizedPath.hasPrefix(sysRoot + "/") {
+                throw ToolError.invalidArgument("Access to system path '\(sysRoot)' is prohibited.")
+            }
+        }
 
         // Check against sensitive credential path segments
         for prohibited in prohibitedPathSegments {

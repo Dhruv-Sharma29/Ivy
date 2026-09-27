@@ -178,12 +178,24 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
             let normalizedPath = (try? ToolValidation.validateFilePath(rawPath, allowedRoot: fileTool?.allowedRoot)) ?? rawPath
 
             if action == "write" {
+                let content = call.args["content"]?.stringValue
+                let contentSnippet: String
+                if let content {
+                    if content.count > 300 {
+                        let prefix = String(content.prefix(300))
+                        contentSnippet = "\nContent (\(content.count) chars):\n\(prefix)... [truncated]"
+                    } else {
+                        contentSnippet = "\nContent (\(content.count) chars):\n\(content)"
+                    }
+                } else {
+                    contentSnippet = ""
+                }
                 return ConfirmationRequest(
                     callId: call.id,
                     toolName: tool.name,
                     title: "Write File",
                     prompt: "You're about to write to '\(rawPath)'. Existing file content may be replaced. If this breaks your files, don't blame me. Do it or chicken out?",
-                    detail: "Action: Write File\nTarget Path: \(normalizedPath)\nExisting content may be overwritten."
+                    detail: "Action: Write File\nTarget Path: \(normalizedPath)\(contentSnippet)\nExisting content may be overwritten."
                 )
             } else if action == "delete" {
                 return ConfirmationRequest(

@@ -227,11 +227,16 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
         }
         request.httpBody = requestData
 
+        let sanitizeText: @Sendable (String) -> String = { raw in
+            guard !trimmedKey.isEmpty else { return raw }
+            return raw.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
+        }
+
         var attempt = 0
         while true {
             if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
                let reqStr = String(data: requestData, encoding: .utf8) {
-                let sanitizedReq = trimmedKey.isEmpty ? reqStr : reqStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
+                let sanitizedReq = sanitizeText(reqStr)
                 let logLine = "\n=== [GEMINI REQUEST (attempt \(attempt + 1))] ===\n\(sanitizedReq)\n========================\n"
                 fputs(logLine, stderr)
                 let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
@@ -255,7 +260,7 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
                     try await retryPolicy.sleeper(delay)
                     continue
                 }
-                throw GeminiClientError.networkError(error.localizedDescription)
+                throw GeminiClientError.networkError(sanitizeText(error.localizedDescription))
             }
 
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -264,7 +269,7 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
             if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
                let respStr = String(data: data, encoding: .utf8) {
-                let sanitizedResp = trimmedKey.isEmpty ? respStr : respStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
+                let sanitizedResp = sanitizeText(respStr)
                 let logLine = "\n=== [GEMINI RESPONSE (\(httpResponse.statusCode)) (attempt \(attempt + 1))] ===\n\(sanitizedResp)\n=====================================\n"
                 fputs(logLine, stderr)
                 let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
@@ -306,9 +311,9 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
             case 400, 401, 403:
                 if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
-                    throw GeminiClientError.invalidAPIKey(apiError.message)
+                    throw GeminiClientError.invalidAPIKey(sanitizeText(apiError.message))
                 } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
-                    throw GeminiClientError.invalidAPIKey(bodyString)
+                    throw GeminiClientError.invalidAPIKey(sanitizeText(bodyString))
                 } else {
                     throw GeminiClientError.invalidAPIKey("Authentication failure (HTTP \(httpResponse.statusCode))")
                 }
@@ -316,9 +321,9 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
             case 404:
                 let errorMsg: String
                 if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
-                    errorMsg = apiError.message
+                    errorMsg = sanitizeText(apiError.message)
                 } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
-                    errorMsg = bodyString
+                    errorMsg = sanitizeText(bodyString)
                 } else {
                     errorMsg = "Model not found"
                 }
@@ -338,9 +343,9 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
                 let errorMsg: String
                 if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
-                    errorMsg = apiError.message
+                    errorMsg = sanitizeText(apiError.message)
                 } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
-                    errorMsg = bodyString
+                    errorMsg = sanitizeText(bodyString)
                 } else {
                     errorMsg = "HTTP \(httpResponse.statusCode)"
                 }
