@@ -172,9 +172,9 @@ public struct IvyPopoverView: View {
     private var voiceStateBadgeText: String {
         switch liveVoiceCoordinator.state {
         case .connecting:
-            return "Connecting"
+            return "Connecting..."
         case .listening:
-            return "Listening"
+            return "Ivy Live"
         case .thinking:
             return "Thinking"
         case .speaking:
@@ -232,9 +232,9 @@ public struct IvyPopoverView: View {
     private var liveVoiceDescription: String {
         switch liveVoiceCoordinator.state {
         case .connecting:
-            return "Connecting to Gemini Live..."
+            return "Connecting to Ivy Live..."
         case .listening:
-            return "Listening... Speak naturally"
+            return "Ivy Live connected"
         case .thinking:
             return "Ivy is thinking..."
         case .speaking:
@@ -242,7 +242,7 @@ public struct IvyPopoverView: View {
         case .interrupting:
             return "Interrupting..."
         case .idle, .error:
-            return ""
+            return "Ivy Live disconnected"
         }
     }
 

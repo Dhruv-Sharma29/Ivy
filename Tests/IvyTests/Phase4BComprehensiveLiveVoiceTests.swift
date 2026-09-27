@@ -365,5 +365,42 @@ struct Phase4BComprehensiveLiveVoiceTests {
         #expect(coordinator.state == .idle)
         #expect(mockPlayer.isStopped)
     }
+
+    @Test("12. User-facing live voice error and connection messages use 'Ivy Live' branding")
+    func testUserFacingLiveBranding() async {
+        let errors: [LiveError] = [
+            .invalidURL,
+            .connectionFailed("network down"),
+            .setupFailed("timeout"),
+            .decodingError("malformed"),
+            .serverError("internal error"),
+            .sessionClosed
+        ]
+
+        for error in errors {
+            let desc = error.localizedDescription
+            #expect(desc.contains("Ivy Live"), "Expected '\(desc)' to contain 'Ivy Live'")
+            #expect(!desc.contains("Gemini Live"), "Expected '\(desc)' not to contain 'Gemini Live'")
+        }
+
+        let mockSession = MockGeminiLiveSession(connectError: LiveError.connectionFailed("Service unavailable"))
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: mockSession,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer
+        )
+
+        await coordinator.startSession()
+
+        guard case .error(let msg) = coordinator.state else {
+            Issue.record("Expected coordinator to be in error state")
+            return
+        }
+        #expect(msg.contains("Failed to connect to Ivy Live:"))
+        #expect(!msg.contains("Gemini Live"))
+    }
 }
 

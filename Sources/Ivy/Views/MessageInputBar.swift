@@ -39,7 +39,7 @@ public struct MessageInputBar: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .help(isVoiceActive ? "Stop voice conversation" : "Start live voice conversation")
+                .help(isVoiceActive ? "Stop Ivy Live" : "Start Ivy Live")
                 .disabled(isThinking)
                 .padding(.bottom, 2)
             }

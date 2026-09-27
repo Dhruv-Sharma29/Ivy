@@ -104,7 +104,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         do {
             try await session.connect()
         } catch {
-            state = .error("Failed to connect to Gemini Live: \(error.localizedDescription)")
+            state = .error("Failed to connect to Ivy Live: \(error.localizedDescription)")
             return
         }
 

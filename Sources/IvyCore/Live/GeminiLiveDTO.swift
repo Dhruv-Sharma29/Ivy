@@ -220,17 +220,17 @@ public enum LiveError: Error, LocalizedError, Equatable, Sendable {
         case .missingAPIKey:
             return "No Gemini API key provided for live voice session."
         case .invalidURL:
-            return "Invalid Gemini Live WebSocket URL."
+            return "Invalid Ivy Live WebSocket URL."
         case .connectionFailed(let msg):
-            return "Failed to connect to Gemini Live: \(msg)"
+            return "Failed to connect to Ivy Live: \(msg)"
         case .setupFailed(let msg):
-            return "Gemini Live setup handshake failed: \(msg)"
+            return "Ivy Live setup handshake failed: \(msg)"
         case .decodingError(let msg):
-            return "Failed to decode Gemini Live message: \(msg)"
+            return "Failed to decode Ivy Live message: \(msg)"
         case .serverError(let msg):
-            return "Gemini Live server error: \(msg)"
+            return "Ivy Live server error: \(msg)"
         case .sessionClosed:
-            return "Gemini Live session closed."
+            return "Ivy Live session closed."
         case .audioEncodingFailed:
             return "Failed to encode audio for streaming."
         case .microphonePermissionDenied:
