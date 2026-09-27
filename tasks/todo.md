@@ -257,4 +257,38 @@
 - [x] Centralized SafetyGate prevents tool deception and enforces confirmation on risky tools.
 - [x] No unauthorized tools (no shell, file operations, calendar, voice, persistence).
 
+---
+
+## Phase 2C: Calendar Event Tool [x]
+- [x] Strongly typed `calendar_event(title, date)` with ISO 8601 parsing & EventKit integration.
+- [x] Risky classification under `SafetyGate` requiring explicit user confirmation.
+- [x] 100% mock executor coverage in unit tests; zero real calendar events created in tests.
+
+---
+
+## Phase 2D: File Operations Tool [x]
+- [x] Strongly typed `file_op(action, path, content?)` supporting read, write, delete.
+- [x] Path containment, symlink escape checks, traversal protection (`../`, `../../`).
+- [x] `read` classified as safe; `write` and `delete` classified as risky requiring explicit confirmation.
+
+---
+
+## Phase 2E: Shell Command Tool [x]
+- [x] Strongly typed `run_shell(command)`.
+- [x] Always classified as risky; requires explicit user confirmation.
+- [x] Concurrency-safe pipes, environment scrubbing, process escalation termination, BiDi protection.
+
+---
+
+## Phase 3: Security & Safety Hardening [x]
+- [x] Centralized SafetyGate audit across all 5 tools (`open_app`, `run_applescript`, `calendar_event`, `file_op`, `run_shell`).
+- [x] Strict risk classification (`open_app`, `file_op read` safe; `run_applescript`, `calendar_event`, `file_op write/delete`, `run_shell` risky).
+- [x] Zero bypass paths from Gemini `functionCall` to executor; unexpected arguments strictly rejected.
+- [x] Confirmation security: tied to exact pending UUID and `callId`; approval authorizes only that specific call; mismatched UUID ignored; cancel guarantees zero execution; repeated approvals execute at most once; natural language chat cannot approve pending actions.
+- [x] Response distinguishability: `isCancelled`, `isSafetyRejection`, `isValidationError`, `isToolNotFound`, `isSuccess` clearly differentiated in `FunctionResponse`.
+- [x] API key scrubbing in debug logs.
+- [x] 100% Swift 6 strict concurrency compliance (`-strict-concurrency=complete`), zero force unwraps (`!`), zero warnings.
+- [x] 330 automated tests in 38 suites passing; 94.45% line coverage.
+
+
 
