@@ -115,6 +115,32 @@ struct GeminiLiveDTOTests {
         #expect(content.interrupted == true)
     }
 
+    @Test("Test exact serverPayload decoding")
+    func testExactServerPayloadDecoding() throws {
+        let samplePCM = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        let serverPayload = """
+        {
+            "serverContent": {
+                "modelTurn": {
+                    "parts": [
+                        { "text": "Speaking now" },
+                        {
+                            "inlineData": {
+                                "mimeType": "audio/pcm;rate=24000",
+                                "data": "\(samplePCM.base64EncodedString())"
+                            }
+                        }
+                    ]
+                },
+                "turnComplete": true
+            }
+        }
+        """
+        let data = serverPayload.data(using: .utf8)!
+        let msg = try JSONDecoder().decode(BidiServerMessage.self, from: data)
+        #expect(msg.serverContent != nil)
+    }
+
     @Test("MockGeminiLiveSession lifecycle and event streaming")
     func testMockGeminiLiveSession() async throws {
         let mock = MockGeminiLiveSession()
