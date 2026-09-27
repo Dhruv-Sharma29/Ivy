@@ -9,6 +9,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         state.withLock { $0.apiKey }
     }
     public let model: String
+    public let voiceName: String
     public let systemInstruction: String?
     public let session: URLSession
     private let webSocketFactory: WebSocketFactory
@@ -28,12 +29,14 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     public init(
         apiKey: String,
         model: String = "models/gemini-3.1-flash-live-preview",
+        voiceName: String = "Kore",
         systemInstruction: String? = nil,
         session: URLSession = .shared,
         webSocketFactory: WebSocketFactory? = nil
     ) {
         self.state = OSAllocatedUnfairLock(initialState: State(apiKey: apiKey))
         self.model = model
+        self.voiceName = voiceName
         self.systemInstruction = systemInstruction
         self.session = session
         if let webSocketFactory {
@@ -100,7 +103,14 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         // Send Setup Message
         let setup = BidiSetup(
             model: model,
-            generationConfig: BidiGenerationConfig(responseModalities: ["AUDIO"]),
+            generationConfig: BidiGenerationConfig(
+                responseModalities: ["AUDIO"],
+                speechConfig: BidiSpeechConfig(
+                    voiceConfig: BidiVoiceConfig(
+                        prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: voiceName)
+                    )
+                )
+            ),
             systemInstruction: systemInstruction.map { BidiSystemInstruction(text: $0) }
         )
         let setupMessage = BidiClientMessage(setup: setup)

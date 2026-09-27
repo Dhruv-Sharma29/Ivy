@@ -9,7 +9,14 @@ struct GeminiLiveDTOTests {
     func testSetupSerialization() throws {
         let setup = BidiSetup(
             model: "models/gemini-2.0-flash-exp",
-            generationConfig: BidiGenerationConfig(responseModalities: ["AUDIO"]),
+            generationConfig: BidiGenerationConfig(
+                responseModalities: ["AUDIO"],
+                speechConfig: BidiSpeechConfig(
+                    voiceConfig: BidiVoiceConfig(
+                        prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: "Kore")
+                    )
+                )
+            ),
             systemInstruction: BidiSystemInstruction(text: "You are Ivy.")
         )
         let clientMessage = BidiClientMessage(setup: setup)
@@ -24,6 +31,11 @@ struct GeminiLiveDTOTests {
         let genConfig = try #require(setupDict["generationConfig"] as? [String: Any])
         let modalities = try #require(genConfig["responseModalities"] as? [String])
         #expect(modalities == ["AUDIO"])
+
+        let speechConfig = try #require(genConfig["speechConfig"] as? [String: Any])
+        let voiceConfig = try #require(speechConfig["voiceConfig"] as? [String: Any])
+        let prebuiltConfig = try #require(voiceConfig["prebuiltVoiceConfig"] as? [String: Any])
+        #expect(prebuiltConfig["voiceName"] as? String == "Kore")
 
         let sysInstruction = try #require(setupDict["systemInstruction"] as? [String: Any])
         let parts = try #require(sysInstruction["parts"] as? [[String: Any]])

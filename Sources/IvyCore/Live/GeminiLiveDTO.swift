@@ -26,7 +26,7 @@ public struct BidiSetup: Codable, Sendable, Equatable {
 
     public init(
         model: String = "models/gemini-3.1-flash-live-preview",
-        generationConfig: BidiGenerationConfig? = BidiGenerationConfig(responseModalities: ["AUDIO"]),
+        generationConfig: BidiGenerationConfig? = BidiGenerationConfig(),
         systemInstruction: BidiSystemInstruction? = nil
     ) {
         self.model = model
@@ -37,9 +37,38 @@ public struct BidiSetup: Codable, Sendable, Equatable {
 
 public struct BidiGenerationConfig: Codable, Sendable, Equatable {
     public let responseModalities: [String]?
+    public let speechConfig: BidiSpeechConfig?
 
-    public init(responseModalities: [String]? = ["AUDIO"]) {
+    public init(
+        responseModalities: [String]? = ["AUDIO"],
+        speechConfig: BidiSpeechConfig? = BidiSpeechConfig()
+    ) {
         self.responseModalities = responseModalities
+        self.speechConfig = speechConfig
+    }
+}
+
+public struct BidiSpeechConfig: Codable, Sendable, Equatable {
+    public let voiceConfig: BidiVoiceConfig?
+
+    public init(voiceConfig: BidiVoiceConfig? = BidiVoiceConfig()) {
+        self.voiceConfig = voiceConfig
+    }
+}
+
+public struct BidiVoiceConfig: Codable, Sendable, Equatable {
+    public let prebuiltVoiceConfig: BidiPrebuiltVoiceConfig?
+
+    public init(prebuiltVoiceConfig: BidiPrebuiltVoiceConfig? = BidiPrebuiltVoiceConfig()) {
+        self.prebuiltVoiceConfig = prebuiltVoiceConfig
+    }
+}
+
+public struct BidiPrebuiltVoiceConfig: Codable, Sendable, Equatable {
+    public let voiceName: String
+
+    public init(voiceName: String = "Kore") {
+        self.voiceName = voiceName
     }
 }
 

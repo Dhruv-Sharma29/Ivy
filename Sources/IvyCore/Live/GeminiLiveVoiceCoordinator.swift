@@ -52,9 +52,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public convenience init(
         apiKey: String,
         model: String = "models/gemini-3.1-flash-live-preview",
+        voiceName: String = "Kore",
         systemInstruction: String = IvyPersona.systemPrompt
     ) {
-        let client = GeminiLiveClient(apiKey: apiKey, model: model, systemInstruction: systemInstruction)
+        let client = GeminiLiveClient(apiKey: apiKey, model: model, voiceName: voiceName, systemInstruction: systemInstruction)
         let capture = SystemAudioCapture()
         let player = SystemLiveAudioPlayer()
         let detector = SystemWakeWordDetector()

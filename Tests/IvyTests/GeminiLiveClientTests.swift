@@ -42,6 +42,7 @@ struct GeminiLiveClientTests {
         let decoded = try JSONDecoder().decode(BidiClientMessage.self, from: setupData)
         #expect(decoded.setup?.model == "models/gemini-2.0-flash-exp")
         #expect(decoded.setup?.generationConfig?.responseModalities == ["AUDIO"])
+        #expect(decoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
         #expect(decoded.setup?.systemInstruction?.parts.first?.text == "You are Ivy.")
     }
 
