@@ -202,11 +202,13 @@ public enum ToolValidation {
         // 3. DateFormatter formats
         let dateFormats = [
             "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
+            "yyyy-MM-dd'T'HH:mmZZZZZ",
             "yyyy-MM-dd'T'HH:mm:ss",
             "yyyy-MM-dd'T'HH:mm",
+            "yyyy-MM-dd HH:mm:ssZZZZZ",
+            "yyyy-MM-dd HH:mmZZZZZ",
             "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd HH:mm",
-            "yyyy-MM-dd"
+            "yyyy-MM-dd HH:mm"
         ]
 
         let formatter = DateFormatter()
@@ -218,6 +220,14 @@ public enum ToolValidation {
             if let date = formatter.date(from: trimmed) {
                 return date
             }
+        }
+
+        // Explicitly reject date-only strings lacking a time component
+        let dateOnlyFormatter = DateFormatter()
+        dateOnlyFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateOnlyFormatter.dateFormat = "yyyy-MM-dd"
+        if dateOnlyFormatter.date(from: trimmed) != nil {
+            throw ToolError.invalidArgument("Date '\(trimmed)' is missing a time component. Ambiguous dates without a specified time are not allowed; please provide both date and time (e.g. '2026-10-01 14:00' or '2026-10-01T14:00:00Z').")
         }
 
         throw ToolError.invalidArgument("Cannot parse date '\(trimmed)'. Expected an ISO 8601 or standard date format (e.g. '2026-10-01T15:00:00Z' or '2026-10-01 15:00').")

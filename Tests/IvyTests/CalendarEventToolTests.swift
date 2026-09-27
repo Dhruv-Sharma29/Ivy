@@ -74,9 +74,17 @@ struct CalendarEventToolTests {
         let dateZ = try ToolValidation.parseCalendarDate("2026-10-01T14:00:00Z")
         #expect(dateZ.timeIntervalSince1970 > 0)
 
+        // ISO 8601 Z without seconds
+        let dateZNoSec = try ToolValidation.parseCalendarDate("2026-10-01T14:00Z")
+        #expect(dateZNoSec.timeIntervalSince1970 > 0)
+
         // ISO 8601 offset
         let dateOffset = try ToolValidation.parseCalendarDate("2026-10-01T14:00:00+02:00")
         #expect(dateOffset.timeIntervalSince1970 > 0)
+
+        // ISO 8601 offset without seconds
+        let dateOffsetNoSec = try ToolValidation.parseCalendarDate("2026-10-01T14:00+02:00")
+        #expect(dateOffsetNoSec.timeIntervalSince1970 > 0)
 
         // ISO 8601 fractional seconds
         let dateFrac = try ToolValidation.parseCalendarDate("2026-10-01T14:00:00.123Z")
@@ -86,9 +94,32 @@ struct CalendarEventToolTests {
         let dateLocal = try ToolValidation.parseCalendarDate("2026-10-01 14:00")
         #expect(dateLocal.timeIntervalSince1970 > 0)
 
-        // Date only
-        let dateOnly = try ToolValidation.parseCalendarDate("2026-10-01")
-        #expect(dateOnly.timeIntervalSince1970 > 0)
+        // Space separated date/time with Z
+        let dateSpaceZ = try ToolValidation.parseCalendarDate("2026-10-01 14:00Z")
+        #expect(dateSpaceZ.timeIntervalSince1970 > 0)
+    }
+
+    @Test("Ambiguous date without time throws invalidArgument explaining missing time")
+    func testAmbiguousDateWithoutTimeThrows() {
+        #expect(throws: ToolError.self) {
+            try ToolValidation.parseCalendarDate("2026-10-01")
+        }
+        do {
+            _ = try ToolValidation.parseCalendarDate("2026-10-01")
+        } catch let ToolError.invalidArgument(msg) {
+            #expect(msg.contains("missing a time component"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Timezone correctness: UTC Z and offset dates resolve to equivalent instant in time")
+    func testTimezoneCorrectness() throws {
+        let utcDate = try ToolValidation.parseCalendarDate("2026-10-01T12:00:00Z")
+        let plusTwoDate = try ToolValidation.parseCalendarDate("2026-10-01T14:00:00+02:00")
+        let plusTwoNoSec = try ToolValidation.parseCalendarDate("2026-10-01T14:00+02:00")
+        #expect(utcDate == plusTwoDate)
+        #expect(utcDate == plusTwoNoSec)
     }
 
     @Test("Missing argument validation throws missingArgument")

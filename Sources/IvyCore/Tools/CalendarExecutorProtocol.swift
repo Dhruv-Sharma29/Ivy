@@ -98,14 +98,19 @@ private enum MainActorCalendarLauncher {
             throw CalendarError.permissionDenied
         }
 
-        guard let calendar = store.defaultCalendarForNewEvents else {
+        store.reset()
+
+        let calendar = store.defaultCalendarForNewEvents
+            ?? store.calendars(for: .event).first(where: { $0.allowsContentModifications })
+        guard let calendar else {
             throw CalendarError.defaultCalendarNotFound
         }
 
+        let effectiveDuration = max(60, duration)
         let event = EKEvent(eventStore: store)
         event.title = title
         event.startDate = startDate
-        event.endDate = startDate.addingTimeInterval(duration)
+        event.endDate = startDate.addingTimeInterval(effectiveDuration)
         event.calendar = calendar
 
         do {

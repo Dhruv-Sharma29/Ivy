@@ -346,6 +346,13 @@ struct Phase2CConfirmationWorkflowTests {
         #expect(resp2.response["success"]?.boolValue == false)
         #expect(resp2.response["error"]?.stringValue?.contains("Cannot parse date") == true)
         #expect(provider.callCount == 0)
+
+        // 3. Ambiguous date without time
+        let dateOnlyCall = FunctionCall(name: "calendar_event", args: ["title": "Lunch", "date": "2026-10-01"], id: "c3")
+        let resp3 = await dispatcher.dispatch(dateOnlyCall)
+        #expect(resp3.response["success"]?.boolValue == false)
+        #expect(resp3.response["error"]?.stringValue?.contains("missing a time component") == true)
+        #expect(provider.callCount == 0)
     }
 }
 
