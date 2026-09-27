@@ -149,6 +149,79 @@ public enum ToolValidation {
 
         return trimmed
     }
+
+    /// Maximum allowed length for a calendar event title.
+    public static let maxCalendarTitleLength = 500
+
+    /// Validates and sanitizes a calendar event title.
+    /// Rejects empty titles, titles exceeding maximum length, and embedded null bytes.
+    public static func validateCalendarTitle(_ rawTitle: String) throws -> String {
+        let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ToolError.invalidArgument("Calendar event title cannot be empty.")
+        }
+
+        guard trimmed.count <= maxCalendarTitleLength else {
+            throw ToolError.invalidArgument("Calendar event title exceeds maximum length of \(maxCalendarTitleLength) characters.")
+        }
+
+        if rawTitle.contains("\0") {
+            throw ToolError.invalidArgument("Calendar event title contains invalid null bytes.")
+        }
+
+        return trimmed
+    }
+
+    /// Parses a calendar event date string.
+    /// Supports standard ISO 8601 formats and common date/time formats without guessing.
+    /// Throws ToolError.invalidArgument if the string cannot be parsed into a deterministic Date.
+    public static func parseCalendarDate(_ rawDate: String) throws -> Date {
+        let trimmed = rawDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ToolError.invalidArgument("Calendar date cannot be empty.")
+        }
+
+        if trimmed.contains("\0") {
+            throw ToolError.invalidArgument("Calendar date contains invalid null bytes.")
+        }
+
+        // 1. ISO 8601 with internet date/time (with timezone)
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        if let date = isoFormatter.date(from: trimmed) {
+            return date
+        }
+
+        // 2. ISO 8601 with fractional seconds
+        let isoFractionalFormatter = ISO8601DateFormatter()
+        isoFractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = isoFractionalFormatter.date(from: trimmed) {
+            return date
+        }
+
+        // 3. DateFormatter formats
+        let dateFormats = [
+            "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "yyyy-MM-dd"
+        ]
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+
+        for format in dateFormats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+
+        throw ToolError.invalidArgument("Cannot parse date '\(trimmed)'. Expected an ISO 8601 or standard date format (e.g. '2026-10-01T15:00:00Z' or '2026-10-01 15:00').")
+    }
 }
 
 
