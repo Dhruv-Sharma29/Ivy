@@ -12,5 +12,9 @@
     <string>1.0.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
 </dict>
 </plist>
