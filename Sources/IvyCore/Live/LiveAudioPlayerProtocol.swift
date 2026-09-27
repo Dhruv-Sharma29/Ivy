@@ -144,8 +144,15 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
     }
 
     public func stop() async {
-        playerNode.stop()
-        audioEngine.stop()
-        state.withLock { $0.isPlaying = false }
+        let wasPlaying = state.withLock { s -> Bool in
+            let was = s.isPlaying
+            s.isPlaying = false
+            return was
+        }
+
+        if wasPlaying {
+            playerNode.stop()
+            audioEngine.stop()
+        }
     }
 }

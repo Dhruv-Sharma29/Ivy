@@ -59,6 +59,41 @@ struct GeminiLiveDTOTests {
         #expect(message.serverContent == nil)
     }
 
+    @Test("BidiClientContent and BidiTurn encode correctly")
+    func testClientContentSerialization() throws {
+        let turn = BidiTurn(role: "user", parts: [BidiPart(text: "Hello from turn")])
+        let content = BidiClientContent(turns: [turn], turnComplete: true)
+        let clientMsg = BidiClientMessage(clientContent: content)
+
+        let data = try JSONEncoder().encode(clientMsg)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let contentDict = try #require(json["clientContent"] as? [String: Any])
+        #expect(contentDict["turnComplete"] as? Bool == true)
+        let turns = try #require(contentDict["turns"] as? [[String: Any]])
+        #expect(turns.first?["role"] as? String == "user")
+    }
+
+    @Test("LiveError localized descriptions are distinct and descriptive")
+    func testLiveErrorDescriptions() {
+        let errors: [LiveError] = [
+            .missingAPIKey,
+            .invalidURL,
+            .connectionFailed("unreachable"),
+            .setupFailed("handshake"),
+            .decodingError("corrupt"),
+            .serverError("500"),
+            .sessionClosed,
+            .audioEncodingFailed,
+            .microphonePermissionDenied,
+            .microphonePermissionRestricted
+        ]
+
+        for err in errors {
+            let desc = err.localizedDescription
+            #expect(!desc.isEmpty)
+        }
+    }
+
     @Test("BidiServerMessage decodes serverContent with audio and text turns")
     func testServerContentWithAudioAndText() throws {
         let audioBytes = Data([0x10, 0x20, 0x30, 0x40])

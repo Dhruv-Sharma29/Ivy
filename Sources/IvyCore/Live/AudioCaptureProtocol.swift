@@ -215,15 +215,18 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
     }
 
     public func stopCapture() async {
-        let continuation = state.withLock { s -> AsyncThrowingStream<Data, Error>.Continuation? in
+        let (wasCapturing, continuation) = state.withLock { s -> (Bool, AsyncThrowingStream<Data, Error>.Continuation?) in
+            let was = s.isCapturing
             s.isCapturing = false
             let cont = s.continuation
             s.continuation = nil
-            return cont
+            return (was, cont)
         }
 
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        if wasCapturing {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.stop()
+        }
         continuation?.finish()
     }
 }
