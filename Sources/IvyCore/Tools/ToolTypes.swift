@@ -232,6 +232,135 @@ public enum ToolValidation {
 
         throw ToolError.invalidArgument("Cannot parse date '\(trimmed)'. Expected an ISO 8601 or standard date format (e.g. '2026-10-01T15:00:00Z' or '2026-10-01 15:00').")
     }
+
+    /// Sensitive user and credential paths prohibited from access.
+    public static let prohibitedPathSegments: [String] = [
+        ".ssh",
+        ".gnupg",
+        ".aws",
+        ".git",
+        "Library/Keychains"
+    ]
+
+    /// Prohibited root system directories.
+    public static let prohibitedSystemRoots: [String] = [
+        "/System",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/etc",
+        "/var",
+        "/private",
+        "/opt"
+    ]
+
+    /// Maximum allowed path length.
+    public static let maxPathLength: Int = 4096
+
+    /// Validates, normalizes, and sanitizes a file path before execution.
+    /// Rejects empty paths, null bytes, path traversal sequences ('..'), system directories,
+    /// sensitive credential directories, and paths escaping the permitted scope.
+    public static func validateFilePath(
+        _ rawPath: String,
+        allowedRoot: URL? = nil
+    ) throws -> String {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ToolError.invalidArgument("File path cannot be empty.")
+        }
+
+        if rawPath.contains("\0") {
+            throw ToolError.invalidArgument("File path contains invalid null bytes.")
+        }
+
+        guard trimmed.count <= maxPathLength else {
+            throw ToolError.invalidArgument("File path exceeds maximum allowed length of \(maxPathLength) characters.")
+        }
+
+        // Prevent path traversal sequences
+        if trimmed == ".." || trimmed.contains("..") {
+            throw ToolError.invalidArgument("Path traversal sequence '..' is prohibited.")
+        }
+
+        // Check prohibited system roots directly
+        for sysRoot in prohibitedSystemRoots {
+            if trimmed == sysRoot || trimmed.hasPrefix(sysRoot + "/") {
+                throw ToolError.invalidArgument("Access to system path '\(sysRoot)' is prohibited.")
+            }
+        }
+
+        // Expand tilde or resolve relative path
+        let baseRoot = (allowedRoot ?? FileManager.default.homeDirectoryForCurrentUser).standardized
+        let expandedPath: String
+        if trimmed.hasPrefix("~") {
+            expandedPath = (trimmed as NSString).expandingTildeInPath
+        } else if trimmed.hasPrefix("/") {
+            expandedPath = trimmed
+        } else {
+            expandedPath = baseRoot.appendingPathComponent(trimmed).path
+        }
+
+        let standardizedURL = URL(fileURLWithPath: expandedPath).standardized
+        let standardizedPath = standardizedURL.path
+
+        // Check against sensitive credential path segments
+        for prohibited in prohibitedPathSegments {
+            if standardizedPath.contains("/" + prohibited + "/") ||
+               standardizedPath.hasSuffix("/" + prohibited) ||
+               standardizedPath.contains("/" + prohibited) {
+                throw ToolError.invalidArgument("Access to sensitive path containing '\(prohibited)' is prohibited.")
+            }
+        }
+
+        // Permitted scope check
+        let resolvedRoot = baseRoot.resolvingSymlinksInPath().path
+        let resolvedTarget = standardizedURL.resolvingSymlinksInPath().path
+
+        guard resolvedTarget == resolvedRoot || resolvedTarget.hasPrefix(resolvedRoot + "/") else {
+            throw ToolError.invalidArgument("Path '\(trimmed)' escapes permitted scope '\(resolvedRoot)'.")
+        }
+
+        return standardizedPath
+    }
+
+    /// Validates all arguments for a file_op call.
+    public static func validateFileOpArguments(
+        _ args: [String: AnyCodable],
+        allowedRoot: URL? = nil
+    ) throws -> (action: FileAction, path: String, content: String?) {
+        guard let actionValue = args["action"] else {
+            throw ToolError.missingArgument("action")
+        }
+        guard let actionString = actionValue.stringValue else {
+            throw ToolError.invalidArgument("Argument 'action' must be a string (read, write, delete).")
+        }
+        guard let action = FileAction(rawValue: actionString.lowercased()) else {
+            throw ToolError.invalidArgument("Invalid file action '\(actionString)'. Supported actions: read, write, delete.")
+        }
+
+        guard let pathValue = args["path"] else {
+            throw ToolError.missingArgument("path")
+        }
+        guard let rawPath = pathValue.stringValue else {
+            throw ToolError.invalidArgument("Argument 'path' must be a string.")
+        }
+        let validatedPath = try validateFilePath(rawPath, allowedRoot: allowedRoot)
+
+        let content: String?
+        if action == .write {
+            guard let contentValue = args["content"] else {
+                throw ToolError.missingArgument("content")
+            }
+            guard let contentString = contentValue.stringValue else {
+                throw ToolError.invalidArgument("Argument 'content' must be a string for write operation.")
+            }
+            content = contentString
+        } else {
+            content = nil
+        }
+
+        return (action, validatedPath, content)
+    }
 }
 
 
