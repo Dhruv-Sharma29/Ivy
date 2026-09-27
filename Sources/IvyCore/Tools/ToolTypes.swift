@@ -413,6 +413,49 @@ public enum ToolValidation {
 
         return (action, validatedPath, content)
     }
+
+    /// Maximum allowed length for a shell command string (32 KB).
+    public static let maxShellCommandLength: Int = 32_768
+
+    /// Validates a raw shell command string.
+    /// Rejects empty commands, commands exceeding maximum length, and null bytes.
+    public static func validateShellCommand(_ rawCommand: String) throws -> String {
+        let trimmed = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw ToolError.invalidArgument("Shell command cannot be empty.")
+        }
+
+        if rawCommand.contains("\0") {
+            throw ToolError.invalidArgument("Shell command contains invalid null bytes.")
+        }
+
+        guard rawCommand.count <= maxShellCommandLength else {
+            throw ToolError.invalidArgument("Shell command exceeds maximum allowed length of \(maxShellCommandLength) characters.")
+        }
+
+        return trimmed
+    }
+
+    /// Validates arguments dictionary for a run_shell call.
+    /// Rejects missing 'command', invalid types, and unexpected arguments.
+    public static func validateShellArguments(_ args: [String: AnyCodable]) throws -> String {
+        guard let commandValue = args["command"] else {
+            throw ToolError.missingArgument("command")
+        }
+
+        guard let commandString = commandValue.stringValue else {
+            throw ToolError.invalidArgument("Argument 'command' must be a string.")
+        }
+
+        let allowedKeys: Set<String> = ["command"]
+        for key in args.keys {
+            if !allowedKeys.contains(key) {
+                throw ToolError.invalidArgument("Unexpected argument: '\(key)'.")
+            }
+        }
+
+        return try validateShellCommand(commandString)
+    }
 }
 
 
