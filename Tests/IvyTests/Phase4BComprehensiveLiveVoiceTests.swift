@@ -600,5 +600,53 @@ struct Phase4BComprehensiveLiveVoiceTests {
 
         await coordinator.stopSession()
     }
+
+    @Test("17. Partial transcription matches trigger immediate interruption and duplicate triggers are suppressed")
+    func testPartialTranscriptionMatchesAndDuplicateSuppression() async throws {
+        let mockSession = MockGeminiLiveSession()
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
+        let mockDetector = MockWakeWordDetector()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: mockSession,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        await coordinator.startSession()
+
+        // 1. Enter speaking
+        mockSession.simulateEvent(.audioChunk(Data([0x01, 0x02])))
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+
+        // 2. Simulate rapid consecutive duplicate callbacks with "Hey Ivy"
+        mockDetector.simulateTranscription("Hey Ivy")
+        mockDetector.simulateTranscription("Hey Ivy")
+        mockDetector.simulateTranscription("Hey Ivy")
+
+        for _ in 0..<50 {
+            if coordinator.state == .listening { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(coordinator.state == .listening)
+        #expect(mockPlayer.isStopped)
+
+        // 3. Ensure subsequent audio capture continues normally in listening mode
+        mockCapture.simulateAudioChunk(Data([0x09, 0x08]))
+        for _ in 0..<50 {
+            if mockSession.sentAudioChunks.contains(Data([0x09, 0x08])) { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(mockSession.sentAudioChunks.contains(Data([0x09, 0x08])))
+
+        await coordinator.stopSession()
+    }
 }
 

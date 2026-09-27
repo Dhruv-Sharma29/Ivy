@@ -180,7 +180,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     /// Handles explicit wake phrase ("Hey Ivy") detection while Ivy is speaking.
     public func handleWakePhraseDetected() async {
-        guard state == .speaking || state == .interrupting else { return }
+        guard state == .speaking else { return }
+        state = .interrupting
         #if DEBUG
         print("[WAKE] HEY IVY DETECTED")
         print("[WAKE] interruption requested")
