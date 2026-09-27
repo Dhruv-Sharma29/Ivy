@@ -3,11 +3,13 @@ import IvyCore
 
 public struct IvyPopoverView: View {
     @ObservedObject public var brain: IvyBrain
+    @StateObject public var voiceManager: VoicePlaybackManager
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
 
-    public init(brain: IvyBrain) {
+    public init(brain: IvyBrain, voiceManager: VoicePlaybackManager? = nil) {
         self.brain = brain
+        self._voiceManager = StateObject(wrappedValue: voiceManager ?? VoicePlaybackManager())
     }
 
     public var body: some View {
@@ -70,6 +72,7 @@ public struct IvyPopoverView: View {
             .help("Configure Gemini API Key")
 
             Button {
+                voiceManager.stop()
                 brain.clearHistory()
             } label: {
                 Image(systemName: "trash")
@@ -153,7 +156,7 @@ public struct IvyPopoverView: View {
                 } else {
                     LazyVStack(spacing: 12) {
                         ForEach(brain.messages) { message in
-                            ChatBubbleView(message: message)
+                            ChatBubbleView(message: message, voiceManager: voiceManager)
                                 .id(message.id)
                         }
 
