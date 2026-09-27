@@ -27,7 +27,14 @@ public final class ElevenLabsSpeechSynthesizer: SpeechSynthesizer, Sendable {
             throw SpeechError.missingAPIKey
         }
 
-        guard var urlComponents = URLComponents(string: "\(configuration.baseURL)/\(configuration.voiceID)") else {
+        let trimmedBase = configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedVoice = configuration.voiceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBase.isEmpty, !trimmedVoice.isEmpty else {
+            throw SpeechError.decodingError("Invalid ElevenLabs configuration: baseURL or voiceID cannot be empty.")
+        }
+
+        guard var urlComponents = URLComponents(string: "\(trimmedBase)/\(trimmedVoice)"),
+              urlComponents.scheme == "https" || urlComponents.scheme == "http" else {
             throw SpeechError.networkError("Invalid endpoint URL for ElevenLabs voice.")
         }
 
