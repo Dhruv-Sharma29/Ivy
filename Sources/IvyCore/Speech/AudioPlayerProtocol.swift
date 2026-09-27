@@ -134,6 +134,7 @@ public final class SystemAudioPlayer: NSObject, AudioPlayerProtocol, AVAudioPlay
 
     public func stop() {
         if let player = self.player {
+            player.delegate = nil
             if player.isPlaying {
                 player.stop()
             }
