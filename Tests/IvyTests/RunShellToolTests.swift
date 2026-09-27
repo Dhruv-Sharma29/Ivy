@@ -231,5 +231,58 @@ struct RunShellToolExecutionTests {
         let executor: any ShellExecutorProtocol = SystemShellExecutor()
         #expect(executor is SystemShellExecutor)
     }
+
+    @Test("Generic execution error returns structured failure ToolResult")
+    func testGenericErrorReturnsFailure() async throws {
+        let mock = MockShellExecutor()
+        mock.errorToThrow = NSError(domain: "test.ivy", code: 99, userInfo: [NSLocalizedDescriptionKey: "Unexpected I/O failure"])
+        let tool = RunShellTool(executor: mock)
+
+        let result = try await tool.execute(arguments: ["command": AnyCodable("ls")])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("Unexpected I/O failure"))
+    }
+
+    @Test("Non-zero exit code captures both stdout and stderr in formatted output and ToolResult.failure")
+    func testNonZeroExitWithBothStdoutAndStderr() async throws {
+        let mock = MockShellExecutor()
+        mock.resultToReturn = ShellCommandResult(
+            command: "make build",
+            stdout: "Building target...\n",
+            stderr: "fatal error: header not found\n",
+            exitCode: 2,
+            duration: 0.05
+        )
+        let tool = RunShellTool(executor: mock)
+
+        let result = try await tool.execute(arguments: ["command": AnyCodable("make build")])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("Building target..."))
+        #expect(result.output.contains("[stderr]:\nfatal error: header not found"))
+    }
+
+    @Test("Command is passed verbatim to executor with no automatic sudo or hidden modifications")
+    func testNoAutomaticSudoOrCommandModification() async throws {
+        let mock = MockShellExecutor()
+        mock.resultToReturn = ShellCommandResult(
+            command: "tar -czf backup.tar.gz /var/log/*.log",
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            duration: 0.01
+        )
+        let tool = RunShellTool(executor: mock)
+
+        let rawCommand = "tar -czf backup.tar.gz /var/log/*.log"
+        let result = try await tool.execute(arguments: ["command": AnyCodable(rawCommand)])
+
+        #expect(result.isError == false)
+        #expect(mock.recordedCommands.count == 1)
+        let executed = mock.recordedCommands[0].command
+        #expect(executed == rawCommand)
+        #expect(executed.hasPrefix("sudo ") == false)
+    }
 }
 

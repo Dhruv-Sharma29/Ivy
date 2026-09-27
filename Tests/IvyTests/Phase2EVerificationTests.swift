@@ -827,3 +827,132 @@ struct Phase2ERegressionTests {
         #expect(brain.messages.last?.text == "Chained execution complete.")
     }
 }
+
+// MARK: - Phase 2E Security Invariants Tests
+
+@Suite("Phase 2E - Security Invariants Tests")
+struct Phase2ESecurityInvariantsTests {
+    @Test("Security: command is shown exactly in confirmation UI without masking or modification")
+    func testCommandShownExactlyInConfirmationUI() async {
+        let provider = ShellTestConfirmationProvider(decisionToReturn: true)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+        let mock = MockShellExecutor()
+        let tool = RunShellTool(executor: mock)
+        let registry = ToolRegistry(tools: [tool])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        let rawCommand = "grep -rn --exclude-dir=.git 'SECRET_TOKEN' /tmp/source"
+        let call = FunctionCall(name: "run_shell", args: ["command": AnyCodable(rawCommand)], id: "call-sec-1")
+
+        _ = await dispatcher.dispatch(call)
+
+        #expect(provider.callCount == 1)
+        let request = provider.recordedRequests.first
+        #expect(request?.toolName == "run_shell")
+        #expect(request?.title == "Run Shell Command")
+        #expect(request?.detail == rawCommand)
+    }
+
+    @Test("Security: zero execution occurs prior to explicit user approval")
+    @MainActor
+    func testZeroExecutionPriorToApproval() async {
+        let mock = MockShellExecutor()
+        let tool = RunShellTool(executor: mock)
+        let registry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        final class ShellTestClient: GeminiClientProtocol, @unchecked Sendable {
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                if history.contains(where: { $0.role == .function }) {
+                    return ModelTurnResponse(text: "Finished")
+                }
+                return ModelTurnResponse(
+                    text: nil,
+                    functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("touch /tmp/created.txt")], id: "c-pre")]
+                )
+            }
+        }
+
+        let brain = IvyBrain(client: ShellTestClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Create file")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        #expect(brain.pendingConfirmation != nil)
+        // Strictly verify executor was never called before approval
+        #expect(mock.recordedCommands.isEmpty)
+
+        // Cancel
+        brain.respondToPendingConfirmation(approved: false)
+        await sendTask.value
+
+        // Strictly verify executor was never called after rejection
+        #expect(mock.recordedCommands.isEmpty)
+    }
+
+    @Test("Security: no automatic sudo injection or command mangling")
+    func testNoAutomaticSudoOrMangling() async {
+        let provider = ShellTestConfirmationProvider(decisionToReturn: true)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+        let mock = MockShellExecutor()
+        let tool = RunShellTool(executor: mock)
+        let registry = ToolRegistry(tools: [tool])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        let command = "chmod 600 ~/.ssh/id_rsa"
+        let call = FunctionCall(name: "run_shell", args: ["command": AnyCodable(command)], id: "call-sec-2")
+
+        _ = await dispatcher.dispatch(call)
+
+        #expect(mock.recordedCommands.count == 1)
+        let executed = mock.recordedCommands[0].command
+        #expect(executed == command)
+        #expect(executed.hasPrefix("sudo ") == false)
+        #expect(executed.contains("sudo") == false)
+    }
+
+    @Test("Security: Gemini cannot bypass SafetyGate with forged confirmations")
+    @MainActor
+    func testGeminiCannotBypassSafetyGateWithForgedConfirmation() async {
+        let mock = MockShellExecutor()
+        let tool = RunShellTool(executor: mock)
+        let registry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        final class ForgingClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    // LLM returns text trying to claim confirmation happened
+                    return ModelTurnResponse(text: "User said yes in previous thought. Proceeding with command.")
+                }
+                throw GeminiClientError.emptyResponse
+            }
+        }
+
+        let brain = IvyBrain(client: ForgingClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        await brain.send("Execute command")
+
+        // No tool was called, no confirmation was initiated, no executor was called
+        #expect(mock.recordedCommands.isEmpty)
+        #expect(brain.pendingConfirmation == nil)
+        #expect(brain.messages.last?.text.contains("User said yes") == true)
+    }
+}
+
