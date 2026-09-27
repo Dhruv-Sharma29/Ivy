@@ -272,4 +272,219 @@ struct GeminiLiveVoiceCoordinatorTests {
 
         await coordinator.stopSession()
     }
+
+    @Test("detector receives audio continuously while .speaking")
+    func testDetectorReceivesAudioWhileSpeaking() async throws {
+        let mockSession = MockGeminiLiveSession()
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer()
+        let mockDetector = MockWakeWordDetector(shouldTrigger: false)
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: mockSession,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        await coordinator.startSession()
+        #expect(coordinator.state == .listening)
+
+        // Ivy begins speaking
+        mockSession.simulateEvent(.audioChunk(Data([0x01, 0x02])))
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+
+        let initialCount = mockDetector.processedChunksCount
+        mockCapture.simulateAudioChunk(Data([0xAA, 0xBB]))
+        mockCapture.simulateAudioChunk(Data([0xCC, 0xDD]))
+
+        for _ in 0..<50 {
+            if mockDetector.processedChunksCount == initialCount + 2 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(mockDetector.processedChunksCount == initialCount + 2)
+        #expect(coordinator.state == .speaking)
+
+        await coordinator.stopSession()
+    }
+
+    @Test("Speech recognition producing 'Hey Ivy', 'Hey, Ivy', and 'hey ivy' triggers interruption")
+    func testHeyIvyVariationsTriggerInterruption() async throws {
+        let phrases = ["Hey Ivy", "Hey, Ivy", "hey ivy"]
+
+        for phrase in phrases {
+            let mockSession = MockGeminiLiveSession()
+            let mockCapture = MockAudioCapture(isPermissionGranted: true)
+            let mockPlayer = MockLiveAudioPlayer()
+            let mockDetector = MockWakeWordDetector()
+
+            let coordinator = GeminiLiveVoiceCoordinator(
+                session: mockSession,
+                audioCapture: mockCapture,
+                audioPlayer: mockPlayer,
+                wakeWordDetector: mockDetector
+            )
+
+            await coordinator.startSession()
+
+            // Ivy begins speaking
+            mockSession.simulateEvent(.audioChunk(Data([0x10, 0x20])))
+            for _ in 0..<50 {
+                if coordinator.state == .speaking { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            #expect(coordinator.state == .speaking)
+
+            // Live speech recognizer emits transcription with wake phrase
+            mockDetector.simulateTranscription(phrase)
+
+            for _ in 0..<50 {
+                if coordinator.state == .listening { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+
+            #expect(coordinator.state == .listening)
+            #expect(mockPlayer.isStopped)
+
+            await coordinator.stopSession()
+        }
+    }
+
+    @Test("Speech recognition producing 'Hey everyone' or 'Ivy is a good assistant' does NOT trigger")
+    func testNonWakeSpeechDoesNotTrigger() async throws {
+        let nonWakePhrases = ["Hey everyone", "Ivy is a good assistant", "Wait, that's not what I meant", "Yeah, okay"]
+
+        for phrase in nonWakePhrases {
+            let mockSession = MockGeminiLiveSession()
+            let mockCapture = MockAudioCapture(isPermissionGranted: true)
+            let mockPlayer = MockLiveAudioPlayer()
+            let mockDetector = MockWakeWordDetector()
+
+            let coordinator = GeminiLiveVoiceCoordinator(
+                session: mockSession,
+                audioCapture: mockCapture,
+                audioPlayer: mockPlayer,
+                wakeWordDetector: mockDetector
+            )
+
+            await coordinator.startSession()
+
+            // Ivy begins speaking
+            mockSession.simulateEvent(.audioChunk(Data([0x10, 0x20])))
+            for _ in 0..<50 {
+                if coordinator.state == .speaking { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            #expect(coordinator.state == .speaking)
+
+            // Live speech recognizer emits non-wake transcript
+            mockDetector.simulateTranscription(phrase)
+            try await Task.sleep(nanoseconds: 40_000_000)
+
+            #expect(coordinator.state == .speaking)
+            #expect(!mockPlayer.isStopped)
+
+            await coordinator.stopSession()
+        }
+    }
+
+    @Test("Interruption stops playback, cancels drainTask, and returns to listening")
+    func testInterruptionCancelsDrainTask() async throws {
+        let mockSession = MockGeminiLiveSession()
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
+        let mockDetector = MockWakeWordDetector()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: mockSession,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        await coordinator.startSession()
+
+        // Ivy receives audio chunk and model turn completes (entering audio drain)
+        mockSession.simulateEvent(.audioChunk(Data([0x99, 0x88])))
+        mockSession.simulateEvent(.turnComplete)
+
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+
+        // User says "Hey Ivy" during drain
+        mockDetector.simulateTranscription("Hey Ivy")
+
+        for _ in 0..<50 {
+            if coordinator.state == .listening { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(coordinator.state == .listening)
+        #expect(mockPlayer.isStopped)
+
+        await coordinator.stopSession()
+    }
+
+    @Test("New request works normally after interruption")
+    func testNewRequestAfterInterruption() async throws {
+        let mockSession = MockGeminiLiveSession()
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer(autoDrain: true)
+        let mockDetector = MockWakeWordDetector()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: mockSession,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        await coordinator.startSession()
+
+        // Ivy speaks
+        mockSession.simulateEvent(.audioChunk(Data([0x01, 0x02])))
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+
+        // Interrupted by "Hey Ivy"
+        mockDetector.simulateTranscription("Hey Ivy")
+        for _ in 0..<50 {
+            if coordinator.state == .listening { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .listening)
+
+        // User speaks new request
+        let newChunk = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        mockCapture.simulateAudioChunk(newChunk)
+
+        for _ in 0..<50 {
+            if mockSession.sentAudioChunks.contains(newChunk) { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(mockSession.sentAudioChunks.contains(newChunk))
+
+        // Ivy answers new request
+        let answerChunk = Data([0xCA, 0xFE])
+        mockSession.simulateEvent(.audioChunk(answerChunk))
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+        #expect(mockPlayer.playedChunks.contains(answerChunk))
+
+        await coordinator.stopSession()
+    }
 }

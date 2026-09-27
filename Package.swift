@@ -27,6 +27,14 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/Ivy/Resources/Info.plist"
+                ])
             ]
         ),
         .testTarget(

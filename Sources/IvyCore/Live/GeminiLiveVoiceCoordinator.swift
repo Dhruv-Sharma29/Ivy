@@ -46,6 +46,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         self.audioCapture = audioCapture
         self.audioPlayer = audioPlayer
         self.wakeWordDetector = wakeWordDetector
+
+        wakeWordDetector.setTranscriptionHandler { [weak self] transcript in
+            Task { @MainActor [weak self] in
+                await self?.processTranscriptionForInterruption(transcript)
+            }
+        }
     }
 
     /// Convenience initializer using production implementations.
@@ -91,6 +97,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             return
         }
 
+        // Request speech recognition permission for wake phrase interruption
+        _ = await wakeWordDetector.requestPermission()
+
         // Connect to Gemini Live
         do {
             try await session.connect()
@@ -124,6 +133,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                         guard let self else { break }
 
                         if self.state == .speaking {
+                            #if DEBUG
+                            print("[WAKE] state=speaking")
+                            print("[WAKE] microphone buffer received")
+                            #endif
                             // Monitoring mode: do NOT stream mic audio to Gemini Live to prevent server VAD barge-in.
                             // Only check for the explicit "Hey Ivy" wake phrase.
                             let detected = await self.wakeWordDetector.processAudioChunk(chunk)
@@ -166,6 +179,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Handles explicit wake phrase ("Hey Ivy") detection while Ivy is speaking.
     public func handleWakePhraseDetected() async {
         guard state == .speaking || state == .interrupting else { return }
+        #if DEBUG
+        print("[WAKE] HEY IVY DETECTED")
+        print("[WAKE] interrupting playback")
+        #endif
         state = .interrupting
         drainTask?.cancel()
         drainTask = nil
@@ -173,15 +190,23 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         await audioPlayer.stop()
         await wakeWordDetector.reset()
         state = .listening
+        #if DEBUG
+        print("[WAKE] state=listening")
+        #endif
     }
 
     /// Evaluates transcription text directly for "Hey Ivy" interruption.
     public func processTranscriptionForInterruption(_ text: String) async {
-        if state == .speaking {
-            let detected = await wakeWordDetector.processText(text)
-            if detected {
-                await handleWakePhraseDetected()
-            }
+        guard state == .speaking else { return }
+        #if DEBUG
+        print("[WAKE] matcher input: \"\(text)\"")
+        #endif
+        let isMatch = WakePhraseMatcher.containsWakePhrase(text)
+        #if DEBUG
+        print("[WAKE] matcher result: \(isMatch)")
+        #endif
+        if isMatch {
+            await handleWakePhraseDetected()
         }
     }
 
