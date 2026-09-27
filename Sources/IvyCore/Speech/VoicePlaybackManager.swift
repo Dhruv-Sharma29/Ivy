@@ -25,18 +25,40 @@ public final class VoicePlaybackManager: ObservableObject {
     @Published public private(set) var state: VoicePlaybackState = .idle
     @Published public private(set) var currentMessageId: UUID? = nil
     @Published public private(set) var errorMessage: String? = nil
+    @Published public var apiKey: String {
+        didSet {
+            configurableKeyProvider?.setAPIKey(apiKey)
+        }
+    }
 
     public let synthesizer: SpeechSynthesizer
     public let player: AudioPlayerProtocol
+    private let configurableKeyProvider: ConfigurableElevenLabsKeyProvider?
 
     private var activeTask: Task<Void, Never>? = nil
     private var generationToken: UUID = UUID()
 
     public init(
         synthesizer: SpeechSynthesizer? = nil,
-        player: AudioPlayerProtocol? = nil
+        player: AudioPlayerProtocol? = nil,
+        apiKey: String? = nil
     ) {
-        self.synthesizer = synthesizer ?? ElevenLabsSpeechSynthesizer()
+        let initialKey = apiKey ?? ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"] ?? ""
+        self.apiKey = initialKey
+        if let synthesizer {
+            self.synthesizer = synthesizer
+            if let elevenSynth = synthesizer as? ElevenLabsSpeechSynthesizer,
+               let configProvider = elevenSynth.keyProvider as? ConfigurableElevenLabsKeyProvider {
+                self.configurableKeyProvider = configProvider
+                configProvider.setAPIKey(initialKey)
+            } else {
+                self.configurableKeyProvider = nil
+            }
+        } else {
+            let keyProvider = ConfigurableElevenLabsKeyProvider(initialKey: initialKey)
+            self.configurableKeyProvider = keyProvider
+            self.synthesizer = ElevenLabsSpeechSynthesizer(keyProvider: keyProvider)
+        }
         self.player = player ?? SystemAudioPlayer()
     }
 
@@ -122,6 +144,14 @@ public final class VoicePlaybackManager: ObservableObject {
         }
     }
 
+    /// Clears any active error state and error message.
+    public func clearError() {
+        if case .error = state {
+            state = .idle
+        }
+        errorMessage = nil
+    }
+
     /// Stops any active speech synthesis request and audio playback immediately.
     public func stop() {
         // Invalidate generation token to ignore any in-flight synthesis responses
@@ -134,9 +164,7 @@ public final class VoicePlaybackManager: ObservableObject {
 
         player.stop()
 
-        if state.isBusy {
-            state = .idle
-        }
+        state = .idle
         currentMessageId = nil
     }
 }

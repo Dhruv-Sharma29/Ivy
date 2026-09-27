@@ -8,7 +8,7 @@ public final class ElevenLabsSpeechSynthesizer: SpeechSynthesizer, Sendable {
 
     public init(
         configuration: ElevenLabsConfiguration = ElevenLabsConfiguration(),
-        keyProvider: ElevenLabsKeyProvider = EnvironmentElevenLabsKeyProvider(),
+        keyProvider: ElevenLabsKeyProvider = ConfigurableElevenLabsKeyProvider(),
         session: URLSession = .shared
     ) {
         self.configuration = configuration
@@ -114,6 +114,13 @@ public final class ElevenLabsSpeechSynthesizer: SpeechSynthesizer, Sendable {
         case 401, 403:
             let detail = parseErrorDetail(from: data, sanitize: sanitizeText)
             throw SpeechError.invalidAPIKey(detail.isEmpty ? "Unauthorized (HTTP \(httpResponse.statusCode))" : detail)
+
+        case 402:
+            let detail = parseErrorDetail(from: data, sanitize: sanitizeText)
+            throw SpeechError.serverError(
+                statusCode: 402,
+                message: detail.isEmpty ? "Payment or subscription required (HTTP 402)" : detail
+            )
 
         case 404:
             throw SpeechError.voiceNotFound(configuration.voiceID)

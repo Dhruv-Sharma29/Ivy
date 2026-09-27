@@ -3,7 +3,7 @@ import IvyCore
 
 public struct IvyPopoverView: View {
     @ObservedObject public var brain: IvyBrain
-    @StateObject public var voiceManager: VoicePlaybackManager
+    @ObservedObject public var voiceManager: VoicePlaybackManager
     @StateObject public var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
@@ -14,7 +14,7 @@ public struct IvyPopoverView: View {
         liveVoiceCoordinator: GeminiLiveVoiceCoordinator? = nil
     ) {
         self.brain = brain
-        self._voiceManager = StateObject(wrappedValue: voiceManager ?? VoicePlaybackManager())
+        self.voiceManager = voiceManager ?? VoicePlaybackManager()
         self._liveVoiceCoordinator = StateObject(
             wrappedValue: liveVoiceCoordinator ?? GeminiLiveVoiceCoordinator(apiKey: brain.apiKey)
         )
@@ -32,6 +32,11 @@ public struct IvyPopoverView: View {
 
             if case .error(let msg) = liveVoiceCoordinator.state {
                 voiceErrorBanner(message: msg)
+                Divider()
+            }
+
+            if let ttsError = voiceManager.errorMessage {
+                ttsErrorBanner(message: ttsError)
                 Divider()
             }
 
@@ -91,7 +96,7 @@ public struct IvyPopoverView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Configure Gemini API Key")
+            .help("Configure API Keys")
 
             Button {
                 voiceManager.stop()
@@ -264,22 +269,71 @@ public struct IvyPopoverView: View {
         .background(Color.orange.opacity(0.12))
     }
 
+    // MARK: - TTS Error Banner
+    private func ttsErrorBanner(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "speaker.badge.exclamationmark.fill")
+                .foregroundStyle(.orange)
+                .font(.system(size: 12))
+
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+
+            Spacer()
+
+            Button {
+                voiceManager.clearError()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss error")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.12))
+    }
+
     // MARK: - Settings Bar
     private var settingsBar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Gemini API Key")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Gemini API Key")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
 
-            HStack {
-                SecureField("Enter Gemini API key", text: $brain.apiKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
+                HStack {
+                    SecureField("Enter Gemini API key", text: $brain.apiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
 
-                if !brain.apiKey.isEmpty {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 13))
+                    if !brain.apiKey.isEmpty {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 13))
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("ElevenLabs API Key")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    SecureField("Enter ElevenLabs API key", text: $voiceManager.apiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+
+                    if !voiceManager.apiKey.isEmpty {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 13))
+                    }
                 }
             }
         }

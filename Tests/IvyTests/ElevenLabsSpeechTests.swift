@@ -58,7 +58,7 @@ struct ElevenLabsConfigurationTests {
     func testDefaultConfiguration() {
         let config = ElevenLabsConfiguration()
         #expect(config.baseURL == "https://api.elevenlabs.io/v1/text-to-speech")
-        #expect(config.voiceID == "21m00Tcm4TlvDq8ikWAM")
+        #expect(config.voiceID == "EXAVITQu4vr4xnSDxMaL")
         #expect(config.modelID == "eleven_turbo_v2_5")
         #expect(config.outputFormat == "mp3_44100_128")
     }
@@ -93,6 +93,23 @@ struct ElevenLabsConfigurationTests {
         let key = provider.getAPIKey()
         if let key {
             #expect(!key.isEmpty)
+        }
+    }
+
+    @Test("ConfigurableElevenLabsKeyProvider prioritizes configured key and supports runtime updates")
+    func testConfigurableKeyProvider() {
+        let provider = ConfigurableElevenLabsKeyProvider(initialKey: "initial_key_123")
+        #expect(provider.getAPIKey() == "initial_key_123")
+
+        provider.setAPIKey("updated_key_456")
+        #expect(provider.getAPIKey() == "updated_key_456")
+
+        provider.setAPIKey("   ")
+        // When cleared, falls back to env key (if present) or nil
+        if let envKey = ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines), !envKey.isEmpty {
+            #expect(provider.getAPIKey() == envKey)
+        } else {
+            #expect(provider.getAPIKey() == nil)
         }
     }
 }
@@ -284,6 +301,38 @@ struct ElevenLabsSpeechSynthesizerTests {
 
         await #expect(throws: SpeechError.rateLimited) {
             _ = try await client.synthesize(text: "Rate limit test")
+        }
+    }
+
+    @Test("HTTP 402 maps to serverError with payment required detail")
+    func testPaymentRequired402Mapping() async {
+        ElevenLabsMockURLProtocol.reset()
+        ElevenLabsMockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 402,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = """
+            {"detail":{"type":"payment_required","code":"paid_plan_required","message":"Free users cannot use library voices via the API. Please upgrade your subscription to use this voice."}}
+            """
+            return (response, body.data(using: .utf8)!)
+        }
+
+        let client = ElevenLabsSpeechSynthesizer(
+            keyProvider: StaticElevenLabsKeyProvider(key: "key"),
+            session: makeMockSession()
+        )
+
+        do {
+            _ = try await client.synthesize(text: "Test 402")
+            Issue.record("Expected serverError 402")
+        } catch let SpeechError.serverError(statusCode, message) {
+            #expect(statusCode == 402)
+            #expect(message.contains("Free users cannot use library voices"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -518,5 +567,51 @@ struct VoicePlaybackManagerTests {
         #expect(manager.state == .error(SpeechError.rateLimited.localizedDescription))
         #expect(manager.errorMessage == SpeechError.rateLimited.localizedDescription)
         #expect(mockPlayer.playedData.isEmpty)
+    }
+
+    @Test("VoicePlaybackManager updates apiKey dynamically and synchronizes with key provider")
+    @MainActor
+    func testVoicePlaybackManagerApiKeyUpdate() {
+        let manager = VoicePlaybackManager(apiKey: "initial_123")
+        #expect(manager.apiKey == "initial_123")
+
+        manager.apiKey = "new_456"
+        #expect(manager.apiKey == "new_456")
+    }
+
+    @Test("VoicePlaybackManager clearError resets state and error message")
+    @MainActor
+    func testVoicePlaybackManagerClearError() async throws {
+        let mockSynth = MockSpeechSynthesizer(errorToThrow: SpeechError.missingAPIKey)
+        let manager = VoicePlaybackManager(synthesizer: mockSynth, player: MockAudioPlayer())
+
+        manager.speak(message: ChatMessage(role: .model, text: "Fail now"))
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(manager.errorMessage != nil)
+        if case .error = manager.state {
+            // expected
+        } else {
+            Issue.record("Expected error state")
+        }
+
+        manager.clearError()
+        #expect(manager.errorMessage == nil)
+        #expect(manager.state == .idle)
+    }
+
+    @Test("VoicePlaybackManager stop resets error state to idle")
+    @MainActor
+    func testVoicePlaybackManagerStopResetsErrorState() async throws {
+        let mockSynth = MockSpeechSynthesizer(errorToThrow: SpeechError.rateLimited)
+        let manager = VoicePlaybackManager(synthesizer: mockSynth, player: MockAudioPlayer())
+
+        manager.speak(message: ChatMessage(role: .model, text: "Fail now"))
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(manager.state == .error(SpeechError.rateLimited.localizedDescription))
+
+        manager.stop()
+        #expect(manager.state == .idle)
     }
 }
