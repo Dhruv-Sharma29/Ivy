@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import IvyCore
 
 @Suite("Phase 4B - Comprehensive Live Voice Tests")
@@ -401,6 +402,203 @@ struct Phase4BComprehensiveLiveVoiceTests {
         }
         #expect(msg.contains("Failed to connect to Ivy Live:"))
         #expect(!msg.contains("Gemini Live"))
+    }
+
+    @Test("13. Voice Lock: Restart and interruption followed by new turn preserves Kore voice")
+    func testVoiceLockOnRestartAndInterruption() async throws {
+        let transportsLock = OSAllocatedUnfairLock(initialState: [MockWebSocketTransport]())
+        let client = GeminiLiveClient(
+            apiKey: "test-key",
+            webSocketFactory: { _ in
+                let t = MockWebSocketTransport()
+                transportsLock.withLock { $0.append(t) }
+                return t
+            }
+        )
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer()
+        let mockDetector = MockWakeWordDetector()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: client,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        // 1. Initial start
+        await coordinator.startSession()
+        #expect(transportsLock.withLock { $0.count } == 1)
+        let firstTransport = transportsLock.withLock { $0[0] }
+        guard case .string(let setup1) = firstTransport.sentMessages.first else {
+            Issue.record("Expected setup message")
+            return
+        }
+        let decoded1 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setup1.data(using: .utf8)))
+        #expect(decoded1.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        // Simulate server setupComplete
+        firstTransport.enqueueReceiveString("{\"setupComplete\": {}}")
+
+        // 2. Restart session
+        await coordinator.stopSession()
+        await coordinator.startSession()
+        #expect(transportsLock.withLock { $0.count } == 2)
+        let secondTransport = transportsLock.withLock { $0[1] }
+        guard case .string(let setup2) = secondTransport.sentMessages.first else {
+            Issue.record("Expected setup message on restart")
+            return
+        }
+        let decoded2 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setup2.data(using: .utf8)))
+        #expect(decoded2.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        await coordinator.stopSession()
+    }
+
+    @Test("14. Wake phrase variations ('Hey Ivy', 'hey ivy', 'Hey, Ivy', 'HEY IVY') trigger immediate interruption")
+    func testWakePhraseVariationsInterruption() async throws {
+        let wakePhrases = ["Hey Ivy", "hey ivy", "Hey, Ivy", "HEY IVY"]
+
+        for phrase in wakePhrases {
+            let mockSession = MockGeminiLiveSession()
+            let mockCapture = MockAudioCapture(isPermissionGranted: true)
+            let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
+            let mockDetector = MockWakeWordDetector()
+
+            let coordinator = GeminiLiveVoiceCoordinator(
+                session: mockSession,
+                audioCapture: mockCapture,
+                audioPlayer: mockPlayer,
+                wakeWordDetector: mockDetector
+            )
+
+            await coordinator.startSession()
+
+            // Ivy speaks
+            let chunk = Data([0x01, 0x02, 0x03])
+            mockSession.simulateEvent(.audioChunk(chunk))
+            for _ in 0..<50 {
+                if coordinator.state == .speaking { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            #expect(coordinator.state == .speaking)
+            #expect(mockPlayer.isPlaying)
+
+            // Wake word detector fires with the phrase
+            mockDetector.simulateTranscription(phrase)
+
+            for _ in 0..<50 {
+                if coordinator.state == .listening { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+
+            #expect(coordinator.state == .listening)
+            #expect(mockPlayer.isStopped)
+            #expect(mockDetector.isReset)
+
+            await coordinator.stopSession()
+        }
+    }
+
+    @Test("15. Non-wake phrases and background noise during speaking do NOT interrupt")
+    func testNonWakePhrasesAndNoiseIgnoredDuringSpeaking() async throws {
+        let nonWakePhrases = [
+            "Hey",
+            "Ivy",
+            "Hey everyone",
+            "Ivy is a good assistant",
+            "Hey, I've got a question",
+            "Yeah, I understand.",
+            "Wait, that's not what I meant."
+        ]
+
+        let mockSession = MockGeminiLiveSession()
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
+        let mockDetector = MockWakeWordDetector()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: mockSession,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        await coordinator.startSession()
+
+        // Ivy enters speaking state
+        mockSession.simulateEvent(.audioChunk(Data([0x11, 0x22])))
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+
+        // Feed non-wake speech
+        for phrase in nonWakePhrases {
+            mockDetector.simulateTranscription(phrase)
+            try await Task.sleep(nanoseconds: 10_000_000)
+            #expect(coordinator.state == .speaking, "Phrase '\(phrase)' must NOT interrupt speaking state")
+            #expect(!mockPlayer.isStopped)
+        }
+
+        // Feed raw PCM background noise chunks through audio capture
+        for i: UInt8 in 0..<5 {
+            mockCapture.simulateAudioChunk(Data([i, i + 1, i + 2]))
+            try await Task.sleep(nanoseconds: 10_000_000)
+            #expect(coordinator.state == .speaking, "Background noise chunk must NOT interrupt speaking state")
+            #expect(!mockPlayer.isStopped)
+        }
+
+        await coordinator.stopSession()
+    }
+
+    @Test("16. TurnComplete racing with Hey Ivy does not resurrect stale audio")
+    func testTurnCompleteRacingWithWakeInterruptionDoesNotResurrectStaleAudio() async throws {
+        let mockSession = MockGeminiLiveSession()
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
+        let mockDetector = MockWakeWordDetector()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: mockSession,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        await coordinator.startSession()
+
+        // 1. Ivy generates audio
+        let chunk = Data([0xAA, 0xBB])
+        mockSession.simulateEvent(.audioChunk(chunk))
+        mockSession.simulateEvent(.turnComplete)
+
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+
+        // 2. While drainTask is waiting, user says "Hey Ivy"
+        mockDetector.simulateTranscription("Hey Ivy")
+
+        for _ in 0..<50 {
+            if coordinator.state == .listening { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .listening)
+        #expect(mockPlayer.isStopped)
+
+        // 3. Unblock drainTask
+        mockPlayer.finishPlayback()
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        // State must remain listening and audio player remains stopped
+        #expect(coordinator.state == .listening)
+        #expect(mockPlayer.isStopped)
+
+        await coordinator.stopSession()
     }
 }
 

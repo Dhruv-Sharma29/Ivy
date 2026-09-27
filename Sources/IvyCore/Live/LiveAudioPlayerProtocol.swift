@@ -235,21 +235,21 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
     }
 
     public func stop() async {
-        let (wasPlaying, continuations) = state.withLock { s -> (Bool, [CheckedContinuation<Void, Never>]) in
-            let was = s.isPlaying
+        let continuations = state.withLock { s -> [CheckedContinuation<Void, Never>] in
             s.isPlaying = false
             s.activeBuffers = 0
             let pending = s.waitContinuations
             s.waitContinuations = []
-            return (was, pending)
+            return pending
         }
 
         for cont in continuations {
             cont.resume()
         }
 
-        if wasPlaying {
-            playerNode.stop()
+        playerNode.stop()
+        playerNode.reset()
+        if audioEngine.isRunning {
             audioEngine.stop()
         }
     }

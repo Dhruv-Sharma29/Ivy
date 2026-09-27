@@ -5,6 +5,8 @@ import os
 public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     public typealias WebSocketFactory = @Sendable (URLRequest) -> WebSocketTransport
 
+    public static let liveVoiceName: String = BidiPrebuiltVoiceConfig.liveVoiceName
+
     public var apiKey: String {
         state.withLock { $0.apiKey }
     }
@@ -29,14 +31,14 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     public init(
         apiKey: String,
         model: String = "models/gemini-3.1-flash-live-preview",
-        voiceName: String = "Kore",
+        voiceName: String = liveVoiceName,
         systemInstruction: String? = nil,
         session: URLSession = .shared,
         webSocketFactory: WebSocketFactory? = nil
     ) {
         self.state = OSAllocatedUnfairLock(initialState: State(apiKey: apiKey))
         self.model = model
-        self.voiceName = voiceName
+        self.voiceName = Self.liveVoiceName
         self.systemInstruction = systemInstruction
         self.session = session
         if let webSocketFactory {
@@ -107,7 +109,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                 responseModalities: ["AUDIO"],
                 speechConfig: BidiSpeechConfig(
                     voiceConfig: BidiVoiceConfig(
-                        prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: voiceName)
+                        prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: Self.liveVoiceName)
                     )
                 )
             ),

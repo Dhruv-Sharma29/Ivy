@@ -30,7 +30,7 @@ public struct BidiSetup: Codable, Sendable, Equatable {
         systemInstruction: BidiSystemInstruction? = nil
     ) {
         self.model = model
-        self.generationConfig = generationConfig
+        self.generationConfig = generationConfig ?? BidiGenerationConfig()
         self.systemInstruction = systemInstruction
     }
 }
@@ -43,8 +43,8 @@ public struct BidiGenerationConfig: Codable, Sendable, Equatable {
         responseModalities: [String]? = ["AUDIO"],
         speechConfig: BidiSpeechConfig? = BidiSpeechConfig()
     ) {
-        self.responseModalities = responseModalities
-        self.speechConfig = speechConfig
+        self.responseModalities = responseModalities ?? ["AUDIO"]
+        self.speechConfig = speechConfig ?? BidiSpeechConfig()
     }
 }
 
@@ -52,7 +52,7 @@ public struct BidiSpeechConfig: Codable, Sendable, Equatable {
     public let voiceConfig: BidiVoiceConfig?
 
     public init(voiceConfig: BidiVoiceConfig? = BidiVoiceConfig()) {
-        self.voiceConfig = voiceConfig
+        self.voiceConfig = voiceConfig ?? BidiVoiceConfig()
     }
 }
 
@@ -60,15 +60,17 @@ public struct BidiVoiceConfig: Codable, Sendable, Equatable {
     public let prebuiltVoiceConfig: BidiPrebuiltVoiceConfig?
 
     public init(prebuiltVoiceConfig: BidiPrebuiltVoiceConfig? = BidiPrebuiltVoiceConfig()) {
-        self.prebuiltVoiceConfig = prebuiltVoiceConfig
+        self.prebuiltVoiceConfig = prebuiltVoiceConfig ?? BidiPrebuiltVoiceConfig()
     }
 }
 
 public struct BidiPrebuiltVoiceConfig: Codable, Sendable, Equatable {
+    public static let liveVoiceName: String = "Kore"
     public let voiceName: String
 
-    public init(voiceName: String = "Kore") {
-        self.voiceName = voiceName
+    public init(voiceName: String = liveVoiceName) {
+        // Enforce Kore - no other Gemini voice or fallback is permitted
+        self.voiceName = Self.liveVoiceName
     }
 }
 

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import IvyCore
 
 @Suite("Phase 4B - GeminiLiveClient Unit Tests")
@@ -203,5 +204,90 @@ struct GeminiLiveClientTests {
         #expect(!client.isConnected)
         #expect(mockTransport.isCancelled)
         #expect(mockTransport.closeCode == .normalClosure)
+    }
+
+    @Test("Voice Lock: Initial Live setup explicitly requests Kore")
+    func testInitialSetupRequestsKore() async throws {
+        let mockTransport = MockWebSocketTransport()
+        let client = GeminiLiveClient(
+            apiKey: "test-api-key",
+            webSocketFactory: { _ in mockTransport }
+        )
+
+        try await client.connect()
+
+        guard case .string(let setupStr) = mockTransport.sentMessages.first else {
+            Issue.record("Expected string message for setup")
+            return
+        }
+
+        let setupData = try #require(setupStr.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(BidiClientMessage.self, from: setupData)
+        #expect(decoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        await client.disconnect()
+    }
+
+    @Test("Voice Lock: Reconnect after disconnect still explicitly requests Kore")
+    func testReconnectRequestsKore() async throws {
+        let transportsLock = OSAllocatedUnfairLock(initialState: [MockWebSocketTransport]())
+        let client = GeminiLiveClient(
+            apiKey: "test-api-key",
+            webSocketFactory: { _ in
+                let t = MockWebSocketTransport()
+                transportsLock.withLock { $0.append(t) }
+                return t
+            }
+        )
+
+        // 1. Initial connect
+        try await client.connect()
+        #expect(transportsLock.withLock { $0.count } == 1)
+        let firstTransport = transportsLock.withLock { $0[0] }
+        guard case .string(let firstSetup) = firstTransport.sentMessages.first else {
+            Issue.record("Expected setup message")
+            return
+        }
+        let firstDecoded = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(firstSetup.data(using: .utf8)))
+        #expect(firstDecoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        await client.disconnect()
+
+        // 2. Reconnect
+        try await client.connect()
+        #expect(transportsLock.withLock { $0.count } == 2)
+        let secondTransport = transportsLock.withLock { $0[1] }
+        guard case .string(let secondSetup) = secondTransport.sentMessages.first else {
+            Issue.record("Expected setup message on reconnect")
+            return
+        }
+        let secondDecoded = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(secondSetup.data(using: .utf8)))
+        #expect(secondDecoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        await client.disconnect()
+    }
+
+    @Test("Voice Lock: No setup path can omit voiceName or select another voice")
+    func testVoiceLockEnforcement() {
+        // Even if attempted to pass another voice or nil, Kore is locked
+        let prebuilt = BidiPrebuiltVoiceConfig(voiceName: "Puck")
+        #expect(prebuilt.voiceName == "Kore")
+
+        let prebuiltDefault = BidiPrebuiltVoiceConfig()
+        #expect(prebuiltDefault.voiceName == "Kore")
+
+        let voiceConfig = BidiVoiceConfig(prebuiltVoiceConfig: nil)
+        #expect(voiceConfig.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        let speechConfig = BidiSpeechConfig(voiceConfig: nil)
+        #expect(speechConfig.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        let genConfig = BidiGenerationConfig(speechConfig: nil)
+        #expect(genConfig.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        let setup = BidiSetup(generationConfig: nil)
+        #expect(setup.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+
+        let client = GeminiLiveClient(apiKey: "key", voiceName: "Fenrir")
+        #expect(client.voiceName == "Kore")
     }
 }

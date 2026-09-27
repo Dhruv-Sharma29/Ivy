@@ -71,7 +71,7 @@ public final class MockWakeWordDetector: WakeWordDetectorProtocol, @unchecked Se
 
     public func processAudioChunk(_ data: Data) async -> Bool {
         #if DEBUG
-        print("[WAKE] detector processing buffer")
+        print("[WAKE] wake detector processing")
         #endif
         return state.withLock { s in
             s.processedChunksCount += 1
@@ -105,6 +105,7 @@ public final class MockWakeWordDetector: WakeWordDetectorProtocol, @unchecked Se
 /// Native macOS wake-word detector using Apple's on-device `SFSpeechRecognizer` and `WakePhraseMatcher`.
 public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked Sendable {
     private struct State: @unchecked Sendable {
+        var currentTaskId: UUID? = nil
         var recognitionRequest: SFSpeechAudioBufferRecognitionRequest? = nil
         var recognitionTask: SFSpeechRecognitionTask? = nil
         var detected: Bool = false
@@ -131,8 +132,8 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
     }
 
     public func requestPermission() async -> Bool {
-        // If running in headless unit tests or without an app bundle identifier, avoid TCC abort
-        if Bundle.main.bundleIdentifier == nil || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+        // If running in headless unit tests, avoid interactive TCC prompt
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTest") != nil {
             return false
         }
         let status = SFSpeechRecognizer.authorizationStatus()
@@ -154,7 +155,7 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
 
     public func processAudioChunk(_ data: Data) async -> Bool {
         #if DEBUG
-        print("[WAKE] detector processing buffer")
+        print("[WAKE] wake detector processing")
         #endif
         let isAlreadyDetected = state.withLock { $0.detected }
         if isAlreadyDetected { return true }
@@ -193,6 +194,7 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
 
     public func reset() async {
         state.withLock { s in
+            s.currentTaskId = nil
             s.recognitionRequest?.endAudio()
             s.recognitionTask?.cancel()
             s.recognitionTask = nil
@@ -209,19 +211,24 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
 
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
+            request.contextualStrings = ["Hey Ivy", "Ivy"]
 
+            let taskId = UUID()
+            s.currentTaskId = taskId
             s.recognitionRequest = request
             s.isRunning = true
             s.detected = false
+
+            #if DEBUG
+            print("[WAKE] speech recognizer started")
+            #endif
 
             s.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 guard let self else { return }
                 if let result {
                     let transcript = result.bestTranscription.formattedString
-                    #if DEBUG
-                    print("[WAKE] speech recognition result: \"\(transcript)\"")
-                    #endif
                     let handler = self.state.withLock { s -> (@Sendable (String) -> Void)? in
+                        guard s.currentTaskId == taskId else { return nil }
                         let match = WakePhraseMatcher.containsWakePhrase(transcript)
                         if match {
                             s.detected = true
@@ -234,12 +241,14 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
                     #if DEBUG
                     print("[WAKE] speech recognition error: \(error.localizedDescription)")
                     #endif
-                    self.state.withLock {
-                        $0.isRunning = false
+                    self.state.withLock { s in
+                        guard s.currentTaskId == taskId else { return }
+                        s.isRunning = false
                     }
                 } else if result?.isFinal ?? false {
-                    self.state.withLock {
-                        $0.isRunning = false
+                    self.state.withLock { s in
+                        guard s.currentTaskId == taskId else { return }
+                        s.isRunning = false
                     }
                 }
             }

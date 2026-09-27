@@ -54,14 +54,16 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         }
     }
 
+    public static let liveVoiceName: String = GeminiLiveClient.liveVoiceName
+
     /// Convenience initializer using production implementations.
     public convenience init(
         apiKey: String,
         model: String = "models/gemini-3.1-flash-live-preview",
-        voiceName: String = "Kore",
+        voiceName: String = liveVoiceName,
         systemInstruction: String = IvyPersona.systemPrompt
     ) {
-        let client = GeminiLiveClient(apiKey: apiKey, model: model, voiceName: voiceName, systemInstruction: systemInstruction)
+        let client = GeminiLiveClient(apiKey: apiKey, model: model, voiceName: Self.liveVoiceName, systemInstruction: systemInstruction)
         let capture = SystemAudioCapture()
         let player = SystemLiveAudioPlayer()
         let detector = SystemWakeWordDetector()
@@ -181,13 +183,20 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         guard state == .speaking || state == .interrupting else { return }
         #if DEBUG
         print("[WAKE] HEY IVY DETECTED")
-        print("[WAKE] interrupting playback")
+        print("[WAKE] interruption requested")
         #endif
         state = .interrupting
         drainTask?.cancel()
         drainTask = nil
+        #if DEBUG
+        print("[WAKE] drain task cancelled")
+        #endif
 
         await audioPlayer.stop()
+        #if DEBUG
+        print("[WAKE] playback stopped")
+        print("[WAKE] audio queue cleared")
+        #endif
         await wakeWordDetector.reset()
         state = .listening
         #if DEBUG
@@ -199,11 +208,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public func processTranscriptionForInterruption(_ text: String) async {
         guard state == .speaking else { return }
         #if DEBUG
-        print("[WAKE] matcher input: \"\(text)\"")
+        print("[WAKE] recognition result received")
+        print("[WAKE] transcript=\"\(text)\"")
         #endif
         let isMatch = WakePhraseMatcher.containsWakePhrase(text)
         #if DEBUG
-        print("[WAKE] matcher result: \(isMatch)")
+        print("[WAKE] matcher result=\(isMatch)")
         #endif
         if isMatch {
             await handleWakePhraseDetected()
@@ -238,6 +248,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 drainTask = Task { [weak self] in
                     guard let self else { return }
                     await self.audioPlayer.waitUntilFinished()
+                    guard !Task.isCancelled else { return }
                     if self.state == .speaking {
                         await self.wakeWordDetector.reset()
                         self.state = .listening
