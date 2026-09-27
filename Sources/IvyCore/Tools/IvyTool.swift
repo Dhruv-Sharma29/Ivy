@@ -14,6 +14,9 @@ public protocol IvyTool: Sendable {
     /// Safety classification of the tool (safe vs risky).
     var safetyClassification: ToolSafetyClassification { get }
 
+    /// Validates arguments before safety evaluation and execution.
+    func validate(arguments: [String: AnyCodable]) throws
+
     /// Executes the tool with parsed arguments and returns a ToolResult.
     func execute(arguments: [String: AnyCodable]) async throws -> ToolResult
 }
@@ -22,4 +25,6 @@ public extension IvyTool {
     var safetyClassification: ToolSafetyClassification {
         .safe
     }
+
+    func validate(arguments: [String: AnyCodable]) throws {}
 }

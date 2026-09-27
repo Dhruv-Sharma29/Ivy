@@ -18,11 +18,29 @@ public final class ToolDispatcher: Sendable {
         guard let tool = registry.tool(named: call.name) else {
             return FunctionResponse(
                 name: call.name,
-                response: ["error": AnyCodable("Tool '\(call.name)' is not recognized.")],
+                response: [
+                    "error": AnyCodable("Tool '\(call.name)' is not recognized."),
+                    "success": AnyCodable(false)
+                ],
                 id: call.id
             )
         }
 
+        // 1. Argument validation before SafetyGate
+        do {
+            try tool.validate(arguments: call.args)
+        } catch {
+            return FunctionResponse(
+                name: call.name,
+                response: [
+                    "error": AnyCodable(error.localizedDescription),
+                    "success": AnyCodable(false)
+                ],
+                id: call.id
+            )
+        }
+
+        // 2. SafetyGate evaluation & confirmation
         let decision = await safetyGate.evaluate(tool: tool, call: call)
         switch decision {
         case .reject(let reason):

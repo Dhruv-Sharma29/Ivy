@@ -30,6 +30,18 @@ public final class RunAppleScriptTool: IvyTool, Sendable {
         self.executor = executor
     }
 
+    public func validate(arguments: [String: AnyCodable]) throws {
+        guard let scriptValue = arguments["script"] else {
+            throw ToolError.missingArgument("script")
+        }
+
+        guard let rawScript = scriptValue.stringValue else {
+            throw ToolError.invalidArgument("Argument 'script' must be a string.")
+        }
+
+        _ = try ToolValidation.validateAppleScript(rawScript)
+    }
+
     public func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
         guard let scriptValue = arguments["script"] else {
             throw ToolError.missingArgument("script")

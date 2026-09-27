@@ -65,16 +65,63 @@ public final class ClosureConfirmationProvider: ConfirmationProvider, Sendable {
     }
 }
 
+/// Centralized safety risk policy governing tool classification.
+/// Decouples security and risk policy from individual tool implementations.
+public struct SafetyPolicy: Sendable, Equatable {
+    public let safeToolNames: Set<String>
+    public let riskyToolNames: Set<String>
+    public let defaultClassification: ToolSafetyClassification
+
+    public init(
+        safeToolNames: Set<String> = ["open_app"],
+        riskyToolNames: Set<String> = ["run_applescript"],
+        defaultClassification: ToolSafetyClassification = .risky
+    ) {
+        self.safeToolNames = safeToolNames
+        self.riskyToolNames = riskyToolNames
+        self.defaultClassification = defaultClassification
+    }
+
+    /// Evaluates the safety classification for a given tool name.
+    public func classification(for toolName: String) -> ToolSafetyClassification {
+        if riskyToolNames.contains(toolName) {
+            return .risky
+        }
+        if safeToolNames.contains(toolName) {
+            return .safe
+        }
+        return defaultClassification
+    }
+
+    /// Evaluates the safety classification for an IvyTool.
+    /// Defends in depth: if the centralized policy classifies the tool name as risky,
+    /// or if the tool marks itself as risky, user confirmation is mandatory.
+    public func classification(for tool: IvyTool) -> ToolSafetyClassification {
+        if riskyToolNames.contains(tool.name) || tool.safetyClassification == .risky {
+            return .risky
+        }
+        if safeToolNames.contains(tool.name) {
+            return .safe
+        }
+        return tool.safetyClassification
+    }
+}
+
 /// Production SafetyGate that automatically executes safe tools and intercepts risky tools for user confirmation.
 public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
+    public let policy: SafetyPolicy
     private let confirmationProvider: ConfirmationProvider
 
-    public init(confirmationProvider: ConfirmationProvider) {
+    public init(
+        confirmationProvider: ConfirmationProvider,
+        policy: SafetyPolicy = SafetyPolicy()
+    ) {
         self.confirmationProvider = confirmationProvider
+        self.policy = policy
     }
 
     public func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision {
-        switch tool.safetyClassification {
+        switch policy.classification(for: tool) {
         case .safe:
             return .approve
 

@@ -60,10 +60,14 @@ public protocol SafetyGateProtocol: Sendable {
 
 /// Default Phase 2A SafetyGate implementation that auto-approves safe tools.
 public final class PassThroughSafetyGate: SafetyGateProtocol, Sendable {
-    public init() {}
+    public let policy: SafetyPolicy
+
+    public init(policy: SafetyPolicy = SafetyPolicy()) {
+        self.policy = policy
+    }
 
     public func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision {
-        switch tool.safetyClassification {
+        switch policy.classification(for: tool) {
         case .safe:
             return .approve
         case .risky:

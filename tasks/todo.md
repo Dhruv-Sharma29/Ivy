@@ -203,3 +203,58 @@
 - [x] Code coverage exceeds 80% (91.30% overall coverage across IvyCore).
 - [x] No stubs, no secrets, no unauthorized tools (no shell, AppleScript, file op, calendar).
 
+---
+
+## Phase 2B: SafetyGate & run_applescript
+
+### Task 13: Centralized Tool Risk System & SafetyGate [x]
+- **Description:** Implement centralized `SafetyPolicy` risk classification decoupled from individual tools, `InteractiveSafetyGate`, `ConfirmationProvider`, and `ConfirmationRequest`. Pre-evaluate tool arguments before safety gating.
+- **Acceptance criteria:**
+  - `SafetyPolicy` centrally governs safe vs risky classifications (`open_app` is safe, `run_applescript` is risky, default is risky).
+  - Deceptive tools claiming `.safe` cannot bypass centralized `.risky` policy.
+  - Safe tools execute automatically; risky tools require explicit user confirmation.
+  - Swift 6 strict concurrency compliant (`Sendable`, `@MainActor`).
+- **Verification:** `swift test --filter SafetyGateTests`
+- **Dependencies:** Checkpoint 5
+- **Estimated scope:** M (2 files)
+
+### Task 14: AppleScript Tool & Injectable Executor [x]
+- **Description:** Implement `RunAppleScriptTool` conforming to `IvyTool` with injectable `AppleScriptExecutorProtocol` (`SystemAppleScriptExecutor` and `MockAppleScriptExecutor`).
+- **Acceptance criteria:**
+  - Validates script length, non-empty whitespace, and null bytes before execution.
+  - Malformed or invalid script arguments fail immediately without reaching executor or prompting user.
+  - Non-fatal execution errors return structured `ToolResult.failure` without crashing.
+  - Offline unit tests mock execution with zero real destructive AppleScripts.
+- **Verification:** `swift test --filter RunAppleScriptToolTests`
+- **Dependencies:** Task 13
+- **Estimated scope:** M (3 files)
+
+### Task 15: In-Character Confirmation UI & Cancellation Flow [x]
+- **Description:** Implement `ConfirmationCardView` displaying tool name, arguments/script, sarcastic Ivy confirmation prompt, and "Do it" / "Cancel" buttons.
+- **Acceptance criteria:**
+  - Risky operations halt until user explicitly approves.
+  - User cancellation returns structured `"User cancelled operation with prejudice."` to Gemini.
+  - Sarcastic Ivy persona maintained in prompt text.
+- **Verification:** `swift test --filter IvyBrainTests`
+- **Dependencies:** Task 14
+- **Estimated scope:** M (3 files)
+
+### Task 16: Gemini 3.8 Flash Thought Signature Wire Preservation [x]
+- **Description:** Ensure Gemini 3.8 Flash `thoughtSignature` is decoded from `Part`, retained in conversation history across model and tool turns, and emitted as camelCase `thoughtSignature` at the `Part` level (never inside `functionCall`).
+- **Acceptance criteria:**
+  - Round-trip encode/decode tests pass.
+  - Exact token preserved through multi-turn tool loops without fabrication or alteration.
+- **Verification:** `swift test --filter GeminiDTOTests`, `swift test --filter GeminiClientTests`
+- **Dependencies:** Task 15
+- **Estimated scope:** M (4 files)
+
+---
+
+## Checkpoint 6: Phase 2B Verification
+- [x] Swift 6 strict concurrency compiles with zero warnings/errors (`-strict-concurrency=complete`).
+- [x] All 150 unit tests pass with zero failures.
+- [x] Code coverage exceeds 80% (90.48% overall coverage across IvyCore).
+- [x] Centralized SafetyGate prevents tool deception and enforces confirmation on risky tools.
+- [x] No unauthorized tools (no shell, file operations, calendar, voice, persistence).
+
+

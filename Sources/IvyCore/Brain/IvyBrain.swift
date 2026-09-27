@@ -106,7 +106,8 @@ public final class IvyBrain: ObservableObject {
                             role: .model,
                             text: "",
                             functionCall: call,
-                            functionCallPart: matchingPart
+                            functionCallPart: matchingPart,
+                            thoughtSignature: matchingPart.thoughtSignature ?? call.thoughtSignature
                         )
                         currentHistory.append(callMsg)
 
@@ -123,7 +124,7 @@ public final class IvyBrain: ObservableObject {
                     }
                     // Loop continues with updated history containing function response
                 } else if let reply = response.text, !reply.isEmpty {
-                    messages.append(ChatMessage(role: .model, text: reply))
+                    messages.append(ChatMessage(role: .model, text: reply, thoughtSignature: response.thoughtSignature))
                     return
                 } else {
                     throw GeminiClientError.emptyResponse

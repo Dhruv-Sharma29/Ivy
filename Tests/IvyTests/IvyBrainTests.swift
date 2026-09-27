@@ -686,7 +686,10 @@ struct IvyBrainTests {
             await brain.send("Run broken script")
         }
 
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
         #expect(brain.pendingConfirmation != nil)
 
         // User approves execution

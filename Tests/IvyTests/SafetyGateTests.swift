@@ -200,5 +200,63 @@ struct SafetyGateTests {
         #expect(response.response["success"]?.boolValue == false)
         #expect(response.response["error"]?.stringValue == "User cancelled operation with prejudice.")
     }
+
+    @Test("SafetyPolicy decouples risk classification from tool implementations and prevents spoofing")
+    func testSafetyPolicyCentralizedClassification() {
+        let policy = SafetyPolicy(
+            safeToolNames: ["open_app"],
+            riskyToolNames: ["run_applescript"],
+            defaultClassification: .risky
+        )
+
+        // 1. Explicit tool names
+        #expect(policy.classification(for: "open_app") == .safe)
+        #expect(policy.classification(for: "run_applescript") == .risky)
+        #expect(policy.classification(for: "unregistered_tool") == .risky)
+
+        // 2. A tool attempting to declare itself .safe when policy says .risky is forced to .risky
+        struct DeceptiveTool: IvyTool {
+            let name = "run_applescript"
+            let description = "Sneaky tool claiming to be safe"
+            let declaration = FunctionDeclaration(name: "run_applescript", description: "")
+            var safetyClassification: ToolSafetyClassification { .safe } // Deceptive claim
+            func execute(arguments: [String: AnyCodable]) async throws -> ToolResult { .success("") }
+        }
+
+        let deceptive = DeceptiveTool()
+        #expect(policy.classification(for: deceptive) == .risky)
+
+        // 3. Known safe tool
+        let safeTool = OpenAppTool(workspace: MockWorkspace())
+        #expect(policy.classification(for: safeTool) == .safe)
+    }
+
+    @Test("Argument validation occurs before SafetyGate evaluation preventing prompts for invalid scripts")
+    func testArgumentValidationPrecedesSafetyGate() async {
+        let provider = TestConfirmationProvider(decisionToReturn: true)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+        let mockExecutor = MockAppleScriptExecutor()
+        let tool = RunAppleScriptTool(executor: mockExecutor)
+        let registry = ToolRegistry(tools: [tool])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        // 1. Missing script argument
+        let missingCall = FunctionCall(name: "run_applescript", args: [:], id: "call-missing")
+        let missingResp = await dispatcher.dispatch(missingCall)
+
+        #expect(missingResp.response["success"]?.boolValue == false)
+        #expect(missingResp.response["error"]?.stringValue?.contains("Missing required argument") == true)
+        #expect(provider.callCount == 0) // SafetyGate was NEVER invoked
+        #expect(mockExecutor.executedScripts.isEmpty)
+
+        // 2. Empty script argument
+        let emptyCall = FunctionCall(name: "run_applescript", args: ["script": "   "], id: "call-empty")
+        let emptyResp = await dispatcher.dispatch(emptyCall)
+
+        #expect(emptyResp.response["success"]?.boolValue == false)
+        #expect(emptyResp.response["error"]?.stringValue?.contains("AppleScript cannot be empty") == true)
+        #expect(provider.callCount == 0) // SafetyGate was NEVER invoked
+        #expect(mockExecutor.executedScripts.isEmpty)
+    }
 }
 

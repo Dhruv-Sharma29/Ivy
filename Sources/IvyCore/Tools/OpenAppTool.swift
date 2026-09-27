@@ -28,6 +28,18 @@ public final class OpenAppTool: IvyTool, Sendable {
         self.workspace = workspace
     }
 
+    public func validate(arguments: [String: AnyCodable]) throws {
+        guard let nameValue = arguments["name"] else {
+            throw ToolError.missingArgument("name")
+        }
+
+        guard let nameArg = nameValue.stringValue else {
+            throw ToolError.invalidArgument("Argument 'name' must be a string.")
+        }
+
+        _ = try ToolValidation.validateAppName(nameArg)
+    }
+
     public func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
         guard let nameValue = arguments["name"] else {
             throw ToolError.missingArgument("name")
