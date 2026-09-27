@@ -8,3 +8,4 @@ DerivedData/
 .codebase-memory/
 .env
 .env.*
+*.log

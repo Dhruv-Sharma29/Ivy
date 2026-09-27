@@ -39,17 +39,23 @@ public struct ModelTurnResponse: Sendable, Equatable {
     public let text: String?
     public let functionCalls: [FunctionCall]
     public let functionCallParts: [Part]
+    public let thoughtSignature: String?
 
     public init(
         text: String? = nil,
         functionCalls: [FunctionCall] = [],
-        functionCallParts: [Part] = []
+        functionCallParts: [Part] = [],
+        thoughtSignature: String? = nil
     ) {
         self.text = text
         self.functionCalls = functionCalls
+        let resolvedSig = thoughtSignature
+            ?? functionCallParts.compactMap(\.thoughtSignature).first
+            ?? functionCalls.compactMap(\.thoughtSignature).first
+        self.thoughtSignature = resolvedSig
         if functionCallParts.isEmpty && !functionCalls.isEmpty {
             self.functionCallParts = functionCalls.map {
-                Part(functionCall: $0, thoughtSignature: $0.thoughtSignature)
+                Part(functionCall: $0, thoughtSignature: $0.thoughtSignature ?? resolvedSig)
             }
         } else {
             self.functionCallParts = functionCallParts
@@ -153,13 +159,19 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
         // Build contents array from history (handling text, functionCall, and functionResponse)
         let contents: [Content] = history.compactMap { msg in
-            if let functionCallPart = msg.functionCallPart {
-                return Content(role: "model", parts: [functionCallPart])
-            }
-            if let functionCall = msg.functionCall {
+            if msg.role == .model {
+                if let functionCallPart = msg.functionCallPart {
+                    return Content(role: "model", parts: [functionCallPart])
+                }
+                if let functionCall = msg.functionCall {
+                    return Content(
+                        role: "model",
+                        parts: [Part(functionCall: functionCall, thoughtSignature: msg.thoughtSignature ?? functionCall.thoughtSignature)]
+                    )
+                }
                 return Content(
                     role: "model",
-                    parts: [Part(functionCall: functionCall, thoughtSignature: functionCall.thoughtSignature)]
+                    parts: [Part(text: msg.text, thoughtSignature: msg.thoughtSignature)]
                 )
             }
             if let functionResponse = msg.functionResponse {
@@ -196,6 +208,20 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
         }
         request.httpBody = requestData
 
+        if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
+           let reqStr = String(data: requestData, encoding: .utf8) {
+            let logLine = "\n=== [GEMINI REQUEST] ===\n\(reqStr)\n========================\n"
+            fputs(logLine, stderr)
+            let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
+            if let handle = try? FileHandle(forWritingTo: logURL) {
+                handle.seekToEndOfFile()
+                if let logData = logLine.data(using: .utf8) { handle.write(logData) }
+                try? handle.close()
+            } else {
+                try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
+            }
+        }
+
         let data: Data
         let response: URLResponse
         do {
@@ -206,6 +232,20 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw GeminiClientError.networkError("Invalid response type")
+        }
+
+        if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
+           let respStr = String(data: data, encoding: .utf8) {
+            let logLine = "\n=== [GEMINI RESPONSE (\(httpResponse.statusCode))] ===\n\(respStr)\n=====================================\n"
+            fputs(logLine, stderr)
+            let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
+            if let handle = try? FileHandle(forWritingTo: logURL) {
+                handle.seekToEndOfFile()
+                if let logData = logLine.data(using: .utf8) { handle.write(logData) }
+                try? handle.close()
+            } else {
+                try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
+            }
         }
 
         switch httpResponse.statusCode {
@@ -225,10 +265,14 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
                 throw GeminiClientError.emptyResponse
             }
 
+            let thoughtSig = geminiResponse.candidates?.first?.content?.parts.compactMap(\.thoughtSignature).first
+                ?? functionCallParts.compactMap(\.thoughtSignature).first
+
             return ModelTurnResponse(
                 text: text,
                 functionCalls: functionCalls,
-                functionCallParts: functionCallParts
+                functionCallParts: functionCallParts,
+                thoughtSignature: thoughtSig
             )
 
         case 400, 401, 403:

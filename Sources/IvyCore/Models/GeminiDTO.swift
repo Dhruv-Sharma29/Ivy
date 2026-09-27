@@ -92,8 +92,8 @@ public struct FunctionCall: Codable, Sendable, Equatable {
         case name
         case args
         case id
-        case thoughtSignature = "thought_signature"
-        case thoughtSignatureCamelCase = "thoughtSignature"
+        case thoughtSignature
+        case thoughtSignatureSnakeCase = "thought_signature"
     }
 
     public init(from decoder: Decoder) throws {
@@ -102,7 +102,7 @@ public struct FunctionCall: Codable, Sendable, Equatable {
         self.args = try container.decodeIfPresent([String: AnyCodable].self, forKey: .args) ?? [:]
         self.id = try container.decodeIfPresent(String.self, forKey: .id)
         self.thoughtSignature = try container.decodeIfPresent(String.self, forKey: .thoughtSignature)
-            ?? container.decodeIfPresent(String.self, forKey: .thoughtSignatureCamelCase)
+            ?? container.decodeIfPresent(String.self, forKey: .thoughtSignatureSnakeCase)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -110,7 +110,7 @@ public struct FunctionCall: Codable, Sendable, Equatable {
         try container.encode(name, forKey: .name)
         try container.encode(args, forKey: .args)
         try container.encodeIfPresent(id, forKey: .id)
-        // NOTE: thought_signature is a Part-level field in the Gemini REST API.
+        // NOTE: thoughtSignature is a Part-level field in the Gemini REST API.
         // It must NEVER be serialized inside the function_call object.
     }
 }
@@ -204,8 +204,8 @@ public struct Part: Codable, Sendable, Equatable {
         case thought
         case functionCall
         case functionResponse
-        case thoughtSignature = "thought_signature"
-        case thoughtSignatureCamelCase = "thoughtSignature"
+        case thoughtSignature
+        case thoughtSignatureSnakeCase = "thought_signature"
     }
 
     public init(from decoder: Decoder) throws {
@@ -216,7 +216,7 @@ public struct Part: Codable, Sendable, Equatable {
         self.functionResponse = try container.decodeIfPresent(FunctionResponse.self, forKey: .functionResponse)
 
         let sig = try container.decodeIfPresent(String.self, forKey: .thoughtSignature)
-            ?? container.decodeIfPresent(String.self, forKey: .thoughtSignatureCamelCase)
+            ?? container.decodeIfPresent(String.self, forKey: .thoughtSignatureSnakeCase)
             ?? call?.thoughtSignature
         self.thoughtSignature = sig
 
@@ -270,9 +270,10 @@ public struct GeminiResponse: Codable, Sendable, Equatable {
         var result: [Part] = []
         for candidate in candidates {
             guard let parts = candidate.content?.parts else { continue }
+            let candidateSig = parts.compactMap(\.thoughtSignature).first
             for part in parts {
                 if var call = part.functionCall {
-                    let sig = part.thoughtSignature ?? call.thoughtSignature
+                    let sig = part.thoughtSignature ?? call.thoughtSignature ?? candidateSig
                     if call.thoughtSignature == nil, let sig {
                         call = FunctionCall(name: call.name, args: call.args, id: call.id, thoughtSignature: sig)
                     }

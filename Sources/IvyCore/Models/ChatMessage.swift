@@ -16,6 +16,7 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public let functionCall: FunctionCall?
     public let functionResponse: FunctionResponse?
     public let functionCallPart: Part?
+    public let thoughtSignature: String?
 
     public init(
         id: UUID = UUID(),
@@ -25,28 +26,31 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         isError: Bool = false,
         functionCall: FunctionCall? = nil,
         functionResponse: FunctionResponse? = nil,
-        functionCallPart: Part? = nil
+        functionCallPart: Part? = nil,
+        thoughtSignature: String? = nil
     ) {
         self.id = id
         self.role = role
         self.text = text
         self.timestamp = timestamp
         self.isError = isError
+        let resolvedSig = thoughtSignature ?? functionCallPart?.thoughtSignature ?? functionCall?.thoughtSignature
         var resolvedCall = functionCallPart?.functionCall ?? functionCall
-        if resolvedCall?.thoughtSignature == nil, let sig = functionCallPart?.thoughtSignature {
+        if resolvedCall?.thoughtSignature == nil, let sig = resolvedSig {
             resolvedCall = resolvedCall.map {
                 FunctionCall(name: $0.name, args: $0.args, id: $0.id, thoughtSignature: sig)
             }
         }
         self.functionCall = resolvedCall
         self.functionResponse = functionResponse
+        self.thoughtSignature = resolvedSig
         self.functionCallPart = functionCallPart ?? resolvedCall.map {
-            Part(functionCall: $0, thoughtSignature: $0.thoughtSignature)
+            Part(functionCall: $0, thoughtSignature: resolvedSig)
         }
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, role, text, timestamp, isError, functionCall, functionResponse, functionCallPart
+        case id, role, text, timestamp, isError, functionCall, functionResponse, functionCallPart, thoughtSignature
     }
 
     public init(from decoder: Decoder) throws {
@@ -59,16 +63,20 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         let part = try container.decodeIfPresent(Part.self, forKey: .functionCallPart)
         let call = try container.decodeIfPresent(FunctionCall.self, forKey: .functionCall)
         self.functionResponse = try container.decodeIfPresent(FunctionResponse.self, forKey: .functionResponse)
+        let sig = try container.decodeIfPresent(String.self, forKey: .thoughtSignature)
+            ?? part?.thoughtSignature
+            ?? call?.thoughtSignature
 
         var resolvedCall = part?.functionCall ?? call
-        if resolvedCall?.thoughtSignature == nil, let sig = part?.thoughtSignature {
+        if resolvedCall?.thoughtSignature == nil, let sig {
             resolvedCall = resolvedCall.map {
                 FunctionCall(name: $0.name, args: $0.args, id: $0.id, thoughtSignature: sig)
             }
         }
         self.functionCall = resolvedCall
+        self.thoughtSignature = sig
         self.functionCallPart = part ?? resolvedCall.map {
-            Part(functionCall: $0, thoughtSignature: $0.thoughtSignature)
+            Part(functionCall: $0, thoughtSignature: sig)
         }
     }
 
@@ -82,5 +90,6 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(functionCall, forKey: .functionCall)
         try container.encodeIfPresent(functionResponse, forKey: .functionResponse)
         try container.encodeIfPresent(functionCallPart, forKey: .functionCallPart)
+        try container.encodeIfPresent(thoughtSignature, forKey: .thoughtSignature)
     }
 }

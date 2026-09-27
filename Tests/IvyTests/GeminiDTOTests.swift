@@ -666,7 +666,7 @@ struct GeminiDTOTests {
         #expect(part.functionCall?.thoughtSignature == "camelCase-signature-token")
     }
 
-    @Test("Part with thoughtSignature round-trips to snake_case thought_signature")
+    @Test("Part with thoughtSignature round-trips to camelCase thoughtSignature")
     func testPartRoundTripPreservesThoughtSignature() throws {
         let call = FunctionCall(name: "open_app", args: ["name": "Notes"])
         let part = Part(functionCall: call, thoughtSignature: "test-sig-12345")
@@ -677,8 +677,8 @@ struct GeminiDTOTests {
             return
         }
 
-        #expect(jsonObject["thought_signature"] as? String == "test-sig-12345")
-        #expect(jsonObject["thoughtSignature"] == nil)
+        #expect(jsonObject["thoughtSignature"] as? String == "test-sig-12345")
+        #expect(jsonObject["thought_signature"] == nil)
 
         let decodedPart = try JSONDecoder().decode(Part.self, from: encodedData)
         #expect(decodedPart.thoughtSignature == "test-sig-12345")
@@ -761,7 +761,7 @@ struct GeminiDTOTests {
         let partData = try JSONEncoder().encode(part)
         let partJSON = try JSONSerialization.jsonObject(with: partData) as? [String: Any]
 
-        #expect(partJSON?["thought_signature"] as? String == "opaque-sig-never-inside")
+        #expect(partJSON?["thoughtSignature"] as? String == "opaque-sig-never-inside")
         guard let nestedCall = partJSON?["functionCall"] as? [String: Any] else {
             Issue.record("Missing functionCall in part JSON")
             return

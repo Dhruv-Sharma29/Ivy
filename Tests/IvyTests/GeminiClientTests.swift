@@ -605,7 +605,7 @@ struct GeminiClientTests {
                 return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
             }
 
-            #expect(modelPart["thought_signature"] as? String == "sig-token-preserve-exact")
+            #expect((modelPart["thoughtSignature"] ?? modelPart["thought_signature"]) as? String == "sig-token-preserve-exact")
             guard let callDict = modelPart["functionCall"] as? [String: Any] else {
                 Issue.record("Missing functionCall in model part")
                 return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
@@ -684,7 +684,7 @@ struct GeminiClientTests {
             // Turn 1: model tool call with sig 1
             let turn1Model = contents[1]
             let turn1Parts = turn1Model["parts"] as? [[String: Any]]
-            #expect(turn1Parts?.first?["thought_signature"] as? String == "sig-tool-turn-1")
+            #expect((turn1Parts?.first?["thoughtSignature"] ?? turn1Parts?.first?["thought_signature"]) as? String == "sig-tool-turn-1")
             let callDict1 = turn1Parts?.first?["functionCall"] as? [String: Any]
             #expect(callDict1?["thought_signature"] == nil)
             #expect(callDict1?["thoughtSignature"] == nil)
@@ -692,7 +692,7 @@ struct GeminiClientTests {
             // Turn 2: model tool call with sig 2
             let turn2Model = contents[3]
             let turn2Parts = turn2Model["parts"] as? [[String: Any]]
-            #expect(turn2Parts?.first?["thought_signature"] as? String == "sig-tool-turn-2")
+            #expect((turn2Parts?.first?["thoughtSignature"] ?? turn2Parts?.first?["thought_signature"]) as? String == "sig-tool-turn-2")
             let callDict2 = turn2Parts?.first?["functionCall"] as? [String: Any]
             #expect(callDict2?["thought_signature"] == nil)
             #expect(callDict2?["thoughtSignature"] == nil)
@@ -761,6 +761,7 @@ struct GeminiClientTests {
             let modelTurn = contents[1]
             let modelParts = modelTurn["parts"] as? [[String: Any]]
             #expect(modelParts?.first?["thought_signature"] == nil)
+            #expect(modelParts?.first?["thoughtSignature"] == nil)
 
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -787,6 +788,140 @@ struct GeminiClientTests {
         )
 
         #expect(result.text == "App opened successfully.")
+    }
+
+    @Test("Client decodes real captured Gemini 3.8 Flash response and emits thoughtSignature in next request")
+    func testRealCapturedGeminiFlashShapePreservesThoughtSignatureAcrossTurns() async throws {
+        let realCapturedWireJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "open_app",
+                      "args": { "name": "Safari" }
+                    },
+                    "thoughtSignature": "EvsDCvgDAWkUfRNP/MWBDKWCmdgHTBGuSRWvYnIYtReRirfDEKTcjLJfVseYhz6rmFi/Gay5Bzgx36O5HdmgXtnOFnAHQMXQ3Otk+qHhMTvKiuDN4J2UPbY2XLsTUTSJ94Lobh1Go7jHt4jt2l3MRx2547CqJPESY9JH3791AS57Dym7bUaagvb8uzyXRFDj7IsPpUpmG80oFHc2tVJ/n3G8MGX0ukRS+JCBhEAI+RkaEw0fYnhTgt89rXLdhXcW8B7WSffBLOZctionz/ja60RWaHaMeeAXilf4EEbNULffV5KwVzMWhly45CyQGj1Ge6+M5RA7h77REP5jd/nCVVsR9hPWiUIK6GhvuPjwW/V9Ah7kLrmrilJ9iOAkX3c9fjOeRgnuUfe2dUsD1VFQ0YcUl67PdOqVeEPAHSD4FRm7ooWjMlGjj0MnEjgQOxg6vKZFUGXZz/cesqgMqUKttecTiv3eJCztSYTwN5juFinY8MLfA88grVvJ4BkqFHycjiC1OwK9aOb0ID1eyDB7UOQ7ehTSzBiSKXVu+L1mke2M6Qn8K7RXA/Z9YvG0+rV+5L5OL5SHNxyTIA44oTiBmnTudp/lYbs4M21vq5dfNcRGSVpVv3DwCuzDkuVgLE3yS7nrLl3B3aHv2LboqNxAsdXu/Qh9lXkaAz5d/beO"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 240,
+            "candidatesTokenCount": 43,
+            "totalTokenCount": 376
+          },
+          "modelVersion": "gemini-3.8-flash",
+          "responseId": "KvG3atnaC5fRg8UPp9Wt-A4"
+        }
+        """
+
+        let client = URLSessionGeminiClient(session: makeMockSession())
+
+        // 1. Decode real captured JSON directly
+        let responseData = realCapturedWireJSON.data(using: .utf8)!
+        let geminiResponse = try JSONDecoder().decode(GeminiResponse.self, from: responseData)
+        #expect(geminiResponse.functionCalls.count == 1)
+        #expect(geminiResponse.functionCallParts.count == 1)
+
+        let capturedSig = "EvsDCvgDAWkUfRNP/MWBDKWCmdgHTBGuSRWvYnIYtReRirfDEKTcjLJfVseYhz6rmFi/Gay5Bzgx36O5HdmgXtnOFnAHQMXQ3Otk+qHhMTvKiuDN4J2UPbY2XLsTUTSJ94Lobh1Go7jHt4jt2l3MRx2547CqJPESY9JH3791AS57Dym7bUaagvb8uzyXRFDj7IsPpUpmG80oFHc2tVJ/n3G8MGX0ukRS+JCBhEAI+RkaEw0fYnhTgt89rXLdhXcW8B7WSffBLOZctionz/ja60RWaHaMeeAXilf4EEbNULffV5KwVzMWhly45CyQGj1Ge6+M5RA7h77REP5jd/nCVVsR9hPWiUIK6GhvuPjwW/V9Ah7kLrmrilJ9iOAkX3c9fjOeRgnuUfe2dUsD1VFQ0YcUl67PdOqVeEPAHSD4FRm7ooWjMlGjj0MnEjgQOxg6vKZFUGXZz/cesqgMqUKttecTiv3eJCztSYTwN5juFinY8MLfA88grVvJ4BkqFHycjiC1OwK9aOb0ID1eyDB7UOQ7ehTSzBiSKXVu+L1mke2M6Qn8K7RXA/Z9YvG0+rV+5L5OL5SHNxyTIA44oTiBmnTudp/lYbs4M21vq5dfNcRGSVpVv3DwCuzDkuVgLE3yS7nrLl3B3aHv2LboqNxAsdXu/Qh9lXkaAz5d/beO"
+        #expect(geminiResponse.functionCallParts[0].thoughtSignature == capturedSig)
+
+        // 2. Next turn: Ivy sends follow-up with the captured part + tool result
+        let finalReplyJSON = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  { "text": "Safari is running, as requested." }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP"
+            }
+          ]
+        }
+        """
+
+        MockURLProtocol.requestHandler = { request in
+            guard let httpBody = request.extractBodyData(),
+                  let json = try? JSONSerialization.jsonObject(with: httpBody) as? [String: Any],
+                  let contents = json["contents"] as? [[String: Any]] else {
+                Issue.record("Failed to parse request JSON contents")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(contents.count == 3)
+
+            // Turn 1: model tool call with captured signature
+            let modelTurn = contents[1]
+            #expect(modelTurn["role"] as? String == "model")
+            guard let modelParts = modelTurn["parts"] as? [[String: Any]], let modelPart = modelParts.first else {
+                Issue.record("Missing model parts in request")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+
+            #expect(modelPart["thoughtSignature"] as? String == capturedSig)
+            guard let callDict = modelPart["functionCall"] as? [String: Any] else {
+                Issue.record("Missing functionCall in modelPart")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            #expect(callDict["name"] as? String == "open_app")
+            #expect(callDict["thoughtSignature"] == nil)
+            #expect(callDict["thought_signature"] == nil)
+
+            // Turn 2: functionResponse
+            let respTurn = contents[2]
+            #expect(respTurn["role"] as? String == "user")
+            guard let respParts = respTurn["parts"] as? [[String: Any]], let respPart = respParts.first else {
+                Issue.record("Missing response parts")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            guard let funcResp = respPart["functionResponse"] as? [String: Any] else {
+                Issue.record("Missing functionResponse")
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            #expect(funcResp["name"] as? String == "open_app")
+
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, finalReplyJSON.data(using: .utf8)!)
+        }
+
+        let history: [ChatMessage] = [
+            ChatMessage(role: .user, text: "Open Safari"),
+            ChatMessage(
+                role: .model,
+                text: "",
+                functionCall: geminiResponse.functionCalls[0],
+                functionCallPart: geminiResponse.functionCallParts[0]
+            ),
+            ChatMessage(
+                role: .function,
+                text: "Opened Safari",
+                functionResponse: FunctionResponse(name: "open_app", response: ["result": "Launched Safari"])
+            )
+        ]
+
+        let result = try await client.generateContent(
+            history: history,
+            systemPrompt: "You are Ivy",
+            tools: nil,
+            apiKey: "valid_key"
+        )
+
+        #expect(result.text == "Safari is running, as requested.")
     }
 }
 
