@@ -29,6 +29,12 @@ public final class OpenAppTool: IvyTool, Sendable {
     }
 
     public func validate(arguments: [String: AnyCodable]) throws {
+        for key in arguments.keys {
+            if key != "name" {
+                throw ToolError.invalidArgument("Unexpected argument: '\(key)'.")
+            }
+        }
+
         guard let nameValue = arguments["name"] else {
             throw ToolError.missingArgument("name")
         }

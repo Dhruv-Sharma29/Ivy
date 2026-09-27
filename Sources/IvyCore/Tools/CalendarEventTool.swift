@@ -40,6 +40,13 @@ public final class CalendarEventTool: IvyTool, Sendable {
     }
 
     public func validate(arguments: [String: AnyCodable]) throws {
+        let allowedKeys: Set<String> = ["title", "date"]
+        for key in arguments.keys {
+            if !allowedKeys.contains(key) {
+                throw ToolError.invalidArgument("Unexpected argument: '\(key)'.")
+            }
+        }
+
         guard let titleValue = arguments["title"] else {
             throw ToolError.missingArgument("title")
         }
