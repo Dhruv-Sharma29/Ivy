@@ -74,7 +74,7 @@ public struct SafetyPolicy: Sendable, Equatable {
 
     public init(
         safeToolNames: Set<String> = ["open_app"],
-        riskyToolNames: Set<String> = ["run_applescript", "calendar_event"],
+        riskyToolNames: Set<String> = ["run_applescript", "calendar_event", "run_shell"],
         defaultClassification: ToolSafetyClassification = .risky
     ) {
         self.safeToolNames = safeToolNames
@@ -191,6 +191,14 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
                     detail: "Action: \(action)\nTarget Path: \(normalizedPath)"
                 )
             }
+        } else if tool.name == "run_shell" {
+            let command = call.args["command"]?.stringValue ?? "(empty command)"
+            return ConfirmationRequest(
+                toolName: tool.name,
+                title: "Run Shell Command",
+                prompt: "You're about to run a shell command. If this breaks your system, don't blame me. Do it or chicken out?",
+                detail: command
+            )
         } else {
             return ConfirmationRequest(
                 toolName: tool.name,

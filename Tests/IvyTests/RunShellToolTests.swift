@@ -147,3 +147,89 @@ struct RunShellToolArgumentTests {
         }
     }
 }
+
+@Suite("RunShellTool Execution Tests")
+struct RunShellToolExecutionTests {
+    @Test("Tool declaration and schema properties")
+    func testToolDeclaration() {
+        let mock = MockShellExecutor()
+        let tool = RunShellTool(executor: mock)
+
+        #expect(tool.name == "run_shell")
+        #expect(tool.safetyClassification == .risky)
+        #expect(tool.declaration.name == "run_shell")
+        #expect(tool.declaration.parameters?.properties["command"]?.type == "STRING")
+        #expect(tool.declaration.parameters?.required == ["command"])
+    }
+
+    @Test("Successful execution returns successful ToolResult")
+    func testSuccessfulExecution() async throws {
+        let mock = MockShellExecutor()
+        mock.resultToReturn = ShellCommandResult(command: "uname -s", stdout: "Darwin\n", stderr: "", exitCode: 0, duration: 0.01)
+        let tool = RunShellTool(executor: mock)
+
+        let result = try await tool.execute(arguments: ["command": AnyCodable("uname -s")])
+
+        #expect(result.isError == false)
+        #expect(result.output == "Darwin")
+        #expect(mock.recordedCommands.count == 1)
+        #expect(mock.recordedCommands[0].command == "uname -s")
+    }
+
+    @Test("Non-zero exit status returns failure ToolResult with error output")
+    func testNonZeroExitStatusReturnsFailure() async throws {
+        let mock = MockShellExecutor()
+        mock.resultToReturn = ShellCommandResult(
+            command: "ls /nonexistent_folder_123",
+            stdout: "",
+            stderr: "ls: /nonexistent_folder_123: No such file or directory",
+            exitCode: 1,
+            duration: 0.02
+        )
+        let tool = RunShellTool(executor: mock)
+
+        let result = try await tool.execute(arguments: ["command": AnyCodable("ls /nonexistent_folder_123")])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("No such file or directory"))
+    }
+
+    @Test("Launch failure returns structured failure ToolResult")
+    func testLaunchFailureReturnsFailure() async throws {
+        let mock = MockShellExecutor()
+        mock.errorToThrow = ShellError.launchFailed("posix_spawn failed: permission denied")
+        let tool = RunShellTool(executor: mock)
+
+        let result = try await tool.execute(arguments: ["command": AnyCodable("./unexecutable.sh")])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("Failed to launch process"))
+    }
+
+    @Test("Timeout error returns structured failure ToolResult")
+    func testTimeoutErrorReturnsFailure() async throws {
+        let mock = MockShellExecutor()
+        mock.errorToThrow = ShellError.timedOut(duration: 30.0)
+        let tool = RunShellTool(executor: mock)
+
+        let result = try await tool.execute(arguments: ["command": AnyCodable("sleep 100")])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("timed out"))
+    }
+
+    @Test("ToolRegistry defaultRegistry includes RunShellTool")
+    func testDefaultRegistryIncludesRunShell() {
+        let registry = ToolRegistry.defaultRegistry()
+        #expect(registry.hasTool(named: "run_shell"))
+        #expect(registry.tool(named: "run_shell") != nil)
+        #expect(registry.tool(named: "run_shell")?.safetyClassification == .risky)
+    }
+
+    @Test("SystemShellExecutor conforms to ShellExecutorProtocol")
+    func testSystemExecutorConformance() {
+        let executor: any ShellExecutorProtocol = SystemShellExecutor()
+        #expect(executor is SystemShellExecutor)
+    }
+}
+
