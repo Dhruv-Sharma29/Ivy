@@ -667,4 +667,156 @@ struct Phase2CRegressionTests {
         #expect(mockExecutor.executedScripts.count == 1)
         #expect(brain.messages.last?.text == "Script complete.")
     }
+
+    @Test("Cancellation response produces in-character sarcastic reply from Gemini")
+    @MainActor
+    func testCancellationResponseProducesInCharacterReply() async {
+        final class CancelPersonalityClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    let part = Part(
+                        functionCall: FunctionCall(name: "calendar_event", args: ["title": "Sync", "date": "2026-10-01T10:00:00Z"], id: "call-c1"),
+                        thoughtSignature: "sig_cal_c1"
+                    )
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [part.functionCall!],
+                        functionCallParts: [part],
+                        thoughtSignature: "sig_cal_c1"
+                    )
+                } else if step == 2 {
+                    if let last = history.last, let resp = last.functionResponse {
+                        let errorMsg = resp.response["error"]?.stringValue ?? ""
+                        return ModelTurnResponse(text: "You chickened out (\(errorMsg)). Fine by me.")
+                    }
+                }
+                throw GeminiClientError.emptyResponse
+            }
+        }
+
+        let mockExecutor = MockCalendarExecutor()
+        let tool = CalendarEventTool(executor: mockExecutor)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let client = CancelPersonalityClient()
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Schedule sync")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        #expect(brain.pendingConfirmation != nil)
+        brain.respondToPendingConfirmation(approved: false)
+        await sendTask.value
+
+        #expect(mockExecutor.recordedCalls.isEmpty)
+        #expect(brain.messages.last?.text.contains("You chickened out") == true)
+    }
+
+    @Test("Multi-turn conversation: calendar tool execution turn followed by pure text follow-up")
+    @MainActor
+    func testMultiTurnConversationWithCalendarFollowUp() async {
+        final class MultiTurnCalClient: GeminiClientProtocol, @unchecked Sendable {
+            var step = 0
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                step += 1
+                if step == 1 {
+                    let part = Part(
+                        functionCall: FunctionCall(name: "calendar_event", args: ["title": "Demo", "date": "2026-10-01T15:00:00Z"], id: "call-demo"),
+                        thoughtSignature: "sig_demo"
+                    )
+                    return ModelTurnResponse(
+                        text: nil,
+                        functionCalls: [part.functionCall!],
+                        functionCallParts: [part],
+                        thoughtSignature: "sig_demo"
+                    )
+                } else if step == 2 {
+                    return ModelTurnResponse(text: "I added Demo to your calendar. Try not to miss it.")
+                } else if step == 3 {
+                    return ModelTurnResponse(text: "Your Demo event is at 3 PM, obviously.")
+                }
+                throw GeminiClientError.emptyResponse
+            }
+        }
+
+        let mockExecutor = MockCalendarExecutor()
+        let tool = CalendarEventTool(executor: mockExecutor)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let client = MultiTurnCalClient()
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        // Turn 1: tool turn
+        let sendTask = Task {
+            await brain.send("Add demo to calendar")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        brain.respondToPendingConfirmation(approved: true)
+        await sendTask.value
+
+        #expect(mockExecutor.recordedCalls.count == 1)
+        #expect(brain.messages.last?.text == "I added Demo to your calendar. Try not to miss it.")
+
+        // Turn 2: pure text follow-up
+        await brain.send("What time is it again?")
+        #expect(brain.messages.last?.text == "Your Demo event is at 3 PM, obviously.")
+        #expect(brain.messages.count == 4)
+    }
+
+    @Test("Combined ToolRegistry.defaultRegistry includes calendar_event and enforces SafetyGate")
+    @MainActor
+    func testCombinedToolRegistryDefaultDispatch() async {
+        let mockCal = MockCalendarExecutor()
+        let mockWS = MockWorkspace()
+        let mockAS = MockAppleScriptExecutor()
+
+        let registry = ToolRegistry.defaultRegistry(
+            workspace: mockWS,
+            appleScriptExecutor: mockAS,
+            calendarExecutor: mockCal
+        )
+
+        #expect(registry.hasTool(named: "open_app"))
+        #expect(registry.hasTool(named: "run_applescript"))
+        #expect(registry.hasTool(named: "calendar_event"))
+        #expect(registry.count == 3)
+
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        let provider = TestConfirmationProvider(decisionToReturn: false)
+        let testGate = InteractiveSafetyGate(confirmationProvider: provider)
+        let testDispatcher = ToolDispatcher(registry: registry, safetyGate: testGate)
+
+        let call = FunctionCall(name: "calendar_event", args: ["title": "Doctor", "date": "2026-10-01T11:00:00Z"], id: "c-def")
+        let response = await testDispatcher.dispatch(call)
+
+        #expect(response.response["success"]?.boolValue == false)
+        #expect(response.response["error"]?.stringValue?.contains("User cancelled") == true)
+        #expect(mockCal.recordedCalls.isEmpty)
+    }
 }

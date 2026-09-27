@@ -204,6 +204,85 @@ struct CalendarEventToolTests {
         #expect(result.output.contains("No default calendar found"))
     }
 
+    @Test("CalendarError.eventCreationFailed is returned as failure ToolResult")
+    func testEventKitFailureHandling() async throws {
+        let mock = MockCalendarExecutor()
+        mock.errorToThrow = CalendarError.eventCreationFailed("EventKit database locked")
+        let tool = CalendarEventTool(executor: mock)
+
+        let result = try await tool.execute(arguments: [
+            "title": AnyCodable("Review"),
+            "date": AnyCodable("2026-10-01T10:00:00Z")
+        ])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("EventKit database locked"))
+    }
+
+    @Test("Generic NSError from executor is converted into structured failure ToolResult without crashing")
+    func testGenericNSErrorPropagation() async throws {
+        let mock = MockCalendarExecutor()
+        mock.errorToThrow = NSError(domain: "EKErrorDomain", code: 100, userInfo: [
+            NSLocalizedDescriptionKey: "Internal EventKit failure"
+        ])
+        let tool = CalendarEventTool(executor: mock)
+
+        let result = try await tool.execute(arguments: [
+            "title": AnyCodable("Review"),
+            "date": AnyCodable("2026-10-01T10:00:00Z")
+        ])
+
+        #expect(result.isError == true)
+        #expect(result.output.contains("Internal EventKit failure"))
+    }
+
+    @Test("Non-string arguments throw invalidArgument")
+    func testNonStringArgumentsValidation() {
+        let tool = CalendarEventTool(executor: MockCalendarExecutor())
+
+        // Integer title
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "title": AnyCodable(12345),
+                "date": AnyCodable("2026-10-01T10:00:00Z")
+            ])
+        }
+
+        // Boolean date
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "title": AnyCodable("Meeting"),
+                "date": AnyCodable(true)
+            ])
+        }
+    }
+
+    @Test("Structured ToolResult properties and CalendarEventResult shapes")
+    func testStructuredToolResultShape() {
+        let now = Date()
+        let eventResult = CalendarEventResult(
+            eventTitle: "Sprint Planning",
+            calendarName: "Home",
+            startDate: now,
+            duration: 1800,
+            message: "Created event 'Sprint Planning' on 'Home'."
+        )
+
+        #expect(eventResult.eventTitle == "Sprint Planning")
+        #expect(eventResult.calendarName == "Home")
+        #expect(eventResult.startDate == now)
+        #expect(eventResult.duration == 1800)
+        #expect(eventResult.message.contains("Sprint Planning"))
+
+        let success = ToolResult.success("Event created")
+        #expect(success.isError == false)
+        #expect(success.output == "Event created")
+
+        let failure = ToolResult.failure("Permission denied")
+        #expect(failure.isError == true)
+        #expect(failure.output == "Permission denied")
+    }
+
     @Test("SystemCalendarExecutor conforms to CalendarExecutorProtocol")
     func testSystemExecutorProtocolConformance() {
         let executor: any CalendarExecutorProtocol = SystemCalendarExecutor()
