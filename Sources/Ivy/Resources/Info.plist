@@ -16,5 +16,7 @@
     <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
     <key>NSCalendarsUsageDescription</key>
     <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Ivy needs access to your microphone for live voice conversations.</string>
 </dict>
 </plist>
