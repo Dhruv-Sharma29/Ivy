@@ -157,7 +157,7 @@ public struct IvyPopoverView: View {
                                 .id(message.id)
                         }
 
-                        if brain.isThinking {
+                        if brain.isThinking && brain.pendingConfirmation == nil {
                             HStack {
                                 Text("Ivy is formulating a sharp reply...")
                                     .font(.system(size: 12, weight: .medium))

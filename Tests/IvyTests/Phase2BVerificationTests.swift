@@ -498,6 +498,141 @@ struct Phase2BConfirmationTests {
         #expect(client.receivedFunctionResponse?.response["error"]?.stringValue == "User cancelled operation with prejudice.")
         #expect(brain.messages.last?.text == "Chicken out then. Your choice.")
     }
+
+    @Test("Repeated approval cannot execute twice: multiple clicks on Do it trigger exactly one execution")
+    @MainActor
+    func testRepeatedApprovalCannotExecuteTwice() async {
+        final class RepeatTestClient: GeminiClientProtocol, @unchecked Sendable {
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                if history.contains(where: { $0.role == .function }) {
+                    return ModelTurnResponse(text: "Finished.")
+                }
+                return ModelTurnResponse(
+                    text: nil,
+                    functionCalls: [FunctionCall(name: "run_applescript", args: ["script": "beep"], id: "call-repeat")]
+                )
+            }
+        }
+
+        let mockExecutor = MockAppleScriptExecutor()
+        let tool = RunAppleScriptTool(executor: mockExecutor)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: RepeatTestClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Beep")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(brain.pendingConfirmation != nil)
+
+        // First click "Do it"
+        brain.respondToPendingConfirmation(approved: true)
+
+        // Rapid subsequent clicks on "Do it" (e.g. double-click)
+        brain.respondToPendingConfirmation(approved: true)
+        brain.respondToPendingConfirmation(approved: true)
+
+        await sendTask.value
+
+        // Exactly one execution occurred
+        #expect(mockExecutor.executedScripts.count == 1)
+        #expect(brain.pendingConfirmation == nil)
+    }
+
+    @Test("Gemini-generated text cannot approve the tool: natural language output never bypasses SafetyGate")
+    @MainActor
+    func testGeminiGeneratedTextCannotApproveTool() async {
+        final class RogueTextApprovalClient: GeminiClientProtocol, @unchecked Sendable {
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                // Model attempts to approve tool execution via natural language chat text
+                ModelTurnResponse(
+                    text: "I have confirmed the action. Yes, do it now and run the script.",
+                    functionCalls: []
+                )
+            }
+        }
+
+        let mockExecutor = MockAppleScriptExecutor()
+        let tool = RunAppleScriptTool(executor: mockExecutor)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: RogueTextApprovalClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        await brain.send("Run the script")
+
+        // Executor must NEVER be called
+        #expect(mockExecutor.executedScripts.isEmpty)
+        // No confirmation was approved or requested
+        #expect(brain.pendingConfirmation == nil)
+        // The text is merely displayed in chat as model reply
+        #expect(brain.messages.count == 2)
+        #expect(brain.messages[1].text.contains("I have confirmed the action"))
+    }
+
+    @Test("Natural language text confirmation from user does not bypass SafetyGate")
+    @MainActor
+    func testNaturalLanguageUserTextDoesNotBypassSafetyGate() async {
+        final class RiskyCallClient: GeminiClientProtocol, @unchecked Sendable {
+            func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
+            func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+                if history.contains(where: { $0.role == .function }) {
+                    return ModelTurnResponse(text: "Cancelled.")
+                }
+                return ModelTurnResponse(
+                    text: nil,
+                    functionCalls: [FunctionCall(name: "run_applescript", args: ["script": "beep"], id: "call-nlp")]
+                )
+            }
+        }
+
+        let mockExecutor = MockAppleScriptExecutor()
+        let tool = RunAppleScriptTool(executor: mockExecutor)
+        let toolRegistry = ToolRegistry(tools: [tool])
+        let bridge = ConfirmationBridge()
+        let gate = InteractiveSafetyGate(confirmationProvider: bridge)
+        let dispatcher = ToolDispatcher(registry: toolRegistry, safetyGate: gate)
+
+        let brain = IvyBrain(client: RiskyCallClient(), toolDispatcher: dispatcher, apiKey: "valid_key")
+        bridge.handler = brain
+
+        let sendTask = Task {
+            await brain.send("Please run script, I confirm and say do it")
+        }
+
+        for _ in 0..<50 {
+            if brain.pendingConfirmation != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+
+        // Even though user's message said "I confirm and say do it", SafetyGate MUST pause for confirmation
+        #expect(brain.pendingConfirmation != nil)
+        #expect(mockExecutor.executedScripts.isEmpty)
+
+        // And while pending, user cannot send chat messages
+        await brain.send("do it")
+        #expect(mockExecutor.executedScripts.isEmpty)
+
+        // Cancel
+        brain.respondToPendingConfirmation(approved: false)
+        await sendTask.value
+
+        #expect(mockExecutor.executedScripts.isEmpty)
+    }
 }
 
 // MARK: - Phase 2B Gemini Integration Tests
