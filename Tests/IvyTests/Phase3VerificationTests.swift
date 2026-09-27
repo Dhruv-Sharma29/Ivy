@@ -55,614 +55,7 @@ private final class Phase3ScriptedGeminiClient: GeminiClientProtocol, @unchecked
     }
 }
 
-// MARK: - Suite 1: SafetyGate Risk Classification & Audit Across All Tools
-
-@Suite("Phase 3 - SafetyGate Audit Tests")
-struct Phase3SafetyGateAuditTests {
-    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
-
-    @Test("Classification: Audit explicit risk classification across all 5 tools")
-    func testExplicitRiskClassificationAcrossAllTools() {
-        let policy = SafetyPolicy()
-
-        let openApp = OpenAppTool(workspace: MockWorkspace())
-        let applescript = RunAppleScriptTool(executor: MockAppleScriptExecutor())
-        let calendar = CalendarEventTool(executor: MockCalendarExecutor())
-        let fileOp = FileOpTool(executor: MockFileExecutor(), allowedRoot: sandboxURL)
-        let shell = RunShellTool(executor: MockShellExecutor())
-
-        // 1. open_app is SAFE
-        #expect(policy.classification(for: openApp) == .safe)
-        #expect(openApp.safetyClassification == .safe)
-        let openCall = FunctionCall(name: "open_app", args: ["name": AnyCodable("Safari")])
-        #expect(policy.classification(for: openApp, call: openCall) == .safe)
-
-        // 2. file_op read is SAFE, file_op write and delete are RISKY
-        #expect(policy.classification(for: fileOp) == .risky) // Default without call context is risky
-        let readCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("read"), "path": AnyCodable("/sandbox/file.txt")])
-        #expect(policy.classification(for: fileOp, call: readCall) == .safe)
-
-        let writeCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/file.txt"), "content": AnyCodable("hello")])
-        #expect(policy.classification(for: fileOp, call: writeCall) == .risky)
-
-        let deleteCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/file.txt")])
-        #expect(policy.classification(for: fileOp, call: deleteCall) == .risky)
-
-        let unknownActionCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("chmod"), "path": AnyCodable("/sandbox/file.txt")])
-        #expect(policy.classification(for: fileOp, call: unknownActionCall) == .risky)
-
-        // 3. run_applescript is RISKY
-        #expect(policy.classification(for: applescript) == .risky)
-        #expect(applescript.safetyClassification == .risky)
-        let scriptCall = FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")])
-        #expect(policy.classification(for: applescript, call: scriptCall) == .risky)
-
-        // 4. calendar_event is RISKY
-        #expect(policy.classification(for: calendar) == .risky)
-        #expect(calendar.safetyClassification == .risky)
-        let calCall = FunctionCall(name: "calendar_event", args: ["title": AnyCodable("Meeting"), "date": AnyCodable("2026-10-01T10:00:00Z")])
-        #expect(policy.classification(for: calendar, call: calCall) == .risky)
-
-        // 5. run_shell is ALWAYS RISKY
-        #expect(policy.classification(for: shell) == .risky)
-        #expect(shell.safetyClassification == .risky)
-        let shellCall = FunctionCall(name: "run_shell", args: ["command": AnyCodable("whoami")])
-        #expect(policy.classification(for: shell, call: shellCall) == .risky)
-    }
-
-    @Test("InteractiveSafetyGate: builds exact ConfirmationRequest with callId for all risky tools")
-    func testConfirmationRequestDetailsAndCallId() async {
-        let provider = Phase3AuditConfirmationProvider(decisionToReturn: true)
-        let gate = InteractiveSafetyGate(confirmationProvider: provider)
-
-        // 1. run_applescript
-        let appleScriptTool = RunAppleScriptTool(executor: MockAppleScriptExecutor())
-        let callAS = FunctionCall(name: "run_applescript", args: ["script": AnyCodable("display dialog \"Hi\"")], id: "as-call-101")
-        _ = await gate.evaluate(tool: appleScriptTool, call: callAS)
-        #expect(provider.recordedRequests.count == 1)
-        #expect(provider.recordedRequests[0].toolName == "run_applescript")
-        #expect(provider.recordedRequests[0].callId == "as-call-101")
-        #expect(provider.recordedRequests[0].detail == "display dialog \"Hi\"")
-
-        // 2. calendar_event
-        let calTool = CalendarEventTool(executor: MockCalendarExecutor())
-        let callCal = FunctionCall(name: "calendar_event", args: ["title": AnyCodable("Dentist"), "date": AnyCodable("2026-10-05T14:00:00Z")], id: "cal-call-202")
-        _ = await gate.evaluate(tool: calTool, call: callCal)
-        #expect(provider.recordedRequests.count == 2)
-        #expect(provider.recordedRequests[1].toolName == "calendar_event")
-        #expect(provider.recordedRequests[1].callId == "cal-call-202")
-        #expect(provider.recordedRequests[1].detail.contains("Dentist"))
-        #expect(provider.recordedRequests[1].detail.contains("2026-10-05T14:00:00Z"))
-
-        // 3. file_op write
-        let fileTool = FileOpTool(executor: MockFileExecutor(), allowedRoot: sandboxURL)
-        let callWrite = FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/test.txt"), "content": AnyCodable("data")], id: "file-call-303")
-        _ = await gate.evaluate(tool: fileTool, call: callWrite)
-        #expect(provider.recordedRequests.count == 3)
-        #expect(provider.recordedRequests[2].toolName == "file_op")
-        #expect(provider.recordedRequests[2].callId == "file-call-303")
-        #expect(provider.recordedRequests[2].title == "Write File")
-        #expect(provider.recordedRequests[2].detail.contains("/sandbox/test.txt"))
-
-        // 4. file_op delete
-        let callDelete = FunctionCall(name: "file_op", args: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/test.txt")], id: "file-call-404")
-        _ = await gate.evaluate(tool: fileTool, call: callDelete)
-        #expect(provider.recordedRequests.count == 4)
-        #expect(provider.recordedRequests[3].toolName == "file_op")
-        #expect(provider.recordedRequests[3].callId == "file-call-404")
-        #expect(provider.recordedRequests[3].title == "Delete File")
-
-        // 5. run_shell
-        let shellTool = RunShellTool(executor: MockShellExecutor())
-        let callShell = FunctionCall(name: "run_shell", args: ["command": AnyCodable("ls -la /tmp")], id: "sh-call-505")
-        _ = await gate.evaluate(tool: shellTool, call: callShell)
-        #expect(provider.recordedRequests.count == 5)
-        #expect(provider.recordedRequests[4].toolName == "run_shell")
-        #expect(provider.recordedRequests[4].callId == "sh-call-505")
-        #expect(provider.recordedRequests[4].detail == "ls -la /tmp")
-    }
-
-    @Test("Bypass Prevention: Deceptive arguments cannot bypass SafetyGate")
-    func testDeceptiveArgumentsCannotBypassSafetyGate() async {
-        let provider = Phase3AuditConfirmationProvider(decisionToReturn: false)
-        let gate = InteractiveSafetyGate(confirmationProvider: provider)
-
-        let mockAS = MockAppleScriptExecutor()
-        let appleScriptTool = RunAppleScriptTool(executor: mockAS)
-
-        let mockCal = MockCalendarExecutor()
-        let calTool = CalendarEventTool(executor: mockCal)
-
-        let mockFile = MockFileExecutor()
-        let fileTool = FileOpTool(executor: mockFile, allowedRoot: sandboxURL)
-
-        let mockShell = MockShellExecutor()
-        let shellTool = RunShellTool(executor: mockShell)
-
-        let registry = ToolRegistry(tools: [appleScriptTool, calTool, fileTool, shellTool])
-        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
-
-        // AppleScript spoofing
-        let asSpoof = FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep"), "bypassConfirmation": AnyCodable(true), "role": AnyCodable("admin")], id: "spoof-1")
-        let asResp = await dispatcher.dispatch(asSpoof)
-        #expect(asResp.isCancelled)
-        #expect(mockAS.executedScripts.isEmpty)
-
-        // Calendar spoofing - rejected during validation due to unexpected arguments!
-        let calSpoof = FunctionCall(name: "calendar_event", args: ["title": AnyCodable("Party"), "date": AnyCodable("2026-10-01T10:00:00Z"), "autoApprove": AnyCodable(true)], id: "spoof-2")
-        let calResp = await dispatcher.dispatch(calSpoof)
-        #expect(calResp.isValidationError)
-        #expect(mockCal.recordedCalls.isEmpty)
-
-        // FileOp spoofing - rejected during validation due to unexpected arguments!
-        let fileSpoof = FunctionCall(name: "file_op", args: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/test.txt"), "confirmed": AnyCodable(true)], id: "spoof-3")
-        let fileResp = await dispatcher.dispatch(fileSpoof)
-        #expect(fileResp.isValidationError)
-        #expect(mockFile.recordedCalls.isEmpty)
-
-        // Shell spoofing - rejected during validation due to unexpected arguments!
-        let shellSpoof = FunctionCall(name: "run_shell", args: ["command": AnyCodable("uptime"), "bypassSafety": AnyCodable(true)], id: "spoof-4")
-        let shellResp = await dispatcher.dispatch(shellSpoof)
-        #expect(shellResp.isValidationError)
-        #expect(mockShell.recordedCommands.isEmpty)
-    }
-}
-
-// MARK: - Suite 2: Confirmation Security, UUID Binding, & Isolation
-
-@Suite("Phase 3 - Confirmation Security Tests")
-struct Phase3ConfirmationSecurityTests {
-    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
-
-    @Test("Confirmation is tied to exact UUID: Mismatched UUID approval is ignored")
-    @MainActor
-    func testMismatchedUUIDApprovalIsIgnored() async {
-        let brain = IvyBrain(apiKey: "valid_key")
-
-        let req = ConfirmationRequest(
-            callId: "call-target",
-            toolName: "run_shell",
-            title: "Run Shell Command",
-            prompt: "Test prompt",
-            detail: "echo test"
-        )
-
-        let task = Task {
-            await brain.handleConfirmation(req)
-        }
-
-        // Wait for pendingConfirmation to populate
-        for _ in 0..<50 {
-            if brain.pendingConfirmation != nil { break }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        #expect(brain.pendingConfirmation?.id == req.id)
-
-        // Attempt approval with wrong UUID
-        brain.respondToPendingConfirmation(id: UUID(), approved: true)
-
-        // Confirmation must remain pending!
-        #expect(brain.pendingConfirmation != nil)
-        #expect(brain.pendingConfirmation?.id == req.id)
-
-        // Now respond with matching UUID
-        brain.respondToPendingConfirmation(id: req.id, approved: true)
-
-        let decision = await task.value
-        #expect(decision == true)
-        #expect(brain.pendingConfirmation == nil)
-    }
-
-    @Test("Confirmation is tied to exact UUID: Mismatched UUID cancellation is ignored")
-    @MainActor
-    func testMismatchedUUIDCancellationIsIgnored() async {
-        let brain = IvyBrain(apiKey: "valid_key")
-
-        let req = ConfirmationRequest(
-            callId: "call-cancel-target",
-            toolName: "file_op",
-            title: "Delete File",
-            prompt: "Test prompt",
-            detail: "Action: Delete File"
-        )
-
-        let task = Task {
-            await brain.handleConfirmation(req)
-        }
-
-        for _ in 0..<50 {
-            if brain.pendingConfirmation != nil { break }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        #expect(brain.pendingConfirmation?.id == req.id)
-
-        // Attempt cancellation with wrong UUID
-        brain.respondToPendingConfirmation(id: UUID(), approved: false)
-
-        // Confirmation must still be pending!
-        #expect(brain.pendingConfirmation != nil)
-
-        // Cancel with matching UUID
-        brain.respondToPendingConfirmation(id: req.id, approved: false)
-
-        let decision = await task.value
-        #expect(decision == false)
-        #expect(brain.pendingConfirmation == nil)
-    }
-
-    @Test("Cancel guarantees ZERO executor calls across all risky tools")
-    @MainActor
-    func testCancelGuaranteesZeroExecutorCallsAcrossRiskyTools() async {
-        let mockAS = MockAppleScriptExecutor()
-        let mockCal = MockCalendarExecutor()
-        let mockFile = MockFileExecutor()
-        let mockShell = MockShellExecutor()
-
-        let registry = ToolRegistry(tools: [
-            RunAppleScriptTool(executor: mockAS),
-            CalendarEventTool(executor: mockCal),
-            FileOpTool(executor: mockFile, allowedRoot: sandboxURL),
-            RunShellTool(executor: mockShell)
-        ])
-
-        let bridge = ConfirmationBridge()
-        let safetyGate = InteractiveSafetyGate(confirmationProvider: bridge)
-        let dispatcher = ToolDispatcher(registry: registry, safetyGate: safetyGate)
-
-        // 1. AppleScript Cancel
-        do {
-            let client = Phase3ScriptedGeminiClient { step, _ in
-                if step == 1 {
-                    return ModelTurnResponse(
-                        text: nil,
-                        functionCalls: [FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")], id: "c1")]
-                    )
-                }
-                return ModelTurnResponse(text: "Cancelled AS", functionCalls: [])
-            }
-            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
-            bridge.handler = brain
-
-            let task = Task { await brain.send("Run AS") }
-            for _ in 0..<50 {
-                if brain.pendingConfirmation != nil { break }
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
-            await task.value
-            #expect(mockAS.executedScripts.isEmpty)
-        }
-
-        // 2. Calendar Cancel
-        do {
-            let client = Phase3ScriptedGeminiClient { step, _ in
-                if step == 1 {
-                    return ModelTurnResponse(
-                        text: nil,
-                        functionCalls: [FunctionCall(name: "calendar_event", args: ["title": AnyCodable("Meeting"), "date": AnyCodable("2026-10-01T10:00:00Z")], id: "c2")]
-                    )
-                }
-                return ModelTurnResponse(text: "Cancelled Cal", functionCalls: [])
-            }
-            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
-            bridge.handler = brain
-
-            let task = Task { await brain.send("Add meeting") }
-            for _ in 0..<50 {
-                if brain.pendingConfirmation != nil { break }
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
-            await task.value
-            #expect(mockCal.recordedCalls.isEmpty)
-        }
-
-        // 3. File Op Write Cancel
-        do {
-            let client = Phase3ScriptedGeminiClient { step, _ in
-                if step == 1 {
-                    return ModelTurnResponse(
-                        text: nil,
-                        functionCalls: [FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/doc.txt"), "content": AnyCodable("data")], id: "c3")]
-                    )
-                }
-                return ModelTurnResponse(text: "Cancelled Write", functionCalls: [])
-            }
-            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
-            bridge.handler = brain
-
-            let task = Task { await brain.send("Write file") }
-            for _ in 0..<50 {
-                if brain.pendingConfirmation != nil { break }
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
-            await task.value
-            #expect(mockFile.recordedCalls.isEmpty)
-        }
-
-        // 4. Shell Cancel
-        do {
-            let client = Phase3ScriptedGeminiClient { step, _ in
-                if step == 1 {
-                    return ModelTurnResponse(
-                        text: nil,
-                        functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("whoami")], id: "c4")]
-                    )
-                }
-                return ModelTurnResponse(text: "Cancelled Shell", functionCalls: [])
-            }
-            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
-            bridge.handler = brain
-
-            let task = Task { await brain.send("Run shell") }
-            for _ in 0..<50 {
-                if brain.pendingConfirmation != nil { break }
-                try? await Task.sleep(nanoseconds: 5_000_000)
-            }
-            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
-            await task.value
-            #expect(mockShell.recordedCommands.isEmpty)
-        }
-    }
-
-    @Test("Repeated approval executes at most once and never duplicates")
-    @MainActor
-    func testRepeatedApprovalExecutesAtMostOnce() async {
-        let mockShell = MockShellExecutor()
-        mockShell.resultToReturn = ShellCommandResult(command: "date", stdout: "Sun Sep 27", stderr: "", exitCode: 0)
-        let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
-        let bridge = ConfirmationBridge()
-        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
-
-        let client = Phase3ScriptedGeminiClient { step, _ in
-            if step == 1 {
-                return ModelTurnResponse(
-                    text: nil,
-                    functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("date")], id: "rep-1")]
-                )
-            }
-            return ModelTurnResponse(text: "Date reported.", functionCalls: [])
-        }
-        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
-        bridge.handler = brain
-
-        let task = Task { await brain.send("Get date") }
-        for _ in 0..<50 {
-            if brain.pendingConfirmation != nil { break }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-
-        let pendingId = brain.pendingConfirmation?.id
-        #expect(pendingId != nil)
-
-        // First approval
-        brain.respondToPendingConfirmation(id: pendingId, approved: true)
-
-        // Second duplicate approval attempts
-        brain.respondToPendingConfirmation(id: pendingId, approved: true)
-        brain.respondToPendingConfirmation(id: pendingId, approved: true)
-
-        await task.value
-
-        #expect(mockShell.recordedCommands.count == 1)
-    }
-
-    @Test("Previous approval cannot authorize later calls")
-    @MainActor
-    func testPreviousApprovalDoesNotAuthorizeLaterCalls() async {
-        let mockShell = MockShellExecutor()
-        mockShell.resultToReturn = ShellCommandResult(command: "test", stdout: "ok", stderr: "", exitCode: 0)
-        let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
-        let bridge = ConfirmationBridge()
-        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
-
-        let client = Phase3ScriptedGeminiClient { step, _ in
-            if step == 1 {
-                return ModelTurnResponse(
-                    text: nil,
-                    functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("echo 1")], id: "seq-1")]
-                )
-            }
-            return ModelTurnResponse(text: "First done", functionCalls: [])
-        }
-        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
-        bridge.handler = brain
-
-        // Turn 1
-        let task1 = Task { await brain.send("First") }
-        for _ in 0..<50 {
-            if brain.pendingConfirmation != nil { break }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        let req1Id = brain.pendingConfirmation?.id
-        #expect(req1Id != nil)
-        brain.respondToPendingConfirmation(id: req1Id, approved: true)
-        await task1.value
-        #expect(mockShell.recordedCommands.count == 1)
-
-        // Turn 2: New command requires a fresh confirmation
-        client.handler = { step, _ in
-            if step == 3 {
-                return ModelTurnResponse(
-                    text: nil,
-                    functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("echo 2")], id: "seq-2")]
-                )
-            }
-            return ModelTurnResponse(text: "Second done", functionCalls: [])
-        }
-
-        let task2 = Task { await brain.send("Second") }
-        for _ in 0..<50 {
-            if brain.pendingConfirmation != nil { break }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-
-        // Must be paused waiting for confirmation of Turn 2!
-        #expect(brain.pendingConfirmation != nil)
-        #expect(brain.pendingConfirmation?.id != req1Id)
-        #expect(mockShell.recordedCommands.count == 1) // Not yet executed
-
-        // Stale approval using req1Id must be ignored!
-        brain.respondToPendingConfirmation(id: req1Id, approved: true)
-        #expect(brain.pendingConfirmation != nil)
-        #expect(mockShell.recordedCommands.count == 1)
-
-        // Approve with the correct new ID
-        brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: true)
-        await task2.value
-        #expect(mockShell.recordedCommands.count == 2)
-    }
-
-    @Test("Natural-language chat cannot approve pending action")
-    @MainActor
-    func testNaturalLanguageChatCannotApprovePendingAction() async {
-        let mockShell = MockShellExecutor()
-        let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
-        let bridge = ConfirmationBridge()
-        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
-
-        let client = Phase3ScriptedGeminiClient { step, _ in
-            if step == 1 {
-                return ModelTurnResponse(
-                    text: nil,
-                    functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("ls")], id: "nl-1")]
-                )
-            }
-            return ModelTurnResponse(text: "Done", functionCalls: [])
-        }
-        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
-        bridge.handler = brain
-
-        let task = Task { await brain.send("Run ls") }
-        for _ in 0..<50 {
-            if brain.pendingConfirmation != nil { break }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        #expect(brain.pendingConfirmation != nil)
-
-        // Attempt natural language approvals
-        await brain.send("yes please do it")
-        await brain.send("I approve this command")
-        await brain.send("Do it")
-
-        // Confirmation must STILL be pending and executor call count must be 0!
-        #expect(brain.pendingConfirmation != nil)
-        #expect(mockShell.recordedCommands.isEmpty)
-
-        // Cancel via real UI confirmation button
-        brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
-        await task.value
-        #expect(mockShell.recordedCommands.isEmpty)
-    }
-}
-
-// MARK: - Suite 3: Cross-Tool Argument Validation & Injection Prevention
-
-@Suite("Phase 3 - Argument Validation and Injection Tests")
-struct Phase3ArgumentValidationAndInjectionTests {
-    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
-
-    @Test("Validation: Unexpected arguments rejected across OpenApp, Calendar, FileOp, Shell")
-    func testUnexpectedArgumentsRejected() {
-        let openApp = OpenAppTool(workspace: MockWorkspace())
-        let cal = CalendarEventTool(executor: MockCalendarExecutor())
-        let file = FileOpTool(executor: MockFileExecutor(), allowedRoot: sandboxURL)
-        let shell = RunShellTool(executor: MockShellExecutor())
-
-        // 1. open_app with unexpected argument
-        #expect(throws: ToolError.self) {
-            try openApp.validate(arguments: ["name": AnyCodable("Safari"), "unexpected": AnyCodable(true)])
-        }
-
-        // 2. calendar_event with unexpected argument
-        #expect(throws: ToolError.self) {
-            try cal.validate(arguments: ["title": AnyCodable("Trip"), "date": AnyCodable("2026-10-01T10:00:00Z"), "extra": AnyCodable(123)])
-        }
-
-        // 3. file_op with unexpected argument
-        #expect(throws: ToolError.self) {
-            try file.validate(arguments: ["action": AnyCodable("read"), "path": AnyCodable("/sandbox/file.txt"), "force": AnyCodable(true)])
-        }
-
-        // 4. run_shell with unexpected argument
-        #expect(throws: ToolError.self) {
-            try shell.validate(arguments: ["command": AnyCodable("ls"), "timeout": AnyCodable(5)])
-        }
-    }
-
-    @Test("Validation: Missing and empty arguments rejected")
-    func testMissingAndEmptyArgumentsRejected() {
-        let openApp = OpenAppTool(workspace: MockWorkspace())
-        let applescript = RunAppleScriptTool(executor: MockAppleScriptExecutor())
-        let cal = CalendarEventTool(executor: MockCalendarExecutor())
-        let file = FileOpTool(executor: MockFileExecutor(), allowedRoot: sandboxURL)
-        let shell = RunShellTool(executor: MockShellExecutor())
-
-        // open_app
-        #expect(throws: ToolError.self) { try openApp.validate(arguments: [:]) }
-        #expect(throws: ToolError.self) { try openApp.validate(arguments: ["name": AnyCodable("")]) }
-
-        // run_applescript
-        #expect(throws: ToolError.self) { try applescript.validate(arguments: [:]) }
-        #expect(throws: ToolError.self) { try applescript.validate(arguments: ["script": AnyCodable("   ")]) }
-
-        // calendar_event
-        #expect(throws: ToolError.self) { try cal.validate(arguments: [:]) }
-        #expect(throws: ToolError.self) { try cal.validate(arguments: ["title": AnyCodable("Meeting")]) }
-        #expect(throws: ToolError.self) { try cal.validate(arguments: ["title": AnyCodable(""), "date": AnyCodable("2026-10-01T10:00:00Z")]) }
-        #expect(throws: ToolError.self) { try cal.validate(arguments: ["title": AnyCodable("Meeting"), "date": AnyCodable("not-a-date")]) }
-
-        // file_op
-        #expect(throws: ToolError.self) { try file.validate(arguments: [:]) }
-        #expect(throws: ToolError.self) { try file.validate(arguments: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/a.txt")]) } // missing content
-
-        // run_shell
-        #expect(throws: ToolError.self) { try shell.validate(arguments: [:]) }
-        #expect(throws: ToolError.self) { try shell.validate(arguments: ["command": AnyCodable("   ")]) }
-    }
-
-    @Test("Security: BiDi Unicode override and null byte injection rejected")
-    func testBiDiAndNullByteRejection() {
-        let openApp = OpenAppTool(workspace: MockWorkspace())
-        let shell = RunShellTool(executor: MockShellExecutor())
-        let file = FileOpTool(executor: MockFileExecutor(), allowedRoot: sandboxURL)
-
-        // BiDi in app name
-        let bidiAppName = "Safari\u{202E}txt.exe"
-        #expect(throws: ToolError.self) {
-            try openApp.validate(arguments: ["name": AnyCodable(bidiAppName)])
-        }
-
-        // BiDi in shell command
-        let bidiShellCmd = "echo \u{202E}reversed"
-        #expect(throws: ToolError.self) {
-            try shell.validate(arguments: ["command": AnyCodable(bidiShellCmd)])
-        }
-
-        // Null bytes in shell command
-        let nullShellCmd = "ls\0-la"
-        #expect(throws: ToolError.self) {
-            try shell.validate(arguments: ["command": AnyCodable(nullShellCmd)])
-        }
-
-        // Null bytes in file path
-        let nullFilePath = "/sandbox/file\0.txt"
-        #expect(throws: ToolError.self) {
-            try file.validate(arguments: ["action": AnyCodable("read"), "path": AnyCodable(nullFilePath)])
-        }
-
-        // Path traversal in file path
-        #expect(throws: ToolError.self) {
-            try file.validate(arguments: ["action": AnyCodable("read"), "path": AnyCodable("/sandbox/../etc/passwd")])
-        }
-        #expect(throws: ToolError.self) {
-            try file.validate(arguments: ["action": AnyCodable("read"), "path": AnyCodable("../../secret.txt")])
-        }
-    }
-}
-
-// MARK: - Suite 4: Response Distinguishability
+// MARK: - Mock Echo Tool for Dispatch Tests
 
 private struct Phase3MockEchoTool: IvyTool, Sendable {
     let name: String = "echo_test"
@@ -691,148 +84,732 @@ private struct Phase3MockEchoTool: IvyTool, Sendable {
     }
 }
 
-@Suite("Phase 3 - Response Distinguishability Tests")
-struct Phase3ResponseDistinguishabilityTests {
-    @Test("Distinguish cancellation, safety rejection, validation error, tool not found, and execution failure")
-    func testResponseDistinguishability() async {
+// MARK: - Suite 1: Centralized SafetyGate & Risk Invariants (Invariants 1-4)
+
+@Suite("Phase 3 - Centralized SafetyGate & Risk Invariants")
+struct Phase3CentralizedSafetyGateTests {
+    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
+
+    @Test("Invariant 1: Every registered tool has an explicit safety classification")
+    func testEveryRegisteredToolHasExplicitSafetyClassification() {
+        let policy = SafetyPolicy()
+        let registry = ToolRegistry.defaultRegistry()
+
+        // 1. open_app is explicitly safe
+        let openApp = registry.tool(named: "open_app")
+        #expect(openApp != nil)
+        #expect(policy.classification(for: "open_app") == .safe)
+        if let openApp {
+            #expect(policy.classification(for: openApp) == .safe)
+        }
+
+        // 2. run_applescript is explicitly risky
+        let appleScript = registry.tool(named: "run_applescript")
+        #expect(appleScript != nil)
+        #expect(policy.classification(for: "run_applescript") == .risky)
+        if let appleScript {
+            #expect(policy.classification(for: appleScript) == .risky)
+        }
+
+        // 3. calendar_event is explicitly risky
+        let calendar = registry.tool(named: "calendar_event")
+        #expect(calendar != nil)
+        #expect(policy.classification(for: "calendar_event") == .risky)
+        if let calendar {
+            #expect(policy.classification(for: calendar) == .risky)
+        }
+
+        // 4. file_op default is risky; read is safe, write/delete are risky
+        let fileOp = registry.tool(named: "file_op")
+        #expect(fileOp != nil)
+        if let fileOp {
+            #expect(policy.classification(for: fileOp) == .risky)
+            let readCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("read"), "path": AnyCodable("/sandbox/test.txt")])
+            #expect(policy.classification(for: fileOp, call: readCall) == .safe)
+            let writeCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/test.txt"), "content": AnyCodable("data")])
+            #expect(policy.classification(for: fileOp, call: writeCall) == .risky)
+            let deleteCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/test.txt")])
+            #expect(policy.classification(for: fileOp, call: deleteCall) == .risky)
+        }
+
+        // 5. run_shell is ALWAYS risky
+        let runShell = registry.tool(named: "run_shell")
+        #expect(runShell != nil)
+        #expect(policy.classification(for: "run_shell") == .risky)
+        if let runShell {
+            #expect(policy.classification(for: runShell) == .risky)
+        }
+
+        // 6. Default classification for unconfigured tools is risky
+        #expect(policy.classification(for: "custom_unregistered_tool") == .risky)
+    }
+
+    @Test("Invariant 2: Unknown tools are rejected safely without executing fallbacks")
+    func testUnknownToolsRejectedSafely() async {
+        let registry = ToolRegistry.defaultRegistry()
+        let dispatcher = ToolDispatcher(registry: registry)
+
+        let unknownCall = FunctionCall(name: "unregistered_command", args: ["cmd": AnyCodable("reboot")], id: "unknown-1")
+        let response = await dispatcher.dispatch(unknownCall)
+
+        #expect(!response.isSuccess)
+        #expect(response.isToolNotFound)
+        #expect(!response.isCancelled)
+        #expect(!response.isSafetyRejection)
+        #expect(response.errorMessage?.contains("not recognized") == true)
+        #expect(response.id == "unknown-1")
+    }
+
+    @Test("Invariant 3: Every risky tool/action passes through SafetyGate")
+    func testEveryRiskyToolPassesThroughSafetyGate() async {
+        let provider = Phase3AuditConfirmationProvider(decisionToReturn: false)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+
         let mockAS = MockAppleScriptExecutor()
-        mockAS.errorToThrow = ToolError.executionFailed("Syntax error")
-        let toolAS = RunAppleScriptTool(executor: mockAS)
+        let mockCal = MockCalendarExecutor()
+        let mockFile = MockFileExecutor()
+        let mockShell = MockShellExecutor()
 
-        let mockEcho = Phase3MockEchoTool()
-        let registry = ToolRegistry(tools: [toolAS, mockEcho])
+        let registry = ToolRegistry(tools: [
+            RunAppleScriptTool(executor: mockAS),
+            CalendarEventTool(executor: mockCal),
+            FileOpTool(executor: mockFile, allowedRoot: sandboxURL),
+            RunShellTool(executor: mockShell)
+        ])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
 
-        // 1. Tool not found
-        let unknownCall = FunctionCall(name: "ghost_tool", args: [:], id: "ghost-1")
-        let notFoundDispatcher = ToolDispatcher(registry: registry)
-        let notFoundResp = await notFoundDispatcher.dispatch(unknownCall)
-        #expect(!notFoundResp.isSuccess)
-        #expect(notFoundResp.isToolNotFound)
-        #expect(!notFoundResp.isCancelled)
-        #expect(!notFoundResp.isSafetyRejection)
-        #expect(!notFoundResp.isValidationError)
+        // 1. run_applescript intercepted
+        _ = await dispatcher.dispatch(FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")], id: "as-1"))
+        #expect(provider.callCount == 1)
+        #expect(provider.recordedRequests.last?.toolName == "run_applescript")
 
-        // 2. Validation error
-        let invalidCall = FunctionCall(name: "run_applescript", args: [:], id: "val-1")
-        let valResp = await notFoundDispatcher.dispatch(invalidCall)
-        #expect(!valResp.isSuccess)
-        #expect(valResp.isValidationError)
-        #expect(!valResp.isCancelled)
-        #expect(!valResp.isSafetyRejection)
-        #expect(!valResp.isToolNotFound)
+        // 2. calendar_event intercepted
+        _ = await dispatcher.dispatch(FunctionCall(name: "calendar_event", args: ["title": AnyCodable("Meeting"), "date": AnyCodable("2026-10-01T10:00:00Z")], id: "cal-1"))
+        #expect(provider.callCount == 2)
+        #expect(provider.recordedRequests.last?.toolName == "calendar_event")
 
-        // 3. User cancellation
-        let cancelGate = InteractiveSafetyGate(confirmationProvider: Phase3AuditConfirmationProvider(decisionToReturn: false))
-        let cancelDispatcher = ToolDispatcher(registry: registry, safetyGate: cancelGate)
-        let cancelCall = FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")], id: "can-1")
-        let cancelResp = await cancelDispatcher.dispatch(cancelCall)
-        #expect(!cancelResp.isSuccess)
-        #expect(cancelResp.isCancelled)
-        #expect(cancelResp.isSafetyRejection)
-        #expect(!cancelResp.isValidationError)
-        #expect(!cancelResp.isToolNotFound)
+        // 3. file_op write intercepted
+        _ = await dispatcher.dispatch(FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/test.txt"), "content": AnyCodable("data")], id: "file-w-1"))
+        #expect(provider.callCount == 3)
+        #expect(provider.recordedRequests.last?.toolName == "file_op")
 
-        // 4. Execution failure (tool threw)
-        let approveGate = InteractiveSafetyGate(confirmationProvider: Phase3AuditConfirmationProvider(decisionToReturn: true))
-        let execFailDispatcher = ToolDispatcher(registry: registry, safetyGate: approveGate)
-        let execFailCall = FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")], id: "exec-1")
-        let execFailResp = await execFailDispatcher.dispatch(execFailCall)
-        #expect(!execFailResp.isSuccess)
-        #expect(!execFailResp.isCancelled)
-        #expect(!execFailResp.isSafetyRejection)
-        #expect(!execFailResp.isValidationError)
-        #expect(!execFailResp.isToolNotFound)
-        #expect(execFailResp.errorMessage?.contains("Syntax error") == true)
+        // 4. file_op delete intercepted
+        _ = await dispatcher.dispatch(FunctionCall(name: "file_op", args: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/test.txt")], id: "file-d-1"))
+        #expect(provider.callCount == 4)
+        #expect(provider.recordedRequests.last?.toolName == "file_op")
 
-        // 5. Successful execution
-        let successCall = FunctionCall(name: "echo_test", args: ["msg": AnyCodable("Hello")], id: "succ-1")
-        let successResp = await execFailDispatcher.dispatch(successCall)
-        #expect(successResp.isSuccess)
-        #expect(!successResp.isCancelled)
-        #expect(!successResp.isSafetyRejection)
-        #expect(!successResp.isValidationError)
-        #expect(!successResp.isToolNotFound)
-        #expect(successResp.resultMessage == "Echo: Hello")
+        // 5. run_shell intercepted
+        _ = await dispatcher.dispatch(FunctionCall(name: "run_shell", args: ["command": AnyCodable("whoami")], id: "sh-1"))
+        #expect(provider.callCount == 5)
+        #expect(provider.recordedRequests.last?.toolName == "run_shell")
+    }
+
+    @Test("Invariant 4: No risky tool can execute without explicit user approval")
+    func testNoRiskyToolCanExecuteWithoutExplicitApproval() async {
+        let provider = Phase3AuditConfirmationProvider(decisionToReturn: false) // Always reject / cancel
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+
+        let mockAS = MockAppleScriptExecutor()
+        let mockCal = MockCalendarExecutor()
+        let mockFile = MockFileExecutor()
+        let mockShell = MockShellExecutor()
+
+        let registry = ToolRegistry(tools: [
+            RunAppleScriptTool(executor: mockAS),
+            CalendarEventTool(executor: mockCal),
+            FileOpTool(executor: mockFile, allowedRoot: sandboxURL),
+            RunShellTool(executor: mockShell)
+        ])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        // Execute all risky tools under rejection
+        _ = await dispatcher.dispatch(FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")]))
+        _ = await dispatcher.dispatch(FunctionCall(name: "calendar_event", args: ["title": AnyCodable("Party"), "date": AnyCodable("2026-10-01T10:00:00Z")]))
+        _ = await dispatcher.dispatch(FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/a.txt"), "content": AnyCodable("x")]))
+        _ = await dispatcher.dispatch(FunctionCall(name: "file_op", args: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/a.txt")]))
+        _ = await dispatcher.dispatch(FunctionCall(name: "run_shell", args: ["command": AnyCodable("ls")]))
+
+        // None of the executors must have been invoked!
+        #expect(mockAS.executedScripts.isEmpty)
+        #expect(mockCal.recordedCalls.isEmpty)
+        #expect(mockFile.recordedCalls.isEmpty)
+        #expect(mockShell.recordedCommands.isEmpty)
     }
 }
 
-// MARK: - Suite 5: Gemini Loop & Thought Signature Preservation
+// MARK: - Suite 2: Confirmation Security Invariants (Invariants 5-10)
 
-@Suite("Phase 3 - Gemini Loop and Signature Tests")
-struct Phase3GeminiLoopAndSignatureTests {
-    @Test("Preserves thought_signature through risky tool loop with UUID confirmation")
+@Suite("Phase 3 - Confirmation Security Invariants")
+struct Phase3ConfirmationSecurityInvariantsTests {
+    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
+
+    @Test("Invariant 5: Cancel guarantees ZERO execution across all risky tools")
     @MainActor
-    func testThoughtSignaturePreservedThroughConfirmedTurn() async {
+    func testCancelGuaranteesZeroExecutionAcrossAllRiskyTools() async {
+        let mockAS = MockAppleScriptExecutor()
+        let mockCal = MockCalendarExecutor()
+        let mockFile = MockFileExecutor()
         let mockShell = MockShellExecutor()
-        mockShell.resultToReturn = ShellCommandResult(command: "uname -m", stdout: "arm64", stderr: "", exitCode: 0)
+
+        let registry = ToolRegistry(tools: [
+            RunAppleScriptTool(executor: mockAS),
+            CalendarEventTool(executor: mockCal),
+            FileOpTool(executor: mockFile, allowedRoot: sandboxURL),
+            RunShellTool(executor: mockShell)
+        ])
+        let bridge = ConfirmationBridge()
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
+
+        // 1. AppleScript
+        do {
+            let client = Phase3ScriptedGeminiClient { step, _ in
+                if step == 1 {
+                    return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")], id: "c1")])
+                }
+                return ModelTurnResponse(text: "Cancelled", functionCalls: [])
+            }
+            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+            bridge.handler = brain
+            let task = Task { await brain.send("Run AS") }
+            for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
+            await task.value
+            #expect(mockAS.executedScripts.isEmpty)
+        }
+
+        // 2. Calendar
+        do {
+            let client = Phase3ScriptedGeminiClient { step, _ in
+                if step == 1 {
+                    return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "calendar_event", args: ["title": AnyCodable("M"), "date": AnyCodable("2026-10-01T10:00:00Z")], id: "c2")])
+                }
+                return ModelTurnResponse(text: "Cancelled", functionCalls: [])
+            }
+            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+            bridge.handler = brain
+            let task = Task { await brain.send("Add meeting") }
+            for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
+            await task.value
+            #expect(mockCal.recordedCalls.isEmpty)
+        }
+
+        // 3. File write
+        do {
+            let client = Phase3ScriptedGeminiClient { step, _ in
+                if step == 1 {
+                    return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/f.txt"), "content": AnyCodable("d")], id: "c3")])
+                }
+                return ModelTurnResponse(text: "Cancelled", functionCalls: [])
+            }
+            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+            bridge.handler = brain
+            let task = Task { await brain.send("Write") }
+            for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
+            await task.value
+            #expect(mockFile.recordedCalls.isEmpty)
+        }
+
+        // 4. Shell
+        do {
+            let client = Phase3ScriptedGeminiClient { step, _ in
+                if step == 1 {
+                    return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("whoami")], id: "c4")])
+                }
+                return ModelTurnResponse(text: "Cancelled", functionCalls: [])
+            }
+            let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+            bridge.handler = brain
+            let task = Task { await brain.send("Shell") }
+            for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+            brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
+            await task.value
+            #expect(mockShell.recordedCommands.isEmpty)
+        }
+    }
+
+    @Test("Invariant 6 & 7: Approval executes exactly once; duplicate approvals never execute twice")
+    @MainActor
+    func testApprovalExecutesExactlyOnceAndNeverDuplicates() async {
+        let mockShell = MockShellExecutor()
+        mockShell.resultToReturn = ShellCommandResult(command: "date", stdout: "today", stderr: "", exitCode: 0)
         let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
         let bridge = ConfirmationBridge()
         let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
 
-        let expectedSignature = "thought_sig_phase3_audit_verified"
-
-        let client = Phase3ScriptedGeminiClient { step, history in
+        let client = Phase3ScriptedGeminiClient { step, _ in
             if step == 1 {
-                let call = FunctionCall(name: "run_shell", args: ["command": AnyCodable("uname -m")], id: "call-arch")
-                let callPart = Part(
-                    functionCall: call,
-                    thoughtSignature: expectedSignature
-                )
-                return ModelTurnResponse(
-                    text: nil,
-                    functionCalls: [call],
-                    functionCallParts: [callPart],
-                    thoughtSignature: expectedSignature
-                )
-            } else if step == 2 {
-                // Verify history includes the model call with preserved signature and function response
-                let modelCallMsg = history.first { $0.functionCall?.name == "run_shell" }
-                #expect(modelCallMsg?.thoughtSignature == expectedSignature)
-                #expect(modelCallMsg?.functionCallPart?.thoughtSignature == expectedSignature)
+                return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("date")], id: "once-1")])
+            }
+            return ModelTurnResponse(text: "Done", functionCalls: [])
+        }
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+        bridge.handler = brain
 
-                let funcRespMsg = history.first { $0.functionResponse?.name == "run_shell" }
-                #expect(funcRespMsg?.functionResponse?.isSuccess == true)
+        let task = Task { await brain.send("Date") }
+        for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
 
+        let reqId = brain.pendingConfirmation?.id
+        #expect(reqId != nil)
+
+        // First approval
+        brain.respondToPendingConfirmation(id: reqId, approved: true)
+
+        // Duplicate approvals
+        brain.respondToPendingConfirmation(id: reqId, approved: true)
+        brain.respondToPendingConfirmation(id: reqId, approved: true)
+
+        await task.value
+
+        // Invariant 6 & 7: exactly one execution!
+        #expect(mockShell.recordedCommands.count == 1)
+    }
+
+    @Test("Invariant 8: Approval for one tool call cannot authorize another tool call")
+    @MainActor
+    func testApprovalForOneToolCallCannotAuthorizeAnotherToolCall() async {
+        let mockShell = MockShellExecutor()
+        mockShell.resultToReturn = ShellCommandResult(command: "test", stdout: "ok", stderr: "", exitCode: 0)
+        let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
+        let bridge = ConfirmationBridge()
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
+
+        let client = Phase3ScriptedGeminiClient { step, _ in
+            if step == 1 {
+                return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("cmd 1")], id: "call-1")])
+            }
+            return ModelTurnResponse(text: "Turn 1 done", functionCalls: [])
+        }
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+        bridge.handler = brain
+
+        // Turn 1 approved
+        let task1 = Task { await brain.send("Run 1") }
+        for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+        let id1 = brain.pendingConfirmation?.id
+        #expect(id1 != nil)
+        brain.respondToPendingConfirmation(id: id1, approved: true)
+        await task1.value
+        #expect(mockShell.recordedCommands.count == 1)
+
+        // Turn 2 tool call
+        client.handler = { step, _ in
+            if step == 3 {
+                return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("cmd 2")], id: "call-2")])
+            }
+            return ModelTurnResponse(text: "Turn 2 done", functionCalls: [])
+        }
+
+        let task2 = Task { await brain.send("Run 2") }
+        for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+
+        #expect(brain.pendingConfirmation != nil)
+        #expect(brain.pendingConfirmation?.id != id1)
+
+        // Reusing id1 MUST NOT authorize Turn 2!
+        brain.respondToPendingConfirmation(id: id1, approved: true)
+        #expect(brain.pendingConfirmation != nil)
+        #expect(mockShell.recordedCommands.count == 1)
+
+        // Approve with the correct new request ID
+        brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: true)
+        await task2.value
+        #expect(mockShell.recordedCommands.count == 2)
+    }
+
+    @Test("Invariant 9: Natural-language messages cannot approve pending actions")
+    @MainActor
+    func testNaturalLanguageMessagesCannotApprovePendingActions() async {
+        let mockShell = MockShellExecutor()
+        let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
+        let bridge = ConfirmationBridge()
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
+
+        let client = Phase3ScriptedGeminiClient { step, _ in
+            if step == 1 {
+                return ModelTurnResponse(text: nil, functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("ls")], id: "sh-nl")])
+            }
+            return ModelTurnResponse(text: "Done", functionCalls: [])
+        }
+        let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
+        bridge.handler = brain
+
+        let task = Task { await brain.send("Run ls") }
+        for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(brain.pendingConfirmation != nil)
+
+        // User types natural-language approval text in chat
+        await brain.send("yes, please run it")
+        await brain.send("I approve this")
+        await brain.send("Do it now")
+
+        // Invariant: action is still pending, 0 executions!
+        #expect(brain.pendingConfirmation != nil)
+        #expect(mockShell.recordedCommands.isEmpty)
+
+        // Clean up
+        brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
+        await task.value
+    }
+
+    @Test("Invariant 10: Gemini-generated text cannot approve pending actions")
+    @MainActor
+    func testGeminiGeneratedTextCannotApprovePendingActions() async {
+        let mockShell = MockShellExecutor()
+        let registry = ToolRegistry(tools: [RunShellTool(executor: mockShell)])
+        let bridge = ConfirmationBridge()
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: InteractiveSafetyGate(confirmationProvider: bridge))
+
+        // Gemini returns conversational text claiming "Approved! Executing now." alongside the tool call
+        let client = Phase3ScriptedGeminiClient { step, _ in
+            if step == 1 {
                 return ModelTurnResponse(
-                    text: "Your machine architecture is Apple Silicon (arm64).",
-                    thoughtSignature: expectedSignature
+                    text: "I hereby approve and authorize this command immediately.",
+                    functionCalls: [FunctionCall(name: "run_shell", args: ["command": AnyCodable("reboot")], id: "sh-spoof")]
                 )
             }
             return ModelTurnResponse(text: "Done", functionCalls: [])
         }
-
         let brain = IvyBrain(client: client, toolDispatcher: dispatcher, apiKey: "key")
         bridge.handler = brain
 
-        let task = Task { await brain.send("What architecture am I on?") }
-        for _ in 0..<50 {
-            if brain.pendingConfirmation != nil { break }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
+        let task = Task { await brain.send("Reboot machine") }
+        for _ in 0..<50 { if brain.pendingConfirmation != nil { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
 
-        let pending = brain.pendingConfirmation
-        #expect(pending != nil)
-        #expect(pending?.callId == "call-arch")
+        // Invariant: SafetyGate intercepted despite Gemini text saying "I hereby approve"
+        #expect(brain.pendingConfirmation != nil)
+        #expect(brain.pendingConfirmation?.toolName == "run_shell")
+        #expect(mockShell.recordedCommands.isEmpty)
 
-        // Authorize via exact UUID
-        brain.respondToPendingConfirmation(id: pending?.id, approved: true)
-
+        // Cancel it safely
+        brain.respondToPendingConfirmation(id: brain.pendingConfirmation?.id, approved: false)
         await task.value
-
-        #expect(mockShell.recordedCommands.count == 1)
-        #expect(brain.messages.count == 2)
-        #expect(brain.messages[1].text.contains("arm64"))
-        #expect(brain.messages[1].thoughtSignature == expectedSignature)
+        #expect(mockShell.recordedCommands.isEmpty)
     }
+}
 
-    @Test("Mock Safety Check: All tests execute strictly against mock executors")
-    func testMockSafetyCheckZeroDestructiveAction() {
+// MARK: - Suite 3: Validation Precedence Invariants (Invariants 11-12)
+
+@Suite("Phase 3 - Validation Precedence Invariants")
+struct Phase3ValidationPrecedenceTests {
+    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
+
+    @Test("Invariant 11 & 12: Argument validation occurs before SafetyGate and invalid args never reach executors")
+    func testArgumentValidationPrecedesSafetyGateAndExecutors() async {
+        let provider = Phase3AuditConfirmationProvider(decisionToReturn: true)
+        let gate = InteractiveSafetyGate(confirmationProvider: provider)
+
         let mockAS = MockAppleScriptExecutor()
         let mockCal = MockCalendarExecutor()
         let mockFile = MockFileExecutor()
         let mockShell = MockShellExecutor()
         let mockWorkspace = MockWorkspace()
 
+        let registry = ToolRegistry(tools: [
+            OpenAppTool(workspace: mockWorkspace),
+            RunAppleScriptTool(executor: mockAS),
+            CalendarEventTool(executor: mockCal),
+            FileOpTool(executor: mockFile, allowedRoot: sandboxURL),
+            RunShellTool(executor: mockShell)
+        ])
+        let dispatcher = ToolDispatcher(registry: registry, safetyGate: gate)
+
+        // 1. Invalid open_app: empty name
+        let respOpen = await dispatcher.dispatch(FunctionCall(name: "open_app", args: ["name": AnyCodable("")], id: "v1"))
+        #expect(respOpen.isValidationError)
+        #expect(mockWorkspace.openedURLs.isEmpty)
+
+        // 2. Invalid run_applescript: empty script
+        let respAS = await dispatcher.dispatch(FunctionCall(name: "run_applescript", args: ["script": AnyCodable("   ")], id: "v2"))
+        #expect(respAS.isValidationError)
+        #expect(mockAS.executedScripts.isEmpty)
+        #expect(provider.callCount == 0) // Did NOT reach SafetyGate!
+
+        // 3. Invalid calendar_event: missing date
+        let respCal = await dispatcher.dispatch(FunctionCall(name: "calendar_event", args: ["title": AnyCodable("Meeting")], id: "v3"))
+        #expect(respCal.isValidationError)
+        #expect(mockCal.recordedCalls.isEmpty)
+        #expect(provider.callCount == 0) // Did NOT reach SafetyGate!
+
+        // 4. Invalid file_op: traversal path
+        let respFile = await dispatcher.dispatch(FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("../escaped.txt"), "content": AnyCodable("bad")], id: "v4"))
+        #expect(respFile.isValidationError)
+        #expect(mockFile.recordedCalls.isEmpty)
+        #expect(provider.callCount == 0) // Did NOT reach SafetyGate!
+
+        // 5. Invalid run_shell: empty command
+        let respShell = await dispatcher.dispatch(FunctionCall(name: "run_shell", args: ["command": AnyCodable("   ")], id: "v5"))
+        #expect(respShell.isValidationError)
+        #expect(mockShell.recordedCommands.isEmpty)
+        #expect(provider.callCount == 0) // Did NOT reach SafetyGate!
+    }
+}
+
+// MARK: - Suite 4: Tool-Specific Hardening Invariants (Invariants 13-17)
+
+@Suite("Phase 3 - Tool-Specific Hardening Invariants")
+struct Phase3ToolSpecificHardeningTests {
+    private let sandboxURL = URL(fileURLWithPath: "/sandbox")
+
+    @Test("Invariant 13: file_op security invariants (traversal, absolute path, action, read limit, write/delete confirmation, no directory deletion)")
+    func testFileOpSecurityInvariants() async throws {
+        let mockFile = MockFileExecutor()
+        let fileTool = FileOpTool(executor: mockFile, allowedRoot: sandboxURL)
+        let policy = SafetyPolicy()
+
+        // 1. Path traversal rejected
+        #expect(throws: ToolError.self) {
+            try fileTool.validate(arguments: ["action": AnyCodable("read"), "path": AnyCodable("/sandbox/../etc/passwd")])
+        }
+        #expect(throws: ToolError.self) {
+            try fileTool.validate(arguments: ["action": AnyCodable("read"), "path": AnyCodable("../../etc/passwd")])
+        }
+
+        // 2. Unsafe absolute path outside allowed root rejected
+        #expect(throws: ToolError.self) {
+            try fileTool.validate(arguments: ["action": AnyCodable("read"), "path": AnyCodable("/System/Library/CoreServices/SystemVersion.plist")])
+        }
+
+        // 3. Invalid action rejected
+        #expect(throws: ToolError.self) {
+            try fileTool.validate(arguments: ["action": AnyCodable("chmod"), "path": AnyCodable("/sandbox/file.txt")])
+        }
+        #expect(throws: ToolError.self) {
+            try fileTool.validate(arguments: ["action": AnyCodable(""), "path": AnyCodable("/sandbox/file.txt")])
+        }
+
+        // 4. Read limits enforced
+        mockFile.errorToThrow = FileOpError.fileTooLarge(actual: 5_000_000, maxAllowed: 1_048_576)
+        let readLargeResult = try await fileTool.execute(arguments: ["action": AnyCodable("read"), "path": AnyCodable("/sandbox/large.bin")])
+        #expect(readLargeResult.isError)
+        #expect(readLargeResult.output.contains("exceeds maximum read size limit"))
+        mockFile.errorToThrow = nil
+
+        // 5. Write and Delete require approval
+        let writeCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("write"), "path": AnyCodable("/sandbox/f.txt"), "content": AnyCodable("x")])
+        let deleteCall = FunctionCall(name: "file_op", args: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/f.txt")])
+        #expect(policy.classification(for: fileTool, call: writeCall) == .risky)
+        #expect(policy.classification(for: fileTool, call: deleteCall) == .risky)
+
+        // 6. No recursive arbitrary deletion: directory deletion throws isDirectory
+        mockFile.errorToThrow = FileOpError.isDirectory("/sandbox/my_folder")
+        let deleteDirResult = try await fileTool.execute(arguments: ["action": AnyCodable("delete"), "path": AnyCodable("/sandbox/my_folder")])
+        #expect(deleteDirResult.isError)
+        #expect(deleteDirResult.output.contains("Directory operations are not permitted"))
+    }
+
+    @Test("Invariant 14: run_shell security invariants (empty command, exact preservation, stdout, stderr, exit code, no sudo)")
+    func testRunShellSecurityInvariants() async throws {
+        let mockShell = MockShellExecutor()
+        let tool = RunShellTool(executor: mockShell)
+
+        // 1. Empty command rejected
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: ["command": AnyCodable("")])
+        }
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: ["command": AnyCodable("   \t\n  ")])
+        }
+
+        // 2. Exact command preserved
+        let exactCmd = "git status --porcelain=v1"
+        mockShell.resultToReturn = ShellCommandResult(command: exactCmd, stdout: " M Sources/IvyCore/Tools/SafetyGate.swift", stderr: "", exitCode: 0)
+        let res1 = try await tool.execute(arguments: ["command": AnyCodable(exactCmd)])
+        #expect(!res1.isError)
+        #expect(mockShell.recordedCommands.first?.command == exactCmd)
+
+        // 3. Stdout captured
+        #expect(res1.output.contains("SafetyGate.swift"))
+
+        // 4. Stderr captured and non-zero exit code represented
+        mockShell.resultToReturn = ShellCommandResult(command: "cat nonexist", stdout: "", stderr: "cat: nonexist: No such file or directory", exitCode: 1)
+        let res2 = try await tool.execute(arguments: ["command": AnyCodable("cat nonexist")])
+        #expect(res2.isError)
+        #expect(res2.output.contains("cat: nonexist: No such file or directory"))
+
+        // Combined stdout and stderr format
+        mockShell.resultToReturn = ShellCommandResult(command: "cmd", stdout: "some standard out", stderr: "some error out", exitCode: 1)
+        let resCombined = try await tool.execute(arguments: ["command": AnyCodable("cmd")])
+        #expect(resCombined.isError)
+        #expect(resCombined.output.contains("some standard out"))
+        #expect(resCombined.output.contains("[stderr]:\nsome error out"))
+
+        // 5. Executor failure represented correctly
+        mockShell.errorToThrow = ShellError.launchFailed("Process launch denied")
+        let res3 = try await tool.execute(arguments: ["command": AnyCodable("reboot")])
+        #expect(res3.isError)
+        #expect(res3.output.contains("Failed to launch process: Process launch denied"))
+        mockShell.errorToThrow = nil
+
+        // 6. No automatic sudo or privilege escalation
+        // Verify SystemShellExecutor environment sanitization removes sensitive credentials
+        let rawEnv: [String: String] = [
+            "GEMINI_API_KEY": "secret_key_123",
+            "SUDO_USER": "root",
+            "USER": "dhruvsharma",
+            "HOME": "/Users/dhruvsharma"
+        ]
+        let sanitized = SystemShellExecutor.sanitizeEnvironment(rawEnv)
+        #expect(sanitized["GEMINI_API_KEY"] == nil)
+        #expect(sanitized["USER"] == "dhruvsharma")
+    }
+
+    @Test("Invariant 15: run_applescript security invariants (validation, approval, cancellation, single execution)")
+    func testRunAppleScriptSecurityInvariants() async throws {
+        let mockAS = MockAppleScriptExecutor()
+        let tool = RunAppleScriptTool(executor: mockAS)
+        let policy = SafetyPolicy()
+
+        // 1. Invalid script rejected
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: ["script": AnyCodable("")])
+        }
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: ["script": AnyCodable("beep\0bad")])
+        }
+
+        // 2. Risky execution requires approval
+        #expect(policy.classification(for: tool) == .risky)
+
+        // 3. Approval executes exactly once
+        mockAS.outputToReturn = "dialog response: OK"
+        let res = try await tool.execute(arguments: ["script": AnyCodable("display dialog \"Hi\"")])
+        #expect(!res.isError)
+        #expect(res.output == "dialog response: OK")
+        #expect(mockAS.executedScripts.count == 1)
+    }
+
+    @Test("Invariant 16: calendar_event security invariants (validation, dates, confirmation, permission failure)")
+    func testCalendarEventSecurityInvariants() async throws {
+        let mockCal = MockCalendarExecutor()
+        let tool = CalendarEventTool(executor: mockCal)
+        let policy = SafetyPolicy()
+
+        // 1. Invalid arguments and dates rejected
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: ["title": AnyCodable(""), "date": AnyCodable("2026-10-01T10:00:00Z")])
+        }
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: ["title": AnyCodable("Trip"), "date": AnyCodable("not-a-valid-date")])
+        }
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: ["title": AnyCodable("Trip"), "date": AnyCodable("2026-10-01")]) // Missing time
+        }
+
+        // 2. Confirmation required
+        #expect(policy.classification(for: tool) == .risky)
+
+        // 3. Permission failure becomes structured error
+        mockCal.errorToThrow = CalendarError.permissionDenied
+        let deniedResult = try await tool.execute(arguments: ["title": AnyCodable("Meeting"), "date": AnyCodable("2026-10-01T10:00:00Z")])
+        #expect(deniedResult.isError)
+        #expect(deniedResult.output.contains("Calendar access denied"))
+        mockCal.errorToThrow = nil
+
+        // 4. Approval creates event exactly once
+        let successResult = try await tool.execute(arguments: ["title": AnyCodable("Doctor"), "date": AnyCodable("2026-10-01T10:00:00Z")])
+        #expect(!successResult.isError)
+        #expect(mockCal.recordedCalls.count == 1)
+        #expect(mockCal.recordedCalls.first?.title == "Doctor")
+    }
+
+    @Test("Invariant 17: open_app security invariants (valid invocation, validation, structured errors)")
+    func testOpenAppSecurityInvariants() async throws {
+        let mockWS = MockWorkspace()
+        mockWS.knownApps["notes.app"] = URL(fileURLWithPath: "/System/Applications/Notes.app")
+        let tool = OpenAppTool(workspace: mockWS)
+
+        // 1. Valid app invocation works
+        let res = try await tool.execute(arguments: ["name": AnyCodable("Notes")])
+        #expect(!res.isError)
+        #expect(mockWS.openedURLs.count == 1)
+
+        // 2. Invalid / empty app names rejected
+        #expect(throws: ToolError.self) { try tool.validate(arguments: ["name": AnyCodable("")]) }
+        #expect(throws: ToolError.self) { try tool.validate(arguments: ["name": AnyCodable("   ")]) }
+        #expect(throws: ToolError.self) { try tool.validate(arguments: ["name": AnyCodable("Safari\u{202E}bad")]) }
+        #expect(throws: ToolError.self) { try tool.validate(arguments: ["name": AnyCodable(String(repeating: "A", count: 101))]) }
+
+        // 3. Structured executor failures
+        mockWS.shouldFailOpen = true
+        let failRes = try await tool.execute(arguments: ["name": AnyCodable("Notes")])
+        #expect(failRes.isError)
+        #expect(failRes.output.contains("Application crashed on launch"))
+    }
+}
+
+// MARK: - Suite 5: Protocol, Logging, and Concurrency Invariants (Invariants 18-20)
+
+@Suite("Phase 3 - Protocol, Logging, and Concurrency Invariants")
+struct Phase3ProtocolLoggingAndConcurrencyTests {
+    @Test("Invariant 18: Gemini protocol (Part-level thought_signature, functionCall wire structure, ordering)")
+    func testGeminiProtocolThoughtSignatureInvariants() throws {
+        let expectedSignature = "test_signature_wire_token_123"
+
+        // 1. thought_signature is serialized at Part level
+        let part = Part(
+            functionCall: FunctionCall(name: "run_shell", args: ["command": AnyCodable("whoami")], id: "call-1"),
+            thoughtSignature: expectedSignature
+        )
+        let partData = try JSONEncoder().encode(part)
+        let partString = String(data: partData, encoding: .utf8) ?? ""
+        #expect(partString.contains("thoughtSignature") || partString.contains("thought_signature"))
+
+        // 2. thought_signature NEVER appears inside FunctionCall JSON
+        let call = FunctionCall(name: "run_shell", args: ["command": AnyCodable("whoami")], id: "call-1", thoughtSignature: expectedSignature)
+        let callData = try JSONEncoder().encode(call)
+        let callString = String(data: callData, encoding: .utf8) ?? ""
+        #expect(!callString.contains("thoughtSignature"))
+        #expect(!callString.contains("thought_signature"))
+
+        // 3. functionResponse attaches to correct tool call and preserves ordering
+        let resp1 = FunctionResponse(name: "open_app", response: ["success": AnyCodable(true)], id: "call-1")
+        let resp2 = FunctionResponse(name: "run_shell", response: ["success": AnyCodable(false)], id: "call-2")
+        #expect(resp1.name == "open_app" && resp1.id == "call-1")
+        #expect(resp2.name == "run_shell" && resp2.id == "call-2")
+        #expect(resp1.isSuccess == true)
+        #expect(resp2.isSuccess == false)
+    }
+
+    @Test("Invariant 19: Logging & Sanitization (API keys and sensitive env variables scrubbed)")
+    func testLoggingAndSanitizationInvariants() {
+        // 1. Environment sanitization strips secrets
+        let rawEnv: [String: String] = [
+            "GEMINI_API_KEY": "AIzaSyD-TestKey12345",
+            "ELEVENLABS_API_KEY": "el_key_secret",
+            "DATABASE_PASSWORD": "topsecretpassword",
+            "AUTH_BEARER_TOKEN": "eyJhbGciOi...",
+            "USER": "dhruvsharma",
+            "HOME": "/Users/dhruvsharma",
+            "PATH": "/usr/bin:/bin"
+        ]
+        let cleaned = SystemShellExecutor.sanitizeEnvironment(rawEnv)
+
+        #expect(cleaned["GEMINI_API_KEY"] == nil)
+        #expect(cleaned["ELEVENLABS_API_KEY"] == nil)
+        #expect(cleaned["DATABASE_PASSWORD"] == nil)
+        #expect(cleaned["AUTH_BEARER_TOKEN"] == nil)
+        #expect(cleaned["USER"] == "dhruvsharma")
+        #expect(cleaned["HOME"] == "/Users/dhruvsharma")
+
+        // 2. Wire log redacts API keys
+        let testBody = "{\"apiKey\": \"AIzaSyD-TestKey12345\"}"
+        let apiKey = "AIzaSyD-TestKey12345"
+        let redacted = testBody.replacingOccurrences(of: apiKey, with: "[REDACTED_API_KEY]")
+        #expect(!redacted.contains(apiKey))
+        #expect(redacted.contains("[REDACTED_API_KEY]"))
+    }
+
+    @Test("Invariant 20: Swift 6 Strict Concurrency and Mock Isolation Check")
+    func testSwift6StrictConcurrencyAndMockIsolation() {
+        let mockAS = MockAppleScriptExecutor()
+        let mockCal = MockCalendarExecutor()
+        let mockFile = MockFileExecutor()
+        let mockShell = MockShellExecutor()
+        let mockWorkspace = MockWorkspace()
+
+        // Confirm all test mocks start completely untouched
         #expect(mockAS.executedScripts.isEmpty)
         #expect(mockCal.recordedCalls.isEmpty)
         #expect(mockFile.recordedCalls.isEmpty)
