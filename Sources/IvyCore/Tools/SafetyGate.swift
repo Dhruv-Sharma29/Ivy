@@ -166,7 +166,8 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
         } else if tool.name == "file_op" {
             let action = call.args["action"]?.stringValue?.lowercased() ?? "operation"
             let rawPath = call.args["path"]?.stringValue ?? "(unspecified path)"
-            let normalizedPath = (try? ToolValidation.validateFilePath(rawPath)) ?? rawPath
+            let fileTool = tool as? FileOpTool
+            let normalizedPath = (try? ToolValidation.validateFilePath(rawPath, allowedRoot: fileTool?.allowedRoot)) ?? rawPath
 
             if action == "write" {
                 return ConfirmationRequest(

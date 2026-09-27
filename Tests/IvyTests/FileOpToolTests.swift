@@ -441,6 +441,119 @@ struct FileOpToolTests {
         }
     }
 
+    @Test("Intermediate directory symlink escaping permitted scope is rejected even when leaf does not exist")
+    func testIntermediateDirectorySymlinkEscape() throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let outsideDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: outsideDir) }
+
+        let intermediateLink = tempDir.appendingPathComponent("outside_dir_link")
+        try fm.createSymbolicLink(at: intermediateLink, withDestinationURL: outsideDir)
+
+        // Non-existent target file inside the outside directory
+        let leafURL = intermediateLink.appendingPathComponent("subfolder/nonexistent.txt")
+
+        #expect(throws: ToolError.self) {
+            try ToolValidation.validateFilePath(leafURL.path, allowedRoot: tempDir)
+        }
+    }
+
+    @Test("Broken symlink pointing outside permitted scope is rejected")
+    func testBrokenSymlinkEscapeRejected() throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let brokenLink = tempDir.appendingPathComponent("broken_evil_link")
+        try fm.createSymbolicLink(atPath: brokenLink.path, withDestinationPath: "/tmp/nonexistent_xyz/secret.txt")
+
+        #expect(throws: ToolError.self) {
+            try ToolValidation.validateFilePath(brokenLink.path, allowedRoot: tempDir)
+        }
+    }
+
+    @Test("Percent-encoded path traversal sequences and null bytes are rejected")
+    func testPercentEncodedTraversalRejected() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        // %2e%2e/etc/passwd
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("%2e%2e/etc/passwd")
+            ])
+        }
+
+        // %00 null byte
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("/Users/testuser/Sandbox/file%00.txt")
+            ])
+        }
+    }
+
+    @Test("Invisible and bidirectional formatting characters in paths are rejected")
+    func testInvisibleAndBiDiCharactersRejected() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        // Zero-width space (0x200B)
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("/Users/testuser/Sandbox/test\u{200B}file.txt")
+            ])
+        }
+
+        // Right-to-left override (0x202E)
+        #expect(throws: ToolError.self) {
+            try tool.validate(arguments: [
+                "action": AnyCodable("read"),
+                "path": AnyCodable("/Users/testuser/Sandbox/test\u{202E}fdp.sh")
+            ])
+        }
+    }
+
+    @Test("Prohibited root system paths /Library and /dev are rejected")
+    func testExpandedProhibitedSystemRoots() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        for sysPath in ["/dev/zero", "/dev/null", "/Library/Preferences", "/Library/LaunchDaemons"] {
+            #expect(throws: ToolError.self) {
+                try tool.validate(arguments: [
+                    "action": AnyCodable("read"),
+                    "path": AnyCodable(sysPath)
+                ])
+            }
+        }
+    }
+
+    @Test("Prohibited user shell startup files (.zshrc, .bashrc, .bash_profile) are rejected")
+    func testProhibitedShellStartupFiles() {
+        let mock = MockFileExecutor()
+        let tool = FileOpTool(executor: mock, allowedRoot: testSandboxURL)
+
+        for startup in [".zshrc", ".bashrc", ".bash_profile", ".profile"] {
+            let fullPath = testSandboxURL.appendingPathComponent(startup).path
+            #expect(throws: ToolError.self) {
+                try tool.validate(arguments: [
+                    "action": AnyCodable("write"),
+                    "path": AnyCodable(fullPath),
+                    "content": AnyCodable("malicious payload")
+                ])
+            }
+        }
+    }
+
     @Test("Write error: FileOpError.parentDirectoryNotFound returns failure ToolResult")
     func testParentDirectoryNotFoundReturnsFailure() async throws {
         let mock = MockFileExecutor()

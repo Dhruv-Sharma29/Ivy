@@ -239,7 +239,11 @@ public enum ToolValidation {
         ".gnupg",
         ".aws",
         ".git",
-        "Library/Keychains"
+        "Library/Keychains",
+        ".zshrc",
+        ".bashrc",
+        ".bash_profile",
+        ".profile"
     ]
 
     /// Prohibited root system directories.
@@ -251,7 +255,9 @@ public enum ToolValidation {
         "/etc",
         "/var",
         "/private",
-        "/opt"
+        "/opt",
+        "/Library",
+        "/dev"
     ]
 
     /// Maximum allowed path length.
@@ -269,16 +275,28 @@ public enum ToolValidation {
             throw ToolError.invalidArgument("File path cannot be empty.")
         }
 
-        if rawPath.contains("\0") {
+        // Reject null bytes in raw or URL-percent-decoded strings
+        let percentDecoded = rawPath.removingPercentEncoding ?? rawPath
+        if rawPath.contains("\0") || percentDecoded.contains("\0") {
             throw ToolError.invalidArgument("File path contains invalid null bytes.")
+        }
+
+        // Reject invisible or bidirectional formatting characters that can spoof filenames
+        let invisibleOrBiDiScalars: Set<UInt32> = [
+            0x200B, 0x200C, 0x200D, 0x200E, 0x200F,
+            0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+            0xFEFF
+        ]
+        if rawPath.unicodeScalars.contains(where: { invisibleOrBiDiScalars.contains($0.value) }) {
+            throw ToolError.invalidArgument("File path cannot contain invisible or bidirectional formatting characters.")
         }
 
         guard trimmed.count <= maxPathLength else {
             throw ToolError.invalidArgument("File path exceeds maximum allowed length of \(maxPathLength) characters.")
         }
 
-        // Prevent path traversal sequences
-        if trimmed == ".." || trimmed.contains("..") {
+        // Prevent path traversal sequences (both direct and percent-encoded)
+        if trimmed == ".." || trimmed.contains("..") || percentDecoded.contains("..") {
             throw ToolError.invalidArgument("Path traversal sequence '..' is prohibited.")
         }
 
@@ -319,6 +337,31 @@ public enum ToolValidation {
 
         guard resolvedTarget == resolvedRoot || resolvedTarget.hasPrefix(resolvedRoot + "/") else {
             throw ToolError.invalidArgument("Path '\(trimmed)' escapes permitted scope '\(resolvedRoot)'.")
+        }
+
+        // Verify that intermediate directories or target symlinks within baseRoot do not escape the permitted root
+        let fm = FileManager.default
+        let baseComponents = baseRoot.standardized.pathComponents
+        let targetComponents = standardizedURL.pathComponents
+
+        if targetComponents.count >= baseComponents.count && Array(targetComponents.prefix(baseComponents.count)) == baseComponents {
+            var currentComponent = baseRoot.standardized
+            let subComponents = targetComponents.dropFirst(baseComponents.count)
+            for comp in subComponents {
+                currentComponent = currentComponent.appendingPathComponent(comp)
+                if let dest = try? fm.destinationOfSymbolicLink(atPath: currentComponent.path) {
+                    let destURL: URL
+                    if dest.hasPrefix("/") {
+                        destURL = URL(fileURLWithPath: dest).standardized
+                    } else {
+                        destURL = currentComponent.deletingLastPathComponent().appendingPathComponent(dest).standardized
+                    }
+                    let resolvedDest = destURL.resolvingSymlinksInPath().path
+                    guard resolvedDest == resolvedRoot || resolvedDest.hasPrefix(resolvedRoot + "/") else {
+                        throw ToolError.invalidArgument("Path '\(trimmed)' escapes permitted scope via symbolic link.")
+                    }
+                }
+            }
         }
 
         return standardizedPath

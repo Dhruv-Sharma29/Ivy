@@ -524,7 +524,7 @@ struct Phase2DGeminiFunctionCallingTests {
                     )
                     return ModelTurnResponse(
                         text: nil,
-                        functionCalls: [part.functionCall!],
+                        functionCalls: part.functionCall.map { [$0] } ?? [],
                         functionCallParts: [part],
                         thoughtSignature: "sig_read_thought"
                     )
@@ -581,7 +581,7 @@ struct Phase2DGeminiFunctionCallingTests {
                     )
                     return ModelTurnResponse(
                         text: nil,
-                        functionCalls: [part.functionCall!],
+                        functionCalls: part.functionCall.map { [$0] } ?? [],
                         functionCallParts: [part],
                         thoughtSignature: "sig_write_thought"
                     )
@@ -641,7 +641,7 @@ struct Phase2DGeminiFunctionCallingTests {
                     )
                     return ModelTurnResponse(
                         text: nil,
-                        functionCalls: [part.functionCall!],
+                        functionCalls: part.functionCall.map { [$0] } ?? [],
                         functionCallParts: [part],
                         thoughtSignature: "sig_del_thought"
                     )
@@ -702,7 +702,7 @@ struct Phase2DGeminiFunctionCallingTests {
                     )
                     return ModelTurnResponse(
                         text: nil,
-                        functionCalls: [part.functionCall!],
+                        functionCalls: part.functionCall.map { [$0] } ?? [],
                         functionCallParts: [part],
                         thoughtSignature: "sig_err"
                     )
@@ -753,7 +753,7 @@ struct Phase2DGeminiFunctionCallingTests {
                     )
                     return ModelTurnResponse(
                         text: nil,
-                        functionCalls: [part.functionCall!],
+                        functionCalls: part.functionCall.map { [$0] } ?? [],
                         functionCallParts: [part],
                         thoughtSignature: "sig_seq_1"
                     )
@@ -771,7 +771,7 @@ struct Phase2DGeminiFunctionCallingTests {
                     )
                     return ModelTurnResponse(
                         text: nil,
-                        functionCalls: [part.functionCall!],
+                        functionCalls: part.functionCall.map { [$0] } ?? [],
                         functionCallParts: [part],
                         thoughtSignature: "sig_seq_2"
                     )
@@ -888,7 +888,7 @@ struct Phase2DRegressionTests {
                         functionCall: FunctionCall(name: "open_app", args: ["name": AnyCodable("Safari")], id: "c-app"),
                         thoughtSignature: "sig_app"
                     )
-                    return ModelTurnResponse(text: nil, functionCalls: [part.functionCall!], functionCallParts: [part], thoughtSignature: "sig_app")
+                    return ModelTurnResponse(text: nil, functionCalls: part.functionCall.map { [$0] } ?? [], functionCallParts: [part], thoughtSignature: "sig_app")
                 } else {
                     return ModelTurnResponse(text: "Safari opened.")
                 }
@@ -931,7 +931,7 @@ struct Phase2DRegressionTests {
                         functionCall: FunctionCall(name: "run_applescript", args: ["script": AnyCodable("beep")], id: "c-as"),
                         thoughtSignature: "sig_as"
                     )
-                    return ModelTurnResponse(text: nil, functionCalls: [part.functionCall!], functionCallParts: [part], thoughtSignature: "sig_as")
+                    return ModelTurnResponse(text: nil, functionCalls: part.functionCall.map { [$0] } ?? [], functionCallParts: [part], thoughtSignature: "sig_as")
                 } else {
                     return ModelTurnResponse(text: "Beep done.")
                 }
@@ -987,7 +987,7 @@ struct Phase2DRegressionTests {
                         ], id: "c-cal"),
                         thoughtSignature: "sig_cal"
                     )
-                    return ModelTurnResponse(text: nil, functionCalls: [part.functionCall!], functionCallParts: [part], thoughtSignature: "sig_cal")
+                    return ModelTurnResponse(text: nil, functionCalls: part.functionCall.map { [$0] } ?? [], functionCallParts: [part], thoughtSignature: "sig_cal")
                 } else {
                     return ModelTurnResponse(text: "Sprint Review added.")
                 }
@@ -1046,7 +1046,7 @@ struct Phase2DRegressionTests {
                         ], id: "c-ch-read"),
                         thoughtSignature: "sig_ch_read"
                     )
-                    return ModelTurnResponse(text: nil, functionCalls: [part.functionCall!], functionCallParts: [part], thoughtSignature: "sig_ch_read")
+                    return ModelTurnResponse(text: nil, functionCalls: part.functionCall.map { [$0] } ?? [], functionCallParts: [part], thoughtSignature: "sig_ch_read")
                 } else if step == 2 {
                     let part = Part(
                         functionCall: FunctionCall(name: "file_op", args: [
@@ -1056,7 +1056,7 @@ struct Phase2DRegressionTests {
                         ], id: "c-ch-write"),
                         thoughtSignature: "sig_ch_write"
                     )
-                    return ModelTurnResponse(text: nil, functionCalls: [part.functionCall!], functionCallParts: [part], thoughtSignature: "sig_ch_write")
+                    return ModelTurnResponse(text: nil, functionCalls: part.functionCall.map { [$0] } ?? [], functionCallParts: [part], thoughtSignature: "sig_ch_write")
                 } else {
                     return ModelTurnResponse(text: "Chain complete.")
                 }
