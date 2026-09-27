@@ -48,11 +48,13 @@ public final class ToolRegistry: Sendable {
     /// Creates a standard registry configured with default Phase 2 tools.
     public static func defaultRegistry(
         workspace: WorkspaceProtocol = SystemWorkspace(),
-        appleScriptExecutor: AppleScriptExecutorProtocol = SystemAppleScriptExecutor()
+        appleScriptExecutor: AppleScriptExecutorProtocol = SystemAppleScriptExecutor(),
+        calendarExecutor: CalendarExecutorProtocol = SystemCalendarExecutor()
     ) -> ToolRegistry {
         ToolRegistry(tools: [
             OpenAppTool(workspace: workspace),
-            RunAppleScriptTool(executor: appleScriptExecutor)
+            RunAppleScriptTool(executor: appleScriptExecutor),
+            CalendarEventTool(executor: calendarExecutor)
         ])
     }
 

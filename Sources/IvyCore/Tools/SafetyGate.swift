@@ -74,7 +74,7 @@ public struct SafetyPolicy: Sendable, Equatable {
 
     public init(
         safeToolNames: Set<String> = ["open_app"],
-        riskyToolNames: Set<String> = ["run_applescript"],
+        riskyToolNames: Set<String> = ["run_applescript", "calendar_event"],
         defaultClassification: ToolSafetyClassification = .risky
     ) {
         self.safeToolNames = safeToolNames
@@ -144,6 +144,16 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
                 title: "AppleScript Execution",
                 prompt: "You're about to run an AppleScript. If you regret this, don't blame me. Do it or chicken out?",
                 detail: script
+            )
+        } else if tool.name == "calendar_event" {
+            let title = call.args["title"]?.stringValue ?? "(untitled event)"
+            let date = call.args["date"]?.stringValue ?? "(unspecified date)"
+            let detail = "Action: Create Calendar Event\nTitle: \(title)\nDate/Time: \(date)\nDuration: 1 hour"
+            return ConfirmationRequest(
+                toolName: tool.name,
+                title: "Create Calendar Event",
+                prompt: "You're about to add '\(title)' to your calendar on \(date). If this clutters your schedule, don't blame me. Do it or chicken out?",
+                detail: detail
             )
         } else {
             return ConfirmationRequest(
