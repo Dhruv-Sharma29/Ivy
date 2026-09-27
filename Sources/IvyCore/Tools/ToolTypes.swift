@@ -433,6 +433,16 @@ public enum ToolValidation {
             throw ToolError.invalidArgument("Shell command exceeds maximum allowed length of \(maxShellCommandLength) characters.")
         }
 
+        // Reject BiDi (bidirectional) override and directional formatting characters that could spoof command display
+        let bidiCharacters: [Character] = [
+            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}", // LRE, RLE, PDF, LRO, RLO
+            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",             // LRI, RLI, FSI, PDI
+            "\u{200E}", "\u{200F}", "\u{061C}"                          // LRM, RLM, ALM
+        ]
+        if rawCommand.contains(where: { bidiCharacters.contains($0) }) {
+            throw ToolError.invalidArgument("Shell command contains prohibited bidirectional Unicode control characters.")
+        }
+
         return trimmed
     }
 

@@ -192,7 +192,8 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
                 )
             }
         } else if tool.name == "run_shell" {
-            let command = call.args["command"]?.stringValue ?? "(empty command)"
+            let rawCommand = call.args["command"]?.stringValue ?? "(empty command)"
+            let command = (try? ToolValidation.validateShellCommand(rawCommand)) ?? rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             return ConfirmationRequest(
                 toolName: tool.name,
                 title: "Run Shell Command",

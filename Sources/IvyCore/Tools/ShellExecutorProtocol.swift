@@ -26,6 +26,9 @@ public struct ShellCommandResult: Sendable, Equatable {
         self.duration = duration
     }
 
+    /// Maximum formatted output length permitted in ToolResult (256 KB).
+    public static let maxOutputLength: Int = 262_144
+
     /// Human-readable combined output suitable for ToolResult.
     public var formattedOutput: String {
         var lines: [String] = []
@@ -49,7 +52,12 @@ public struct ShellCommandResult: Sendable, Equatable {
                 return "(Command failed with exit code: \(exitCode) and no output)"
             }
         }
-        return lines.joined(separator: "\n")
+        let full = lines.joined(separator: "\n")
+        if full.count > Self.maxOutputLength {
+            let index = full.index(full.startIndex, offsetBy: Self.maxOutputLength)
+            return String(full[..<index]) + "\n... [Output truncated to \(Self.maxOutputLength / 1024) KB]"
+        }
+        return full
     }
 }
 
@@ -108,6 +116,50 @@ public final class SystemShellExecutor: ShellExecutorProtocol, Sendable {
         self.defaultCommandTimeout = defaultCommandTimeout
     }
 
+    /// Sanitizes the environment variables passed to child shell processes,
+    /// removing sensitive secrets, credentials, tokens, and API keys.
+    public static func sanitizeEnvironment(_ rawEnv: [String: String]) -> [String: String] {
+        let sensitiveKeywords = [
+            "API_KEY",
+            "SECRET",
+            "TOKEN",
+            "PASSWORD",
+            "PASSWD",
+            "CREDENTIAL",
+            "AUTH",
+            "PRIVATE",
+            "BEARER"
+        ]
+
+        var cleanEnv = rawEnv.filter { key, _ in
+            let upperKey = key.uppercased()
+            return !sensitiveKeywords.contains { upperKey.contains($0) }
+        }
+
+        // Augment PATH with standard macOS binary paths if missing
+        let standardPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+        ]
+        let currentPath = cleanEnv["PATH"] ?? ""
+        var pathComponents = currentPath.split(separator: ":").map(String.init)
+        for stdPath in standardPaths {
+            if !pathComponents.contains(stdPath) {
+                pathComponents.append(stdPath)
+            }
+        }
+        cleanEnv["PATH"] = pathComponents.joined(separator: ":")
+
+        // Ensure standard locale variables
+        cleanEnv["LC_ALL"] = "en_US.UTF-8"
+        cleanEnv["LANG"] = "en_US.UTF-8"
+        return cleanEnv
+    }
+
     public func execute(command: String, timeout: TimeInterval? = nil) async throws -> ShellCommandResult {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -116,39 +168,10 @@ public final class SystemShellExecutor: ShellExecutorProtocol, Sendable {
 
         let effectiveTimeout = timeout ?? defaultCommandTimeout
 
-        // Determine execution strategy:
-        // If the command contains shell control operators (pipes, redirects, chaining),
-        // we invoke /bin/zsh with discrete argv arguments ["-c", trimmed].
+        // Execute via /bin/zsh -c with discrete argument vector.
         // The command is passed as an isolated argv parameter without string interpolation into a template.
-        // Otherwise, if simple, we tokenize and launch the binary directly.
-        let shellMetacharacters = CharacterSet(charactersIn: "|&;><*?$`\\~()[]{}")
-        let needsShell = trimmed.rangeOfCharacter(from: shellMetacharacters) != nil || trimmed.contains(" ")
-
-        let executableURL: URL
-        let arguments: [String]
-
-        if needsShell {
-            executableURL = URL(fileURLWithPath: "/bin/zsh")
-            // Crucial: trimmed is passed as an isolated argument string to -c,
-            // NOT interpolated into any command line format string.
-            arguments = ["-c", trimmed]
-        } else {
-            // Direct execution of single command without shell invocation
-            let tokens = trimmed.split(separator: " ").map(String.init)
-            guard let binaryName = tokens.first, !binaryName.isEmpty else {
-                throw ShellError.emptyCommand
-            }
-
-            if binaryName.hasPrefix("/") {
-                executableURL = URL(fileURLWithPath: binaryName)
-            } else {
-                guard let found = Self.lookupBinaryInPath(binaryName) else {
-                    throw ShellError.commandNotFound(binaryName)
-                }
-                executableURL = found
-            }
-            arguments = Array(tokens.dropFirst())
-        }
+        let executableURL = URL(fileURLWithPath: "/bin/zsh")
+        let arguments = ["-c", trimmed]
 
         return try await runProcess(
             executableURL: executableURL,
@@ -169,10 +192,11 @@ public final class SystemShellExecutor: ShellExecutorProtocol, Sendable {
         process.executableURL = executableURL
         process.arguments = arguments
 
-        var env = ProcessInfo.processInfo.environment
-        env["LC_ALL"] = "en_US.UTF-8"
-        env["LANG"] = "en_US.UTF-8"
-        process.environment = env
+        // Sanitize environment to prevent API key and secret leakage
+        process.environment = Self.sanitizeEnvironment(ProcessInfo.processInfo.environment)
+
+        // Connect null device to standardInput so child processes receive immediate EOF if they attempt to read
+        process.standardInput = FileHandle.nullDevice
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -185,22 +209,38 @@ public final class SystemShellExecutor: ShellExecutorProtocol, Sendable {
             throw ShellError.launchFailed(error.localizedDescription)
         }
 
+        let pid = process.processIdentifier
+        final class TimeoutState: @unchecked Sendable {
+            var timedOut = false
+        }
+        let timeoutState = TimeoutState()
+
         // Watchdog task to enforce timeout
         let timeoutNanos = UInt64(max(timeout, 0.001) * 1_000_000_000)
         let watchdogTask = Task {
             try? await Task.sleep(nanoseconds: timeoutNanos)
-            if process.isRunning {
+            if !Task.isCancelled && process.isRunning {
+                timeoutState.timedOut = true
                 process.terminate()
+                // Grace period before force killing
+                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                if process.isRunning && pid > 0 {
+                    kill(pid, SIGKILL)
+                }
             }
         }
 
-        // Read output asynchronously and await process exit
-        let (stdoutData, stderrData) = await Task.detached {
-            let out = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let err = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return (out, err)
+        // Read stdout and stderr concurrently to prevent pipe buffer deadlock
+        async let stdoutTask = Task.detached {
+            stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         }.value
+
+        async let stderrTask = Task.detached {
+            stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }.value
+
+        let (stdoutData, stderrData) = await (stdoutTask, stderrTask)
+        process.waitUntilExit()
 
         watchdogTask.cancel()
 
@@ -208,10 +248,11 @@ public final class SystemShellExecutor: ShellExecutorProtocol, Sendable {
         let stdoutString = String(decoding: stdoutData, as: UTF8.self)
         let stderrString = String(decoding: stderrData, as: UTF8.self)
 
+        if timeoutState.timedOut {
+            throw ShellError.timedOut(duration: timeout)
+        }
+
         if process.terminationReason == .uncaughtSignal {
-            if duration >= timeout {
-                throw ShellError.timedOut(duration: timeout)
-            }
             throw ShellError.terminatedBySignal(process.terminationStatus)
         }
 

@@ -89,6 +89,18 @@ struct RunShellToolArgumentTests {
         }
     }
 
+    @Test("BiDi Unicode control characters throw invalidArgument to prevent spoofing")
+    func testBiDiUnicodeSpoofingThrows() {
+        let rloCommand = "echo \u{202E}rm -rf /"
+        #expect(throws: ToolError.self) {
+            try ToolValidation.validateShellCommand(rloCommand)
+        }
+        let pdfCommand = "ls \u{202C}dir"
+        #expect(throws: ToolError.self) {
+            try ToolValidation.validateShellCommand(pdfCommand)
+        }
+    }
+
     @Test("Unexpected arguments outside schema throw invalidArgument")
     func testUnexpectedArgumentsThrow() {
         #expect(throws: ToolError.self) {
@@ -129,6 +141,12 @@ struct RunShellToolArgumentTests {
         // Failure with empty output
         let res5 = ShellCommandResult(command: "false", stdout: "", stderr: "", exitCode: 1)
         #expect(res5.formattedOutput.contains("failed with exit code: 1"))
+
+        // Huge output exceeding maxOutputLength truncates safely
+        let hugeStdout = String(repeating: "A", count: ShellCommandResult.maxOutputLength + 1000)
+        let res6 = ShellCommandResult(command: "cat huge", stdout: hugeStdout, stderr: "", exitCode: 0)
+        #expect(res6.formattedOutput.contains("... [Output truncated to"))
+        #expect(res6.formattedOutput.count < hugeStdout.count)
     }
 
     @Test("ShellError descriptions are informative and non-empty")
@@ -283,6 +301,43 @@ struct RunShellToolExecutionTests {
         let executed = mock.recordedCommands[0].command
         #expect(executed == rawCommand)
         #expect(executed.hasPrefix("sudo ") == false)
+    }
+
+    @Test("SystemShellExecutor.sanitizeEnvironment scrubs sensitive API keys and secrets")
+    func testSanitizeEnvironmentScrubsSensitiveKeys() {
+        let dirtyEnv: [String: String] = [
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/Users/testuser",
+            "USER": "testuser",
+            "GEMINI_API_KEY": "AIzaSyTestSecret12345",
+            "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "GITHUB_TOKEN": "ghp_xxxxxxxxxxxxxxxxxxxx",
+            "DATABASE_PASSWORD": "supersecretpassword",
+            "AUTH_BEARER_TOKEN": "eyJhbGciOi...",
+            "PRIVATE_KEY_PATH": "/path/to/key"
+        ]
+
+        let cleaned = SystemShellExecutor.sanitizeEnvironment(dirtyEnv)
+
+        // Sensitive keys MUST be scrubbed
+        #expect(cleaned["GEMINI_API_KEY"] == nil)
+        #expect(cleaned["AWS_SECRET_ACCESS_KEY"] == nil)
+        #expect(cleaned["GITHUB_TOKEN"] == nil)
+        #expect(cleaned["DATABASE_PASSWORD"] == nil)
+        #expect(cleaned["AUTH_BEARER_TOKEN"] == nil)
+        #expect(cleaned["PRIVATE_KEY_PATH"] == nil)
+
+        // Safe standard keys MUST be preserved
+        #expect(cleaned["HOME"] == "/Users/testuser")
+        #expect(cleaned["USER"] == "testuser")
+        #expect(cleaned["LC_ALL"] == "en_US.UTF-8")
+        #expect(cleaned["LANG"] == "en_US.UTF-8")
+
+        // Standard tool directories MUST be included in PATH
+        let path = cleaned["PATH"] ?? ""
+        #expect(path.contains("/usr/bin"))
+        #expect(path.contains("/opt/homebrew/bin"))
+        #expect(path.contains("/usr/local/bin"))
     }
 }
 
