@@ -93,10 +93,18 @@ public struct SafetyPolicy: Sendable, Equatable {
         return defaultClassification
     }
 
-    /// Evaluates the safety classification for an IvyTool.
+    /// Evaluates the safety classification for an IvyTool, optionally using call context.
     /// Defends in depth: if the centralized policy classifies the tool name as risky,
     /// or if the tool marks itself as risky, user confirmation is mandatory.
-    public func classification(for tool: IvyTool) -> ToolSafetyClassification {
+    /// For 'file_op', 'read' is safe (read-only), while 'write' and 'delete' are risky.
+    public func classification(for tool: IvyTool, call: FunctionCall? = nil) -> ToolSafetyClassification {
+        if tool.name == "file_op" {
+            if let action = call?.args["action"]?.stringValue?.lowercased(), action == "read" {
+                return .safe
+            }
+            return .risky
+        }
+
         if riskyToolNames.contains(tool.name) || tool.safetyClassification == .risky {
             return .risky
         }
@@ -121,7 +129,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
     }
 
     public func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision {
-        switch policy.classification(for: tool) {
+        switch policy.classification(for: tool, call: call) {
         case .safe:
             return .approve
 
@@ -155,6 +163,33 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
                 prompt: "You're about to add '\(title)' to your calendar on \(date). If this clutters your schedule, don't blame me. Do it or chicken out?",
                 detail: detail
             )
+        } else if tool.name == "file_op" {
+            let action = call.args["action"]?.stringValue?.lowercased() ?? "operation"
+            let rawPath = call.args["path"]?.stringValue ?? "(unspecified path)"
+            let normalizedPath = (try? ToolValidation.validateFilePath(rawPath)) ?? rawPath
+
+            if action == "write" {
+                return ConfirmationRequest(
+                    toolName: tool.name,
+                    title: "Write File",
+                    prompt: "You're about to write to '\(rawPath)'. Existing file content may be replaced. If this breaks your files, don't blame me. Do it or chicken out?",
+                    detail: "Action: Write File\nTarget Path: \(normalizedPath)\nExisting content may be overwritten."
+                )
+            } else if action == "delete" {
+                return ConfirmationRequest(
+                    toolName: tool.name,
+                    title: "Delete File",
+                    prompt: "You're about to permanently delete '\(rawPath)'. This cannot be undone. If you regret this, don't blame me. Do it or chicken out?",
+                    detail: "Action: Delete File\nTarget Path: \(normalizedPath)\nPermanent deletion cannot be undone."
+                )
+            } else {
+                return ConfirmationRequest(
+                    toolName: tool.name,
+                    title: "File Operation",
+                    prompt: "You're about to perform '\(action)' on '\(rawPath)'. Do it or chicken out?",
+                    detail: "Action: \(action)\nTarget Path: \(normalizedPath)"
+                )
+            }
         } else {
             return ConfirmationRequest(
                 toolName: tool.name,

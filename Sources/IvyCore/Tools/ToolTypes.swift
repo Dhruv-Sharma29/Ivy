@@ -67,7 +67,7 @@ public final class PassThroughSafetyGate: SafetyGateProtocol, Sendable {
     }
 
     public func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision {
-        switch policy.classification(for: tool) {
+        switch policy.classification(for: tool, call: call) {
         case .safe:
             return .approve
         case .risky:
