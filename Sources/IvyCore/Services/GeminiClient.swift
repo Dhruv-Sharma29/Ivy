@@ -261,7 +261,7 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
             let functionCallParts = geminiResponse.functionCallParts
             let text = geminiResponse.firstText
 
-            if functionCalls.isEmpty && (text == nil || text!.isEmpty) {
+            if functionCalls.isEmpty && (text?.isEmpty ?? true) {
                 throw GeminiClientError.emptyResponse
             }
 
