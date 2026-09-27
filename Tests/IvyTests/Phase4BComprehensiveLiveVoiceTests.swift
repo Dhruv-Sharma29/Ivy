@@ -435,7 +435,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
             return
         }
         let decoded1 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setup1.data(using: .utf8)))
-        #expect(decoded1.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(decoded1.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         // Simulate server setupComplete
         firstTransport.enqueueReceiveString("{\"setupComplete\": {}}")
@@ -450,7 +450,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
             return
         }
         let decoded2 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setup2.data(using: .utf8)))
-        #expect(decoded2.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(decoded2.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         await coordinator.stopSession()
     }
@@ -645,6 +645,104 @@ struct Phase4BComprehensiveLiveVoiceTests {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         #expect(mockSession.sentAudioChunks.contains(Data([0x09, 0x08])))
+
+        await coordinator.stopSession()
+    }
+
+    @Test("18. Interruption preserves session and post-interruption reconnect strictly uses Kore voice")
+    func testInterruptionAndPostInterruptionRestartRetainsKoreVoice() async throws {
+        let transportsLock = OSAllocatedUnfairLock(initialState: [MockWebSocketTransport]())
+        let client = GeminiLiveClient(
+            apiKey: "test-api-key",
+            webSocketFactory: { _ in
+                let t = MockWebSocketTransport()
+                transportsLock.withLock { $0.append(t) }
+                return t
+            }
+        )
+
+        let mockCapture = MockAudioCapture(isPermissionGranted: true)
+        let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
+        let mockDetector = MockWakeWordDetector()
+
+        let coordinator = GeminiLiveVoiceCoordinator(
+            session: client,
+            audioCapture: mockCapture,
+            audioPlayer: mockPlayer,
+            wakeWordDetector: mockDetector
+        )
+
+        // 1. Initial connect
+        await coordinator.startSession()
+        let count1 = transportsLock.withLock { $0.count }
+        #expect(count1 == 1)
+        let transport1 = transportsLock.withLock { $0[0] }
+        guard case .string(let setupStr1) = transport1.sentMessages.first else {
+            Issue.record("Expected setup string for initial connection")
+            return
+        }
+        let decoded1 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setupStr1.data(using: .utf8)))
+        #expect(decoded1.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+
+        // 2. Transition to speaking, interrupt via Hey Ivy
+        transport1.enqueueReceiveString("{\"setupComplete\": {}}")
+        for _ in 0..<50 {
+            if client.isConnected { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        // Simulate incoming audio chunk from model
+        let audioChunk = Data([0x01, 0x02, 0x03, 0x04])
+        let audioJson = """
+        {
+            "serverContent": {
+                "modelTurn": {
+                    "parts": [
+                        { "inlineData": { "mimeType": "audio/pcm;rate=24000", "data": "\(audioChunk.base64EncodedString())" } }
+                    ]
+                }
+            }
+        }
+        """
+        transport1.enqueueReceiveString(audioJson)
+
+        for _ in 0..<50 {
+            if coordinator.state == .speaking { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .speaking)
+
+        // Interrupt
+        mockDetector.simulateTranscription("Hey Ivy")
+        for _ in 0..<50 {
+            if coordinator.state == .listening { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .listening)
+
+        // 3. User speaks new request audio after interruption
+        mockCapture.simulateAudioChunk(Data([0xAA, 0xBB]))
+        for _ in 0..<50 {
+            if transport1.sentMessages.count >= 2 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(transport1.sentMessages.count >= 2)
+
+        // Verify WebSocket connection was NOT re-established with a modified voice during the session
+        #expect(transportsLock.withLock { $0.count } == 1)
+
+        // 4. Session stop and restart
+        await coordinator.stopSession()
+        await coordinator.startSession()
+
+        #expect(transportsLock.withLock { $0.count } == 2)
+        let transport2 = transportsLock.withLock { $0[1] }
+        guard case .string(let setupStr2) = transport2.sentMessages.first else {
+            Issue.record("Expected setup string for restarted session")
+            return
+        }
+        let decoded2 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setupStr2.data(using: .utf8)))
+        #expect(decoded2.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         await coordinator.stopSession()
     }

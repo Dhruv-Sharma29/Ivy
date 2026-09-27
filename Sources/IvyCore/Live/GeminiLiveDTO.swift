@@ -21,46 +21,111 @@ public struct BidiClientMessage: Codable, Sendable, Equatable {
 
 public struct BidiSetup: Codable, Sendable, Equatable {
     public let model: String
-    public let generationConfig: BidiGenerationConfig?
+    public let generationConfig: BidiGenerationConfig
     public let systemInstruction: BidiSystemInstruction?
 
     public init(
         model: String = "models/gemini-3.1-flash-live-preview",
-        generationConfig: BidiGenerationConfig? = BidiGenerationConfig(),
+        generationConfig: BidiGenerationConfig? = nil,
         systemInstruction: BidiSystemInstruction? = nil
     ) {
         self.model = model
         self.generationConfig = generationConfig ?? BidiGenerationConfig()
         self.systemInstruction = systemInstruction
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case model
+        case generationConfig
+        case systemInstruction
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.model = try container.decode(String.self, forKey: .model)
+        self.generationConfig = (try? container.decode(BidiGenerationConfig.self, forKey: .generationConfig)) ?? BidiGenerationConfig()
+        self.systemInstruction = try? container.decode(BidiSystemInstruction.self, forKey: .systemInstruction)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(generationConfig, forKey: .generationConfig)
+        try container.encodeIfPresent(systemInstruction, forKey: .systemInstruction)
+    }
 }
 
 public struct BidiGenerationConfig: Codable, Sendable, Equatable {
-    public let responseModalities: [String]?
-    public let speechConfig: BidiSpeechConfig?
+    public let responseModalities: [String]
+    public let speechConfig: BidiSpeechConfig
 
     public init(
-        responseModalities: [String]? = ["AUDIO"],
-        speechConfig: BidiSpeechConfig? = BidiSpeechConfig()
+        responseModalities: [String]? = nil,
+        speechConfig: BidiSpeechConfig? = nil
     ) {
         self.responseModalities = responseModalities ?? ["AUDIO"]
         self.speechConfig = speechConfig ?? BidiSpeechConfig()
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case responseModalities
+        case speechConfig
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.responseModalities = (try? container.decode([String].self, forKey: .responseModalities)) ?? ["AUDIO"]
+        self.speechConfig = (try? container.decode(BidiSpeechConfig.self, forKey: .speechConfig)) ?? BidiSpeechConfig()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(responseModalities, forKey: .responseModalities)
+        try container.encode(speechConfig, forKey: .speechConfig)
+    }
 }
 
 public struct BidiSpeechConfig: Codable, Sendable, Equatable {
-    public let voiceConfig: BidiVoiceConfig?
+    public let voiceConfig: BidiVoiceConfig
 
-    public init(voiceConfig: BidiVoiceConfig? = BidiVoiceConfig()) {
+    public init(voiceConfig: BidiVoiceConfig? = nil) {
         self.voiceConfig = voiceConfig ?? BidiVoiceConfig()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case voiceConfig
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.voiceConfig = (try? container.decode(BidiVoiceConfig.self, forKey: .voiceConfig)) ?? BidiVoiceConfig()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(voiceConfig, forKey: .voiceConfig)
     }
 }
 
 public struct BidiVoiceConfig: Codable, Sendable, Equatable {
-    public let prebuiltVoiceConfig: BidiPrebuiltVoiceConfig?
+    public let prebuiltVoiceConfig: BidiPrebuiltVoiceConfig
 
-    public init(prebuiltVoiceConfig: BidiPrebuiltVoiceConfig? = BidiPrebuiltVoiceConfig()) {
+    public init(prebuiltVoiceConfig: BidiPrebuiltVoiceConfig? = nil) {
         self.prebuiltVoiceConfig = prebuiltVoiceConfig ?? BidiPrebuiltVoiceConfig()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case prebuiltVoiceConfig
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.prebuiltVoiceConfig = (try? container.decode(BidiPrebuiltVoiceConfig.self, forKey: .prebuiltVoiceConfig)) ?? BidiPrebuiltVoiceConfig()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(prebuiltVoiceConfig, forKey: .prebuiltVoiceConfig)
     }
 }
 
@@ -71,6 +136,22 @@ public struct BidiPrebuiltVoiceConfig: Codable, Sendable, Equatable {
     public init(voiceName: String = liveVoiceName) {
         // Enforce Kore - no other Gemini voice or fallback is permitted
         self.voiceName = Self.liveVoiceName
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case voiceName
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try? container.decode(String.self, forKey: .voiceName)
+        // Hard-lock to Kore - no other Gemini voice or server override is permitted
+        self.voiceName = Self.liveVoiceName
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.liveVoiceName, forKey: .voiceName)
     }
 }
 

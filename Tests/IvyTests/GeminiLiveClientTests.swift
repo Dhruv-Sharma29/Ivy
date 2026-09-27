@@ -42,8 +42,8 @@ struct GeminiLiveClientTests {
         let setupData = try #require(setupStr.data(using: .utf8))
         let decoded = try JSONDecoder().decode(BidiClientMessage.self, from: setupData)
         #expect(decoded.setup?.model == "models/gemini-2.0-flash-exp")
-        #expect(decoded.setup?.generationConfig?.responseModalities == ["AUDIO"])
-        #expect(decoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(decoded.setup?.generationConfig.responseModalities == ["AUDIO"])
+        #expect(decoded.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
         #expect(decoded.setup?.systemInstruction?.parts.first?.text == "You are Ivy.")
     }
 
@@ -223,7 +223,7 @@ struct GeminiLiveClientTests {
 
         let setupData = try #require(setupStr.data(using: .utf8))
         let decoded = try JSONDecoder().decode(BidiClientMessage.self, from: setupData)
-        #expect(decoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(decoded.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
         await client.disconnect()
     }
 
@@ -248,7 +248,7 @@ struct GeminiLiveClientTests {
             return
         }
         let firstDecoded = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(firstSetup.data(using: .utf8)))
-        #expect(firstDecoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(firstDecoded.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         await client.disconnect()
 
@@ -261,7 +261,7 @@ struct GeminiLiveClientTests {
             return
         }
         let secondDecoded = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(secondSetup.data(using: .utf8)))
-        #expect(secondDecoded.setup?.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(secondDecoded.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         await client.disconnect()
     }
@@ -276,18 +276,109 @@ struct GeminiLiveClientTests {
         #expect(prebuiltDefault.voiceName == "Kore")
 
         let voiceConfig = BidiVoiceConfig(prebuiltVoiceConfig: nil)
-        #expect(voiceConfig.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         let speechConfig = BidiSpeechConfig(voiceConfig: nil)
-        #expect(speechConfig.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         let genConfig = BidiGenerationConfig(speechConfig: nil)
-        #expect(genConfig.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(genConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         let setup = BidiSetup(generationConfig: nil)
-        #expect(setup.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName == "Kore")
+        #expect(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
 
         let client = GeminiLiveClient(apiKey: "key", voiceName: "Fenrir")
         #expect(client.voiceName == "Kore")
+    }
+
+    @Test("Raw setup payload strictly contains non-null generationConfig, speechConfig, voiceConfig, and Kore")
+    func testRawSetupPayloadContainsFullVoiceHierarchyAndKore() async throws {
+        let mockTransport = MockWebSocketTransport()
+        let client = GeminiLiveClient(
+            apiKey: "test-api-key",
+            model: "models/gemini-2.0-flash-exp",
+            systemInstruction: "You are Ivy.",
+            webSocketFactory: { _ in mockTransport }
+        )
+
+        try await client.connect()
+
+        guard case .string(let rawJson) = mockTransport.sentMessages.first else {
+            Issue.record("Expected raw JSON string for setup message")
+            return
+        }
+
+        // 1. Verify JSONSerialization structure
+        let data = try #require(rawJson.data(using: .utf8))
+        let jsonObject = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        let setupDict = try #require(jsonObject["setup"] as? [String: Any])
+        #expect(setupDict["model"] as? String == "models/gemini-2.0-flash-exp")
+
+        let genConfig = try #require(setupDict["generationConfig"] as? [String: Any])
+        let modalities = try #require(genConfig["responseModalities"] as? [String])
+        #expect(modalities == ["AUDIO"])
+
+        let speechConfig = try #require(genConfig["speechConfig"] as? [String: Any])
+        let voiceConfig = try #require(speechConfig["voiceConfig"] as? [String: Any])
+        let prebuiltVoiceConfig = try #require(voiceConfig["prebuiltVoiceConfig"] as? [String: Any])
+        #expect(prebuiltVoiceConfig["voiceName"] as? String == "Kore")
+
+        // 2. Verify no prohibited fallback or alternate voices exist in the payload
+        let prohibitedVoices = ["Puck", "Fenrir", "Aoede", "Charon", "Zephyr", "Leda", "Orus"]
+        for voice in prohibitedVoices {
+            #expect(!rawJson.contains("\"\(voice)\""))
+        }
+
+        await client.disconnect()
+    }
+
+    @Test("Decoding arbitrary external JSON cannot override Kore voice")
+    func testServerOrDecodedPayloadCannotOverrideKore() throws {
+        let maliciousPayloads = [
+            "{\"voiceName\": \"Puck\"}",
+            "{\"voiceName\": \"Fenrir\"}",
+            "{\"voiceName\": \"Aoede\"}",
+            "{\"voiceName\": \"Charon\"}",
+            "{\"voiceName\": null}",
+            "{}"
+        ]
+
+        for payload in maliciousPayloads {
+            let data = payload.data(using: .utf8)!
+            let decoded = try JSONDecoder().decode(BidiPrebuiltVoiceConfig.self, from: data)
+            #expect(decoded.voiceName == "Kore")
+        }
+    }
+
+    @Test("Multiple rapid reconnects and restarts always send Kore voice configuration")
+    func testMultipleReconnectsAlwaysSendKoreSetup() async throws {
+        let transportsLock = OSAllocatedUnfairLock(initialState: [MockWebSocketTransport]())
+        let client = GeminiLiveClient(
+            apiKey: "test-api-key",
+            webSocketFactory: { _ in
+                let t = MockWebSocketTransport()
+                transportsLock.withLock { $0.append(t) }
+                return t
+            }
+        )
+
+        for iteration in 1...5 {
+            try await client.connect()
+            let count = transportsLock.withLock { $0.count }
+            #expect(count == iteration)
+
+            let transport = transportsLock.withLock { $0[iteration - 1] }
+            guard case .string(let setupStr) = transport.sentMessages.first else {
+                Issue.record("Expected setup string for iteration \(iteration)")
+                return
+            }
+
+            let data = try #require(setupStr.data(using: .utf8))
+            let decoded = try JSONDecoder().decode(BidiClientMessage.self, from: data)
+            #expect(decoded.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+
+            await client.disconnect()
+        }
     }
 }

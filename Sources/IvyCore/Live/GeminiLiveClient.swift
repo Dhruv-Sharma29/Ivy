@@ -122,6 +122,10 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             guard let jsonString = String(data: data, encoding: .utf8) else {
                 throw LiveError.setupFailed("Failed to encode setup payload.")
             }
+            print("[LIVE VOICE] voice=Kore")
+            #if DEBUG
+            print("[LIVE VOICE] setup payload: \(jsonString)")
+            #endif
             try await ws.send(.string(jsonString))
         } catch {
             ws.cancel(closeCode: .normalClosure, reason: nil)
