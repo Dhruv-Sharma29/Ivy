@@ -4,12 +4,20 @@ import IvyCore
 public struct IvyPopoverView: View {
     @ObservedObject public var brain: IvyBrain
     @StateObject public var voiceManager: VoicePlaybackManager
+    @StateObject public var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
 
-    public init(brain: IvyBrain, voiceManager: VoicePlaybackManager? = nil) {
+    public init(
+        brain: IvyBrain,
+        voiceManager: VoicePlaybackManager? = nil,
+        liveVoiceCoordinator: GeminiLiveVoiceCoordinator? = nil
+    ) {
         self.brain = brain
         self._voiceManager = StateObject(wrappedValue: voiceManager ?? VoicePlaybackManager())
+        self._liveVoiceCoordinator = StateObject(
+            wrappedValue: liveVoiceCoordinator ?? GeminiLiveVoiceCoordinator(apiKey: brain.apiKey)
+        )
     }
 
     public var body: some View {
@@ -22,8 +30,18 @@ public struct IvyPopoverView: View {
                 Divider()
             }
 
+            if case .error(let msg) = liveVoiceCoordinator.state {
+                voiceErrorBanner(message: msg)
+                Divider()
+            }
+
             messageArea
             Divider()
+
+            if liveVoiceCoordinator.state.isLive {
+                liveVoiceBar
+                Divider()
+            }
 
             if let request = brain.pendingConfirmation {
                 ConfirmationCardView(request: request) { approved in
@@ -36,7 +54,11 @@ public struct IvyPopoverView: View {
 
             MessageInputBar(
                 text: $inputText,
-                isThinking: brain.isThinking || brain.pendingConfirmation != nil
+                isThinking: brain.isThinking || brain.pendingConfirmation != nil,
+                isVoiceActive: liveVoiceCoordinator.state.isLive,
+                onToggleVoice: {
+                    toggleLiveVoice()
+                }
             ) {
                 submitCurrentMessage()
             }
@@ -73,6 +95,9 @@ public struct IvyPopoverView: View {
 
             Button {
                 voiceManager.stop()
+                Task {
+                    await liveVoiceCoordinator.stopSession()
+                }
                 brain.clearHistory()
             } label: {
                 Image(systemName: "trash")
@@ -81,7 +106,7 @@ public struct IvyPopoverView: View {
             }
             .buttonStyle(.plain)
             .help("Clear Conversation")
-            .disabled(brain.messages.isEmpty)
+            .disabled(brain.messages.isEmpty && !liveVoiceCoordinator.state.isLive)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -91,7 +116,20 @@ public struct IvyPopoverView: View {
     // MARK: - Status Badge
     @ViewBuilder
     private var statusBadge: some View {
-        if brain.pendingConfirmation != nil {
+        if liveVoiceCoordinator.state.isLive {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(liveVoiceCoordinator.state == .speaking ? Color.accentColor : Color.green)
+                    .frame(width: 7, height: 7)
+                Text(voiceStateBadgeText)
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(liveVoiceCoordinator.state == .speaking ? Color.accentColor.opacity(0.15) : Color.green.opacity(0.15))
+            .foregroundStyle(liveVoiceCoordinator.state == .speaking ? Color.accentColor : Color.green)
+            .clipShape(Capsule())
+        } else if brain.pendingConfirmation != nil {
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.shield.fill")
                     .font(.system(size: 11))
@@ -121,6 +159,109 @@ public struct IvyPopoverView: View {
                 .foregroundStyle(Color.orange)
                 .clipShape(Capsule())
         }
+    }
+
+    private var voiceStateBadgeText: String {
+        switch liveVoiceCoordinator.state {
+        case .connecting:
+            return "Connecting"
+        case .listening:
+            return "Listening"
+        case .thinking:
+            return "Thinking"
+        case .speaking:
+            return "Speaking"
+        case .idle, .error:
+            return ""
+        }
+    }
+
+    // MARK: - Live Voice Bar
+    private var liveVoiceBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: liveVoiceCoordinator.state == .speaking ? "waveform" : "mic.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(liveVoiceCoordinator.state == .speaking ? Color.accentColor : Color.green)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(liveVoiceDescription)
+                    .font(.system(size: 11, weight: .semibold))
+                if !liveVoiceCoordinator.latestTranscript.isEmpty {
+                    Text(liveVoiceCoordinator.latestTranscript)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Button {
+                Task {
+                    await liveVoiceCoordinator.stopSession()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "phone.down.fill")
+                    Text("End")
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.red.opacity(0.15))
+                .foregroundStyle(.red)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var liveVoiceDescription: String {
+        switch liveVoiceCoordinator.state {
+        case .connecting:
+            return "Connecting to Gemini Live..."
+        case .listening:
+            return "Listening... Speak naturally"
+        case .thinking:
+            return "Ivy is thinking..."
+        case .speaking:
+            return "Ivy is speaking (speak to interrupt)"
+        case .idle, .error:
+            return ""
+        }
+    }
+
+    // MARK: - Voice Error Banner
+    private func voiceErrorBanner(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.system(size: 12))
+
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+
+            Spacer()
+
+            Button {
+                Task {
+                    await liveVoiceCoordinator.stopSession()
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.12))
     }
 
     // MARK: - Settings Bar
@@ -217,6 +358,19 @@ public struct IvyPopoverView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, minHeight: 320)
+    }
+
+    private func toggleLiveVoice() {
+        if liveVoiceCoordinator.state.isLive {
+            Task {
+                await liveVoiceCoordinator.stopSession()
+            }
+        } else {
+            voiceManager.stop()
+            Task {
+                await liveVoiceCoordinator.startSession()
+            }
+        }
     }
 
     private func submitCurrentMessage() {

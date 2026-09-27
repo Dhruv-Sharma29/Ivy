@@ -3,11 +3,21 @@ import SwiftUI
 public struct MessageInputBar: View {
     @Binding public var text: String
     public let isThinking: Bool
+    public let isVoiceActive: Bool
+    public let onToggleVoice: (() -> Void)?
     public let onSend: () -> Void
 
-    public init(text: Binding<String>, isThinking: Bool, onSend: @escaping () -> Void) {
+    public init(
+        text: Binding<String>,
+        isThinking: Bool,
+        isVoiceActive: Bool = false,
+        onToggleVoice: (() -> Void)? = nil,
+        onSend: @escaping () -> Void
+    ) {
         self._text = text
         self.isThinking = isThinking
+        self.isVoiceActive = isVoiceActive
+        self.onToggleVoice = onToggleVoice
         self.onSend = onSend
     }
 
@@ -17,6 +27,23 @@ public struct MessageInputBar: View {
 
     public var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
+            if let onToggleVoice {
+                Button {
+                    onToggleVoice()
+                } label: {
+                    Image(systemName: isVoiceActive ? "mic.fill" : "mic")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(isVoiceActive ? Color.red : Color.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(isVoiceActive ? Color.red.opacity(0.15) : Color.secondary.opacity(0.1))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(isVoiceActive ? "Stop voice conversation" : "Start live voice conversation")
+                .disabled(isThinking)
+                .padding(.bottom, 2)
+            }
+
             TextField("Ask Ivy... if you must", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
