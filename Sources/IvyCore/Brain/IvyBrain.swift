@@ -161,6 +161,10 @@ public final class IvyBrain: ObservableObject {
 
 extension IvyBrain: ConfirmationHandler {
     public func handleConfirmation(_ request: ConfirmationRequest) async -> Bool {
+        if let existing = self.confirmationContinuation {
+            self.confirmationContinuation = nil
+            existing.resume(returning: false)
+        }
         self.pendingConfirmation = request
         return await withCheckedContinuation { continuation in
             self.confirmationContinuation = continuation
