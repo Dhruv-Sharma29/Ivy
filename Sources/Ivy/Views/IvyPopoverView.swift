@@ -25,7 +25,7 @@ public struct IvyPopoverView: View {
 
             if let request = brain.pendingConfirmation {
                 ConfirmationCardView(request: request) { approved in
-                    brain.respondToPendingConfirmation(approved: approved)
+                    brain.respondToPendingConfirmation(id: request.id, approved: approved)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)

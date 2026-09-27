@@ -3,6 +3,8 @@ import Foundation
 /// A structured request presented to the user to authorize execution of a risky tool.
 public struct ConfirmationRequest: Identifiable, Sendable, Equatable {
     public let id: UUID
+    public let callId: String?
+    public let createdAt: Date
     public let toolName: String
     public let title: String
     public let prompt: String
@@ -10,12 +12,16 @@ public struct ConfirmationRequest: Identifiable, Sendable, Equatable {
 
     public init(
         id: UUID = UUID(),
+        callId: String? = nil,
+        createdAt: Date = Date(),
         toolName: String,
         title: String,
         prompt: String,
         detail: String
     ) {
         self.id = id
+        self.callId = callId
+        self.createdAt = createdAt
         self.toolName = toolName
         self.title = title
         self.prompt = prompt
@@ -148,6 +154,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
         if tool.name == "run_applescript" {
             let script = call.args["script"]?.stringValue ?? "(empty script)"
             return ConfirmationRequest(
+                callId: call.id,
                 toolName: tool.name,
                 title: "AppleScript Execution",
                 prompt: "You're about to run an AppleScript. If you regret this, don't blame me. Do it or chicken out?",
@@ -158,6 +165,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
             let date = call.args["date"]?.stringValue ?? "(unspecified date)"
             let detail = "Action: Create Calendar Event\nTitle: \(title)\nDate/Time: \(date)\nDuration: 1 hour"
             return ConfirmationRequest(
+                callId: call.id,
                 toolName: tool.name,
                 title: "Create Calendar Event",
                 prompt: "You're about to add '\(title)' to your calendar on \(date). If this clutters your schedule, don't blame me. Do it or chicken out?",
@@ -171,6 +179,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
 
             if action == "write" {
                 return ConfirmationRequest(
+                    callId: call.id,
                     toolName: tool.name,
                     title: "Write File",
                     prompt: "You're about to write to '\(rawPath)'. Existing file content may be replaced. If this breaks your files, don't blame me. Do it or chicken out?",
@@ -178,6 +187,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
                 )
             } else if action == "delete" {
                 return ConfirmationRequest(
+                    callId: call.id,
                     toolName: tool.name,
                     title: "Delete File",
                     prompt: "You're about to permanently delete '\(rawPath)'. This cannot be undone. If you regret this, don't blame me. Do it or chicken out?",
@@ -185,6 +195,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
                 )
             } else {
                 return ConfirmationRequest(
+                    callId: call.id,
                     toolName: tool.name,
                     title: "File Operation",
                     prompt: "You're about to perform '\(action)' on '\(rawPath)'. Do it or chicken out?",
@@ -195,6 +206,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
             let rawCommand = call.args["command"]?.stringValue ?? "(empty command)"
             let command = (try? ToolValidation.validateShellCommand(rawCommand)) ?? rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             return ConfirmationRequest(
+                callId: call.id,
                 toolName: tool.name,
                 title: "Run Shell Command",
                 prompt: "You're about to run a shell command. If this breaks your system, don't blame me. Do it or chicken out?",
@@ -202,6 +214,7 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
             )
         } else {
             return ConfirmationRequest(
+                callId: call.id,
                 toolName: tool.name,
                 title: "\(tool.name) Execution",
                 prompt: "You're about to run '\(tool.name)'. If you regret this, don't blame me. Do it or chicken out?",

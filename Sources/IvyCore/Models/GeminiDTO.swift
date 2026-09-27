@@ -125,6 +125,34 @@ public struct FunctionResponse: Codable, Sendable, Equatable {
         self.response = response
         self.id = id
     }
+
+    public var isSuccess: Bool {
+        response["success"]?.boolValue ?? false
+    }
+
+    public var isCancelled: Bool {
+        response["cancelled"]?.boolValue ?? false
+    }
+
+    public var isSafetyRejection: Bool {
+        response["rejected"]?.boolValue ?? false
+    }
+
+    public var isValidationError: Bool {
+        response["validationError"]?.boolValue ?? false
+    }
+
+    public var isToolNotFound: Bool {
+        response["toolNotFound"]?.boolValue ?? false
+    }
+
+    public var errorMessage: String? {
+        response["error"]?.stringValue
+    }
+
+    public var resultMessage: String? {
+        response["result"]?.stringValue
+    }
 }
 
 public struct GeminiRequest: Codable, Sendable, Equatable {

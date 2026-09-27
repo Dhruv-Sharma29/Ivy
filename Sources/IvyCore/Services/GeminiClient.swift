@@ -210,7 +210,8 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
         if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
            let reqStr = String(data: requestData, encoding: .utf8) {
-            let logLine = "\n=== [GEMINI REQUEST] ===\n\(reqStr)\n========================\n"
+            let sanitizedReq = trimmedKey.isEmpty ? reqStr : reqStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
+            let logLine = "\n=== [GEMINI REQUEST] ===\n\(sanitizedReq)\n========================\n"
             fputs(logLine, stderr)
             let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
             if let handle = try? FileHandle(forWritingTo: logURL) {
@@ -236,7 +237,8 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
         if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
            let respStr = String(data: data, encoding: .utf8) {
-            let logLine = "\n=== [GEMINI RESPONSE (\(httpResponse.statusCode))] ===\n\(respStr)\n=====================================\n"
+            let sanitizedResp = trimmedKey.isEmpty ? respStr : respStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
+            let logLine = "\n=== [GEMINI RESPONSE (\(httpResponse.statusCode))] ===\n\(sanitizedResp)\n=====================================\n"
             fputs(logLine, stderr)
             let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
             if let handle = try? FileHandle(forWritingTo: logURL) {

@@ -20,7 +20,8 @@ public final class ToolDispatcher: Sendable {
                 name: call.name,
                 response: [
                     "error": AnyCodable("Tool '\(call.name)' is not recognized."),
-                    "success": AnyCodable(false)
+                    "success": AnyCodable(false),
+                    "toolNotFound": AnyCodable(true)
                 ],
                 id: call.id
             )
@@ -34,7 +35,8 @@ public final class ToolDispatcher: Sendable {
                 name: call.name,
                 response: [
                     "error": AnyCodable(error.localizedDescription),
-                    "success": AnyCodable(false)
+                    "success": AnyCodable(false),
+                    "validationError": AnyCodable(true)
                 ],
                 id: call.id
             )
@@ -44,12 +46,18 @@ public final class ToolDispatcher: Sendable {
         let decision = await safetyGate.evaluate(tool: tool, call: call)
         switch decision {
         case .reject(let reason):
+            let isCancelled = reason.localizedCaseInsensitiveContains("cancel")
+            var resp: [String: AnyCodable] = [
+                "error": AnyCodable(reason),
+                "success": AnyCodable(false),
+                "rejected": AnyCodable(true)
+            ]
+            if isCancelled {
+                resp["cancelled"] = AnyCodable(true)
+            }
             return FunctionResponse(
                 name: call.name,
-                response: [
-                    "error": AnyCodable(reason),
-                    "success": AnyCodable(false)
-                ],
+                response: resp,
                 id: call.id
             )
         case .approve:
