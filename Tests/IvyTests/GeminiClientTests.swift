@@ -206,7 +206,7 @@ struct GeminiClientTests {
             return (response, Data())
         }
 
-        let client = URLSessionGeminiClient(session: makeMockSession())
+        let client = URLSessionGeminiClient(session: makeMockSession(), retryPolicy: .testing)
         await #expect(throws: GeminiClientError.rateLimited) {
             _ = try await client.generateContent(
                 history: [ChatMessage(role: .user, text: "Hello")],
@@ -229,7 +229,7 @@ struct GeminiClientTests {
             return (response, errorJSON.data(using: .utf8)!)
         }
 
-        let client = URLSessionGeminiClient(session: makeMockSession())
+        let client = URLSessionGeminiClient(session: makeMockSession(), retryPolicy: .testing)
         await #expect(throws: GeminiClientError.serverError(statusCode: 500, message: "Internal Server Error")) {
             _ = try await client.generateContent(
                 history: [ChatMessage(role: .user, text: "Hello")],
@@ -283,7 +283,7 @@ struct GeminiClientTests {
             return (response, Data())
         }
 
-        let client = URLSessionGeminiClient(session: makeMockSession())
+        let client = URLSessionGeminiClient(session: makeMockSession(), retryPolicy: .testing)
         await #expect(throws: GeminiClientError.serverError(statusCode: 503, message: "HTTP 503")) {
             _ = try await client.generateContent(
                 history: [ChatMessage(role: .user, text: "Hello")],
@@ -927,7 +927,7 @@ struct GeminiClientTests {
 
 // MARK: - Test Helpers
 
-private extension URLRequest {
+extension URLRequest {
     func extractBodyData() -> Data? {
         if let body = self.httpBody {
             return body

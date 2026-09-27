@@ -24,6 +24,9 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
         case .modelNotFound(let msg):
             return "Gemini model not found (404): \(msg)"
         case .serverError(let code, let msg):
+            if code == 503 {
+                return "Gemini is temporarily overloaded. Please try again in a moment."
+            }
             return "Gemini server error (\(code)): \(msg)"
         case .networkError(let msg):
             return "Network connection failed: \(msg)"
@@ -106,15 +109,31 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
     private let session: URLSession
     public let baseURLString: String
     public let thinkingLevel: ThinkingLevel?
+    public let retryPolicy: RetryPolicy
 
     public init(
         session: URLSession = .shared,
         baseURLString: String = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
-        thinkingLevel: ThinkingLevel? = .medium
+        thinkingLevel: ThinkingLevel? = .medium,
+        retryPolicy: RetryPolicy = .default
     ) {
         self.session = session
         self.baseURLString = baseURLString
         self.thinkingLevel = thinkingLevel
+        self.retryPolicy = retryPolicy
+    }
+
+    public convenience init(
+        session: URLSession = .shared,
+        baseURLString: String = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+        thinkingLevel: ThinkingLevel? = .medium
+    ) {
+        self.init(
+            session: session,
+            baseURLString: baseURLString,
+            thinkingLevel: thinkingLevel,
+            retryPolicy: .default
+        )
     }
 
     public func generateContent(
@@ -208,108 +227,125 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
         }
         request.httpBody = requestData
 
-        if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
-           let reqStr = String(data: requestData, encoding: .utf8) {
-            let sanitizedReq = trimmedKey.isEmpty ? reqStr : reqStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
-            let logLine = "\n=== [GEMINI REQUEST] ===\n\(sanitizedReq)\n========================\n"
-            fputs(logLine, stderr)
-            let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
-            if let handle = try? FileHandle(forWritingTo: logURL) {
-                handle.seekToEndOfFile()
-                if let logData = logLine.data(using: .utf8) { handle.write(logData) }
-                try? handle.close()
-            } else {
-                try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
+        var attempt = 0
+        while true {
+            if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
+               let reqStr = String(data: requestData, encoding: .utf8) {
+                let sanitizedReq = trimmedKey.isEmpty ? reqStr : reqStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
+                let logLine = "\n=== [GEMINI REQUEST (attempt \(attempt + 1))] ===\n\(sanitizedReq)\n========================\n"
+                fputs(logLine, stderr)
+                let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
+                if let handle = try? FileHandle(forWritingTo: logURL) {
+                    handle.seekToEndOfFile()
+                    if let logData = logLine.data(using: .utf8) { handle.write(logData) }
+                    try? handle.close()
+                } else {
+                    try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
+                }
             }
-        }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw GeminiClientError.networkError(error.localizedDescription)
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GeminiClientError.networkError("Invalid response type")
-        }
-
-        if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
-           let respStr = String(data: data, encoding: .utf8) {
-            let sanitizedResp = trimmedKey.isEmpty ? respStr : respStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
-            let logLine = "\n=== [GEMINI RESPONSE (\(httpResponse.statusCode))] ===\n\(sanitizedResp)\n=====================================\n"
-            fputs(logLine, stderr)
-            let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
-            if let handle = try? FileHandle(forWritingTo: logURL) {
-                handle.seekToEndOfFile()
-                if let logData = logLine.data(using: .utf8) { handle.write(logData) }
-                try? handle.close()
-            } else {
-                try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
-            }
-        }
-
-        switch httpResponse.statusCode {
-        case 200..<300:
-            let geminiResponse: GeminiResponse
+            let data: Data
+            let response: URLResponse
             do {
-                geminiResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
+                (data, response) = try await session.data(for: request)
             } catch {
-                throw GeminiClientError.decodingError(error.localizedDescription)
+                if RetryPolicy.isTransientNetworkError(error) && attempt < retryPolicy.maxRetries {
+                    let delay = retryPolicy.delay(forAttempt: attempt)
+                    attempt += 1
+                    try await retryPolicy.sleeper(delay)
+                    continue
+                }
+                throw GeminiClientError.networkError(error.localizedDescription)
             }
 
-            let functionCalls = geminiResponse.functionCalls
-            let functionCallParts = geminiResponse.functionCallParts
-            let text = geminiResponse.firstText
-
-            if functionCalls.isEmpty && (text?.isEmpty ?? true) {
-                throw GeminiClientError.emptyResponse
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw GeminiClientError.networkError("Invalid response type")
             }
 
-            let thoughtSig = geminiResponse.candidates?.first?.content?.parts.compactMap(\.thoughtSignature).first
-                ?? functionCallParts.compactMap(\.thoughtSignature).first
-
-            return ModelTurnResponse(
-                text: text,
-                functionCalls: functionCalls,
-                functionCallParts: functionCallParts,
-                thoughtSignature: thoughtSig
-            )
-
-        case 400, 401, 403:
-            if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
-                throw GeminiClientError.invalidAPIKey(apiError.message)
-            } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
-                throw GeminiClientError.invalidAPIKey(bodyString)
-            } else {
-                throw GeminiClientError.invalidAPIKey("Authentication failure (HTTP \(httpResponse.statusCode))")
+            if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
+               let respStr = String(data: data, encoding: .utf8) {
+                let sanitizedResp = trimmedKey.isEmpty ? respStr : respStr.replacingOccurrences(of: trimmedKey, with: "[REDACTED_API_KEY]")
+                let logLine = "\n=== [GEMINI RESPONSE (\(httpResponse.statusCode)) (attempt \(attempt + 1))] ===\n\(sanitizedResp)\n=====================================\n"
+                fputs(logLine, stderr)
+                let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
+                if let handle = try? FileHandle(forWritingTo: logURL) {
+                    handle.seekToEndOfFile()
+                    if let logData = logLine.data(using: .utf8) { handle.write(logData) }
+                    try? handle.close()
+                } else {
+                    try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
+                }
             }
 
-        case 404:
-            let errorMsg: String
-            if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
-                errorMsg = apiError.message
-            } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
-                errorMsg = bodyString
-            } else {
-                errorMsg = "Model not found"
-            }
-            throw GeminiClientError.modelNotFound(errorMsg)
+            switch httpResponse.statusCode {
+            case 200..<300:
+                let geminiResponse: GeminiResponse
+                do {
+                    geminiResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
+                } catch {
+                    throw GeminiClientError.decodingError(error.localizedDescription)
+                }
 
-        case 429:
-            throw GeminiClientError.rateLimited
+                let functionCalls = geminiResponse.functionCalls
+                let functionCallParts = geminiResponse.functionCallParts
+                let text = geminiResponse.firstText
 
-        default:
-            let errorMsg: String
-            if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
-                errorMsg = apiError.message
-            } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
-                errorMsg = bodyString
-            } else {
-                errorMsg = "HTTP \(httpResponse.statusCode)"
+                if functionCalls.isEmpty && (text?.isEmpty ?? true) {
+                    throw GeminiClientError.emptyResponse
+                }
+
+                let thoughtSig = geminiResponse.candidates?.first?.content?.parts.compactMap(\.thoughtSignature).first
+                    ?? functionCallParts.compactMap(\.thoughtSignature).first
+
+                return ModelTurnResponse(
+                    text: text,
+                    functionCalls: functionCalls,
+                    functionCallParts: functionCallParts,
+                    thoughtSignature: thoughtSig
+                )
+
+            case 400, 401, 403:
+                if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
+                    throw GeminiClientError.invalidAPIKey(apiError.message)
+                } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
+                    throw GeminiClientError.invalidAPIKey(bodyString)
+                } else {
+                    throw GeminiClientError.invalidAPIKey("Authentication failure (HTTP \(httpResponse.statusCode))")
+                }
+
+            case 404:
+                let errorMsg: String
+                if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
+                    errorMsg = apiError.message
+                } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
+                    errorMsg = bodyString
+                } else {
+                    errorMsg = "Model not found"
+                }
+                throw GeminiClientError.modelNotFound(errorMsg)
+
+            default:
+                if RetryPolicy.isTransientStatusCode(httpResponse.statusCode) && attempt < retryPolicy.maxRetries {
+                    let delay = retryPolicy.delay(forAttempt: attempt)
+                    attempt += 1
+                    try await retryPolicy.sleeper(delay)
+                    continue
+                }
+
+                if httpResponse.statusCode == 429 {
+                    throw GeminiClientError.rateLimited
+                }
+
+                let errorMsg: String
+                if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
+                    errorMsg = apiError.message
+                } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {
+                    errorMsg = bodyString
+                } else {
+                    errorMsg = "HTTP \(httpResponse.statusCode)"
+                }
+                throw GeminiClientError.serverError(statusCode: httpResponse.statusCode, message: errorMsg)
             }
-            throw GeminiClientError.serverError(statusCode: httpResponse.statusCode, message: errorMsg)
         }
     }
 }
