@@ -40,10 +40,24 @@ struct GeminiLiveDTOTests {
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         let inputDict = try #require(json["realtimeInput"] as? [String: Any])
+        let audioDict = try #require(inputDict["audio"] as? [String: Any])
+        #expect(audioDict["mimeType"] as? String == "audio/pcm;rate=16000")
+        #expect(audioDict["data"] as? String == pcmBytes.base64EncodedString())
+    }
+
+    @Test("BidiRealtimeInput supports legacy mediaChunks initialization")
+    func testLegacyMediaChunksSerialization() throws {
+        let pcmBytes = Data([0x0A, 0x0B])
+        let blob = BidiBlob(mimeType: "audio/pcm;rate=16000", data: pcmBytes.base64EncodedString())
+        let realtimeInput = BidiRealtimeInput(mediaChunks: [blob])
+        let message = BidiClientMessage(realtimeInput: realtimeInput)
+
+        let data = try JSONEncoder().encode(message)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let inputDict = try #require(json["realtimeInput"] as? [String: Any])
         let mediaChunks = try #require(inputDict["mediaChunks"] as? [[String: Any]])
         #expect(mediaChunks.count == 1)
         #expect(mediaChunks.first?["mimeType"] as? String == "audio/pcm;rate=16000")
-        #expect(mediaChunks.first?["data"] as? String == pcmBytes.base64EncodedString())
     }
 
     @Test("BidiServerMessage decodes setupComplete")

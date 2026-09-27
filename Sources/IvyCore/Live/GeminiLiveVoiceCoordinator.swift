@@ -46,13 +46,20 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Convenience initializer using production implementations.
     public convenience init(
         apiKey: String,
-        model: String = "models/gemini-2.0-flash-exp",
+        model: String = "models/gemini-3.1-flash-live-preview",
         systemInstruction: String = IvyPersona.systemPrompt
     ) {
         let client = GeminiLiveClient(apiKey: apiKey, model: model, systemInstruction: systemInstruction)
         let capture = SystemAudioCapture()
         let player = SystemLiveAudioPlayer()
         self.init(session: client, audioCapture: capture, audioPlayer: player)
+    }
+
+    /// Updates the API key for the underlying session client if supported.
+    public func updateApiKey(_ newKey: String) {
+        if let client = session as? GeminiLiveClient {
+            client.updateApiKey(newKey)
+        }
     }
 
     deinit {

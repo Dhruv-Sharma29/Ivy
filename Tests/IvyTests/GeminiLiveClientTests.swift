@@ -114,7 +114,7 @@ struct GeminiLiveClientTests {
 
         let data = try #require(audioJson.data(using: .utf8))
         let clientMsg = try JSONDecoder().decode(BidiClientMessage.self, from: data)
-        let chunk = try #require(clientMsg.realtimeInput?.mediaChunks.first)
+        let chunk = try #require(clientMsg.realtimeInput?.audio)
         #expect(chunk.mimeType == "audio/pcm;rate=16000")
         #expect(chunk.data == pcmData.base64EncodedString())
 

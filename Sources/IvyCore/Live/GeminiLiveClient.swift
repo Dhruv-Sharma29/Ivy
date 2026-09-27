@@ -5,29 +5,34 @@ import os
 public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     public typealias WebSocketFactory = @Sendable (URLRequest) -> WebSocketTransport
 
-    public let apiKey: String
+    public var apiKey: String {
+        state.withLock { $0.apiKey }
+    }
     public let model: String
     public let systemInstruction: String?
     public let session: URLSession
     private let webSocketFactory: WebSocketFactory
 
     private struct State {
+        var apiKey: String
         var webSocket: WebSocketTransport? = nil
         var isConnected: Bool = false
+        var isClosed: Bool = false
         var continuation: AsyncThrowingStream<LiveEvent, Error>.Continuation? = nil
         var receiveTask: Task<Void, Never>? = nil
+        var pendingSendContinuations: [CheckedContinuation<WebSocketTransport, Error>] = []
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state: OSAllocatedUnfairLock<State>
 
     public init(
         apiKey: String,
-        model: String = "models/gemini-2.0-flash-exp",
+        model: String = "models/gemini-3.1-flash-live-preview",
         systemInstruction: String? = nil,
         session: URLSession = .shared,
         webSocketFactory: WebSocketFactory? = nil
     ) {
-        self.apiKey = apiKey
+        self.state = OSAllocatedUnfairLock(initialState: State(apiKey: apiKey))
         self.model = model
         self.systemInstruction = systemInstruction
         self.session = session
@@ -37,6 +42,12 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             self.webSocketFactory = { [session] request in
                 session.webSocketTask(with: request)
             }
+        }
+    }
+
+    public func updateApiKey(_ newKey: String) {
+        state.withLock { s in
+            s.apiKey = newKey
         }
     }
 
@@ -64,11 +75,12 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     }
 
     public func connect() async throws {
-        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let currentKey = state.withLock { $0.apiKey }
+        guard !currentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw LiveError.missingAPIKey
         }
 
-        guard let encodedKey = apiKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        guard let encodedKey = currentKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=\(encodedKey)") else {
             throw LiveError.invalidURL
         }
@@ -79,6 +91,8 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         let ws = webSocketFactory(request)
         state.withLock { s in
             s.webSocket = ws
+            s.isClosed = false
+            s.isConnected = false
         }
 
         ws.resume()
@@ -107,16 +121,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     }
 
     public func sendAudio(_ data: Data) async throws {
-        let ws: WebSocketTransport? = state.withLock { s in
-            guard s.isConnected, let ws = s.webSocket else {
-                return nil
-            }
-            return ws
-        }
-
-        guard let ws else {
-            throw LiveError.sessionClosed
-        }
+        let ws = try await getConnectedWebSocket()
 
         let input = BidiRealtimeInput(pcmData: data, sampleRate: 16000)
         let message = BidiClientMessage(realtimeInput: input)
@@ -132,16 +137,49 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
     }
 
+    private func getConnectedWebSocket() async throws -> WebSocketTransport {
+        let (ws, isConn, isClosed) = state.withLock { s -> (WebSocketTransport?, Bool, Bool) in
+            return (s.webSocket, s.isConnected, s.isClosed)
+        }
+
+        if isClosed || ws == nil {
+            throw LiveError.sessionClosed
+        }
+
+        if isConn, let ws {
+            return ws
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            state.withLock { s in
+                if s.isClosed || s.webSocket == nil {
+                    continuation.resume(throwing: LiveError.sessionClosed)
+                } else if s.isConnected, let ws = s.webSocket {
+                    continuation.resume(returning: ws)
+                } else {
+                    s.pendingSendContinuations.append(continuation)
+                }
+            }
+        }
+    }
+
     public func disconnect() async {
-        let (ws, task, continuation) = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, AsyncThrowingStream<LiveEvent, Error>.Continuation?) in
+        let (ws, task, continuation, pendingSends) = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>]) in
             s.isConnected = false
+            s.isClosed = true
             let ws = s.webSocket
             let task = s.receiveTask
             let cont = s.continuation
+            let sends = s.pendingSendContinuations
             s.webSocket = nil
             s.receiveTask = nil
             s.continuation = nil
-            return (ws, task, cont)
+            s.pendingSendContinuations = []
+            return (ws, task, cont, sends)
+        }
+
+        for cont in pendingSends {
+            cont.resume(throwing: LiveError.sessionClosed)
         }
 
         task?.cancel()
@@ -189,11 +227,22 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         if serverMessage.setupComplete != nil {
-            let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
+            let (eventContinuation, pendingSends, ws) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], WebSocketTransport?) in
                 s.isConnected = true
-                return s.continuation
+                let sends = s.pendingSendContinuations
+                s.pendingSendContinuations = []
+                return (s.continuation, sends, s.webSocket)
             }
-            continuation?.yield(.connected)
+            if let ws {
+                for cont in pendingSends {
+                    cont.resume(returning: ws)
+                }
+            } else {
+                for cont in pendingSends {
+                    cont.resume(throwing: LiveError.sessionClosed)
+                }
+            }
+            eventContinuation?.yield(.connected)
         }
 
         if let content = serverMessage.serverContent {
@@ -222,12 +271,19 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     }
 
     private func handleReceiveError(_ error: Error) {
-        let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
+        let (continuation, pendingSends) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>]) in
             s.isConnected = false
+            s.isClosed = true
             s.webSocket = nil
             let cont = s.continuation
             s.continuation = nil
-            return cont
+            let sends = s.pendingSendContinuations
+            s.pendingSendContinuations = []
+            return (cont, sends)
+        }
+
+        for cont in pendingSends {
+            cont.resume(throwing: LiveError.sessionClosed)
         }
 
         continuation?.yield(.disconnected)

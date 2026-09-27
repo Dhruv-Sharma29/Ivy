@@ -140,7 +140,7 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
 
         state.withLock { $0.isPlaying = true }
 
-        await playerNode.scheduleBuffer(pcmBuffer)
+        playerNode.scheduleBuffer(pcmBuffer, completionHandler: nil)
     }
 
     public func stop() async {

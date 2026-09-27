@@ -70,6 +70,9 @@ public struct IvyPopoverView: View {
         }
         .frame(width: 380, height: 520)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: brain.apiKey) { _, newKey in
+            liveVoiceCoordinator.updateApiKey(newKey)
+        }
     }
 
     // MARK: - Header
@@ -421,6 +424,7 @@ public struct IvyPopoverView: View {
             }
         } else {
             voiceManager.stop()
+            liveVoiceCoordinator.updateApiKey(brain.apiKey)
             Task {
                 await liveVoiceCoordinator.startSession()
             }

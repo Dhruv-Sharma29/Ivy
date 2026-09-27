@@ -25,7 +25,7 @@ public struct BidiSetup: Codable, Sendable, Equatable {
     public let systemInstruction: BidiSystemInstruction?
 
     public init(
-        model: String = "models/gemini-2.0-flash-exp",
+        model: String = "models/gemini-3.1-flash-live-preview",
         generationConfig: BidiGenerationConfig? = BidiGenerationConfig(responseModalities: ["AUDIO"]),
         systemInstruction: BidiSystemInstruction? = nil
     ) {
@@ -64,17 +64,23 @@ public struct BidiTextPart: Codable, Sendable, Equatable {
 }
 
 public struct BidiRealtimeInput: Codable, Sendable, Equatable {
-    public let mediaChunks: [BidiBlob]
+    public let audio: BidiBlob?
+    public let mediaChunks: [BidiBlob]?
+
+    public init(audio: BidiBlob) {
+        self.audio = audio
+        self.mediaChunks = nil
+    }
 
     public init(mediaChunks: [BidiBlob]) {
+        self.audio = nil
         self.mediaChunks = mediaChunks
     }
 
     public init(pcmData: Data, sampleRate: Int = 16000) {
         let base64 = pcmData.base64EncodedString()
-        self.mediaChunks = [
-            BidiBlob(mimeType: "audio/pcm;rate=\(sampleRate)", data: base64)
-        ]
+        self.audio = BidiBlob(mimeType: "audio/pcm;rate=\(sampleRate)", data: base64)
+        self.mediaChunks = nil
     }
 }
 
