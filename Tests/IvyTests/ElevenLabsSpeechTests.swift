@@ -459,8 +459,8 @@ struct VoicePlaybackManagerTests {
         #expect(manager.currentMessageId == message.id)
         #expect(manager.isSynthesizing(messageId: message.id))
 
-        // Wait brief period for mock player to finish
-        try await Task.sleep(nanoseconds: 60_000_000) // 60ms
+        // Poll instead of a fixed 60ms sleep: a loaded main actor under the full parallel suite can overrun it.
+        for _ in 0..<200 where manager.state != .idle { try await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(manager.state == .idle)
         #expect(manager.currentMessageId == nil)
@@ -545,7 +545,8 @@ struct VoicePlaybackManagerTests {
         #expect(manager.currentMessageId == msg2.id)
 
         // Wait for msg2 to finish
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .idle { try? await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(manager.state == .idle)
         // Player should only have played once (for msg2)
@@ -562,21 +563,23 @@ struct VoicePlaybackManagerTests {
         let msg = ChatMessage(role: .model, text: "Rate limit me")
         manager.speak(message: msg)
 
-        try await Task.sleep(nanoseconds: 20_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .error(SpeechError.rateLimited.localizedDescription) { try? await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(manager.state == .error(SpeechError.rateLimited.localizedDescription))
         #expect(manager.errorMessage == SpeechError.rateLimited.localizedDescription)
         #expect(mockPlayer.playedData.isEmpty)
     }
 
-    @Test("VoicePlaybackManager updates apiKey dynamically and synchronizes with key provider")
+    // Phase 5: the key is no longer observable manager state; it is resolved by the synthesizer's key provider.
+    @Test("VoicePlaybackManager routes an explicit key or the credential provider into the synthesizer")
     @MainActor
     func testVoicePlaybackManagerApiKeyUpdate() {
         let manager = VoicePlaybackManager(apiKey: "initial_123")
-        #expect(manager.apiKey == "initial_123")
+        #expect((manager.synthesizer as? ElevenLabsSpeechSynthesizer)?.keyProvider.getAPIKey() == "initial_123")
 
-        manager.apiKey = "new_456"
-        #expect(manager.apiKey == "new_456")
+        let viaCredentials = VoicePlaybackManager(credentials: FixedCredentialProvider([.elevenLabsAPIKey: "new_456"]))
+        #expect((viaCredentials.synthesizer as? ElevenLabsSpeechSynthesizer)?.keyProvider.getAPIKey() == "new_456")
     }
 
     @Test("VoicePlaybackManager clearError resets state and error message")
@@ -607,7 +610,8 @@ struct VoicePlaybackManagerTests {
         let manager = VoicePlaybackManager(synthesizer: mockSynth, player: MockAudioPlayer())
 
         manager.speak(message: ChatMessage(role: .model, text: "Fail now"))
-        try await Task.sleep(nanoseconds: 20_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .error(SpeechError.rateLimited.localizedDescription) { try? await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(manager.state == .error(SpeechError.rateLimited.localizedDescription))
 

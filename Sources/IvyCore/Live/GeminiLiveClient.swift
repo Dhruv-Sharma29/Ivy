@@ -354,8 +354,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
 
         guard let serverMessage = try? JSONDecoder().decode(BidiServerMessage.self, from: payloadData) else {
             #if DEBUG
-            let preview = String(data: payloadData, encoding: .utf8) ?? ""
-            print("[LIVE] server error: failed to decode message: \(preview.prefix(100))")
+            print("[LIVE] server error: failed to decode message bytes=\(payloadData.count)")
             #endif
             return
         }

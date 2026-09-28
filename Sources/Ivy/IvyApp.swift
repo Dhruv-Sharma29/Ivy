@@ -3,9 +3,11 @@ import IvyCore
 
 @main
 struct IvyApp: App {
+    @NSApplicationDelegateAdaptor(IvyAppDelegate.self) private var appDelegate
     @StateObject private var brain: IvyBrain
     @StateObject private var voiceManager: VoicePlaybackManager
     @StateObject private var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
+    @StateObject private var settings: SettingsModel
 
     init() {
         // An unbundled `swift run Ivy` process starts as BackgroundOnly, which can never activate, so its
@@ -14,23 +16,13 @@ struct IvyApp: App {
         // Line-buffer stdout so `[LIVE]`/`[WAKE]` diagnostics reach the log file as they happen.
         setvbuf(stdout, nil, _IOLBF, 0)
 
-        let brain = IvyBrain()
-        let voiceManager = VoicePlaybackManager()
-        let coordinator = GeminiLiveVoiceCoordinator(
-            apiKey: brain.apiKey,
-            hotkeyManager: SystemGlobalHotkeyManager()
-        )
-        self._brain = StateObject(wrappedValue: brain)
-        self._voiceManager = StateObject(wrappedValue: voiceManager)
-        self._liveVoiceCoordinator = StateObject(wrappedValue: coordinator)
-
-        do {
-            try coordinator.registerHotkey()
-        } catch {
-            #if DEBUG
-            print("[HOTKEY] Failed to register global push-to-talk hotkey: \(error.localizedDescription)")
-            #endif
-        }
+        // Settings → credentials → restored conversation → voice → Live (idle) → hotkey. Nothing starts listening.
+        let environment = IvyAppEnvironment.production()
+        self._brain = StateObject(wrappedValue: environment.brain)
+        self._voiceManager = StateObject(wrappedValue: environment.voiceManager)
+        self._liveVoiceCoordinator = StateObject(wrappedValue: environment.liveCoordinator)
+        self._settings = StateObject(wrappedValue: environment.settings)
+        IvyAppDelegate.shutdown = { await environment.shutdown() }
     }
 
     var body: some Scene {
@@ -38,9 +30,25 @@ struct IvyApp: App {
             IvyPopoverView(
                 brain: brain,
                 voiceManager: voiceManager,
-                liveVoiceCoordinator: liveVoiceCoordinator
+                liveVoiceCoordinator: liveVoiceCoordinator,
+                settings: settings
             )
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// Delays quit until Live, playback, the hotkey and any pending approval are torn down and history is saved.
+final class IvyAppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor static var shutdown: (@MainActor () async -> Void)?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let shutdown = Self.shutdown else { return .terminateNow }
+        Self.shutdown = nil
+        Task { @MainActor in
+            await shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }

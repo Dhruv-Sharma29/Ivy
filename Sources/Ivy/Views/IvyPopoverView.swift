@@ -5,17 +5,20 @@ public struct IvyPopoverView: View {
     @ObservedObject public var brain: IvyBrain
     @ObservedObject public var voiceManager: VoicePlaybackManager
     @ObservedObject public var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
+    @ObservedObject public var settings: SettingsModel
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
 
     public init(
         brain: IvyBrain,
-        voiceManager: VoicePlaybackManager? = nil,
-        liveVoiceCoordinator: GeminiLiveVoiceCoordinator? = nil
+        voiceManager: VoicePlaybackManager,
+        liveVoiceCoordinator: GeminiLiveVoiceCoordinator,
+        settings: SettingsModel
     ) {
         self.brain = brain
-        self.voiceManager = voiceManager ?? VoicePlaybackManager()
-        self.liveVoiceCoordinator = liveVoiceCoordinator ?? GeminiLiveVoiceCoordinator(apiKey: brain.apiKey)
+        self.voiceManager = voiceManager
+        self.liveVoiceCoordinator = liveVoiceCoordinator
+        self.settings = settings
     }
 
     public var body: some View {
@@ -78,9 +81,6 @@ public struct IvyPopoverView: View {
         // A menu-bar-only (LSUIElement) app isn't activated when its status item opens this window,
         // so the window never becomes key and AppKit drops clicks on its buttons (gear, trash, close).
         .onAppear { NSApp.activate() }
-        .onChange(of: brain.apiKey) { _, newKey in
-            liveVoiceCoordinator.updateApiKey(newKey)
-        }
     }
 
     // MARK: - Header
@@ -167,7 +167,7 @@ public struct IvyPopoverView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-        } else if brain.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        } else if !brain.isGeminiKeyConfigured {
             Text("Key Missing")
                 .font(.system(size: 10, weight: .medium))
                 .padding(.horizontal, 6)
@@ -208,7 +208,7 @@ public struct IvyPopoverView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(liveVoiceDescription)
                     .font(.system(size: 11, weight: .semibold))
-                if !liveVoiceCoordinator.latestTranscript.isEmpty {
+                if settings.settings.showLiveTranscript && !liveVoiceCoordinator.latestTranscript.isEmpty {
                     Text(liveVoiceCoordinator.latestTranscript)
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
@@ -366,46 +366,9 @@ public struct IvyPopoverView: View {
 
     // MARK: - Settings Bar
     private var settingsBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Gemini API Key")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                HStack {
-                    SecureField("Enter Gemini API key", text: $brain.apiKey)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-
-                    if !brain.apiKey.isEmpty {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.system(size: 13))
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("ElevenLabs API Key")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                HStack {
-                    SecureField("Enter ElevenLabs API key", text: $voiceManager.apiKey)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-
-                    if !voiceManager.apiKey.isEmpty {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.system(size: 13))
-                    }
-                }
-            }
+        SettingsPanel(credentials: brain.credentials, settings: settings) {
+            brain.refreshCredentialStatus()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     // MARK: - Messages Area
@@ -487,7 +450,6 @@ public struct IvyPopoverView: View {
             }
         } else {
             voiceManager.stop()
-            liveVoiceCoordinator.updateApiKey(brain.apiKey)
             Task {
                 await liveVoiceCoordinator.startSession()
             }

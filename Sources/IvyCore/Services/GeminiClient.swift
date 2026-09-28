@@ -237,20 +237,16 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
         var attempt = 0
         while true {
+            // Opt-in wire dump for debug builds only, to stderr only: payloads hold conversation text and tool
+            // results, so they are never written to disk.
+            #if DEBUG
             if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
                let reqStr = String(data: requestData, encoding: .utf8) {
                 let sanitizedReq = sanitizeText(reqStr)
                 let logLine = "\n=== [GEMINI REQUEST (attempt \(attempt + 1))] ===\n\(sanitizedReq)\n========================\n"
                 fputs(logLine, stderr)
-                let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
-                if let handle = try? FileHandle(forWritingTo: logURL) {
-                    handle.seekToEndOfFile()
-                    if let logData = logLine.data(using: .utf8) { handle.write(logData) }
-                    try? handle.close()
-                } else {
-                    try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
-                }
             }
+            #endif
 
             let data: Data
             let response: URLResponse
@@ -270,20 +266,14 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
                 throw GeminiClientError.networkError("Invalid response type")
             }
 
+            #if DEBUG
             if ProcessInfo.processInfo.environment["IVY_DEBUG_WIRE"] != nil,
                let respStr = String(data: data, encoding: .utf8) {
                 let sanitizedResp = sanitizeText(respStr)
                 let logLine = "\n=== [GEMINI RESPONSE (\(httpResponse.statusCode)) (attempt \(attempt + 1))] ===\n\(sanitizedResp)\n=====================================\n"
                 fputs(logLine, stderr)
-                let logURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("gemini_wire.log")
-                if let handle = try? FileHandle(forWritingTo: logURL) {
-                    handle.seekToEndOfFile()
-                    if let logData = logLine.data(using: .utf8) { handle.write(logData) }
-                    try? handle.close()
-                } else {
-                    try? logLine.write(to: logURL, atomically: true, encoding: .utf8)
-                }
             }
+            #endif
 
             switch httpResponse.statusCode {
             case 200..<300:

@@ -81,6 +81,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public let hotkeyManager: GlobalHotkeyManaging?
     public let toolDispatcher: ToolDispatcher
     private let setupTimeout: Duration
+    /// Production key source; nil when a session was injected with its own key (tests).
+    private var credentials: CredentialProvider? = nil
 
     public private(set) var isPushToTalkActive: Bool = false
     public private(set) var wasSessionStartedByPushToTalk: Bool = false
@@ -95,6 +97,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     private var eventTask: Task<Void, Never>? = nil
     private var drainTask: Task<Void, Never>? = nil
     private var setupWatchdogTask: Task<Void, Never>? = nil
+    /// A new session waits for in-flight teardowns, so an old teardown's late steps (mic stop, socket
+    /// disconnect) can never land on the new session during a rapid stop/start (e.g. PTT press-release-press).
+    private var teardownsInFlight = 0
+    private var teardownWaiters: [CheckedContinuation<Void, Never>] = []
     private var isSetupAcknowledged = false
 
     /// True between a model turn's first audio chunk and its `turnComplete`, independent of playback.
@@ -147,9 +153,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     public static let liveVoiceName: String = GeminiLiveClient.liveVoiceName
 
-    /// Convenience initializer using production implementations.
+    /// Convenience initializer using production implementations. The Gemini key is re-read from `credentials`
+    /// at every session start, so a key saved in settings applies without relaunching.
     public convenience init(
-        apiKey: String,
+        credentials: CredentialProvider = KeychainCredentialProvider(),
+        echoCancellation: Bool = true,
         model: String = "models/gemini-3.1-flash-live-preview",
         voiceName: String = liveVoiceName,
         systemInstruction: String = IvyPersona.systemPrompt,
@@ -160,7 +168,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         let safetyGate = InteractiveSafetyGate(confirmationProvider: bridge)
         let dispatcher = toolDispatcher ?? ToolDispatcher(registry: .defaultRegistry(), safetyGate: safetyGate)
         let client = GeminiLiveClient(
-            apiKey: apiKey,
+            apiKey: credentials.credential(for: .geminiAPIKey) ?? "",
             model: model,
             voiceName: Self.liveVoiceName,
             systemInstruction: systemInstruction,
@@ -168,7 +176,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         )
         // Capture and playback share one engine so voice processing can cancel Ivy's own voice from the mic.
         let engine = AVAudioEngine()
-        let capture = SystemAudioCapture(audioEngine: engine, voiceProcessing: true)
+        let capture = SystemAudioCapture(audioEngine: engine, voiceProcessing: echoCancellation)
         let player = SystemLiveAudioPlayer(audioEngine: engine, ownsEngine: false)
         let detector = SystemWakeWordDetector()
         self.init(
@@ -179,6 +187,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             hotkeyManager: hotkeyManager,
             toolDispatcher: dispatcher
         )
+        self.credentials = credentials
     }
 
     /// Registers the global push-to-talk hotkey.
@@ -278,7 +287,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         if state.isLive {
             await stopSession()
         }
+        while teardownsInFlight > 0 {
+            await withCheckedContinuation { teardownWaiters.append($0) }
+        }
 
+        if let credentials {
+            updateApiKey(credentials.credential(for: .geminiAPIKey) ?? "")
+        }
         let token = UUID()
         self.currentSessionToken = token
         transition(to: .connecting)
@@ -413,10 +428,17 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         isDiscardingInterruptedTurn = false
         turnReferenceAt = nil
 
+        teardownsInFlight += 1
         await audioCapture.stopCapture()
         await stopPlayback()
         await wakeWordDetector.reset()
         await session.disconnect()
+        teardownsInFlight -= 1
+        if teardownsInFlight == 0 {
+            let waiters = teardownWaiters
+            teardownWaiters = []
+            waiters.forEach { $0.resume() }
+        }
 
         // A session started during the awaits above owns the state now.
         guard currentSessionToken == nil else { return }
@@ -456,7 +478,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         if let token, currentSessionToken != token { return }
         guard state == .speaking || state == .toolConfirmation else { return }
         #if DEBUG
-        print("[WAKE] recognition partial chars=\(text.count) TEMPDIAG=\(text.suffix(60))")
+        print("[WAKE] recognition partial chars=\(text.count)")
         #endif
         if WakePhraseMatcher.containsWakePhrase(text) {
             #if DEBUG
@@ -491,7 +513,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             let callKey = call.id ?? "\(call.name):\(call.args.description)"
             if executedToolCallIds.contains(callKey) {
                 #if DEBUG
-                print("[TOOL] duplicate function call suppressed: \(callKey)")
+                print("[TOOL] duplicate function call suppressed: \(call.name)")
                 #endif
                 return
             }

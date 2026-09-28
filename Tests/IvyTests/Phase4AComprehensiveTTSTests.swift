@@ -666,7 +666,8 @@ struct Phase4AAudioPlaybackTests {
         let message = ChatMessage(role: .model, text: "Completion test")
         manager.speak(message: message)
 
-        try await Task.sleep(nanoseconds: 60_000_000)
+        // Poll instead of a fixed sleep: a loaded main actor under the full parallel suite can overrun 60ms.
+        for _ in 0..<200 where manager.state != .idle { try await Task.sleep(nanoseconds: 5_000_000) }
         #expect(manager.state == .idle)
         #expect(manager.currentMessageId == nil)
     }
@@ -681,7 +682,9 @@ struct Phase4AAudioPlaybackTests {
         let message = ChatMessage(role: .model, text: "Fail audio")
         manager.speak(message: message)
 
-        try await Task.sleep(nanoseconds: 30_000_000)
+        for _ in 0..<200 where !{ if case .error = manager.state { return true }; return false }() {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
         #expect(manager.state == .error("Audio playback failed: Audio hardware error"))
         #expect(manager.errorMessage == "Audio playback failed: Audio hardware error")
     }
@@ -751,7 +754,8 @@ struct Phase4ACancellationTests {
         manager.speak(message: msg)
         manager.stop()
 
-        try await Task.sleep(nanoseconds: 80_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .idle { try? await Task.sleep(nanoseconds: 5_000_000) }
         #expect(manager.state == .idle)
         #expect(player.playedData.isEmpty)
     }
@@ -803,7 +807,8 @@ struct Phase4ACancellationTests {
         manager.speak(message: msgOld)
         manager.speak(message: msgNew)
 
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .idle { try? await Task.sleep(nanoseconds: 5_000_000) }
         #expect(manager.state == .idle)
         #expect(player.playedData.count == 1)
     }
@@ -866,7 +871,8 @@ struct Phase4AUIStateTests {
         let msg = ChatMessage(role: .model, text: "Ivy speech")
 
         manager.speak(message: msg)
-        try await Task.sleep(nanoseconds: 10_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .playing(messageId: msg.id) { try? await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(manager.state == .playing(messageId: msg.id))
         #expect(manager.isPlaying(messageId: msg.id))
@@ -898,7 +904,8 @@ struct Phase4AUIStateTests {
         let msg = ChatMessage(role: .model, text: "Fail test")
 
         manager.speak(message: msg)
-        try await Task.sleep(nanoseconds: 20_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .error(SpeechError.rateLimited.localizedDescription) { try? await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(manager.state == .error(SpeechError.rateLimited.localizedDescription))
         #expect(manager.currentMessageId == nil)
@@ -1093,7 +1100,8 @@ struct Phase4AConcurrencyTests {
             manager.speak(message: msg)
         }
 
-        try await Task.sleep(nanoseconds: 60_000_000)
+        // Poll for the expected state instead of a fixed sleep (flaky under full-suite main-actor load).
+        for _ in 0..<400 where manager.state != .idle { try? await Task.sleep(nanoseconds: 5_000_000) }
         #expect(manager.state == .idle)
         // Older requests should be cancelled before or during playback
         #expect(player.playedData.count <= 2)
@@ -1250,7 +1258,8 @@ struct Phase4ARegressionTests {
             await brain.send("Run ls")
         }
 
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        // Poll instead of a fixed 20ms sleep, which a loaded main actor can overrun.
+        for _ in 0..<1000 where brain.pendingConfirmation == nil { try? await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(brain.pendingConfirmation != nil)
         #expect(brain.pendingConfirmation?.toolName == "run_shell")

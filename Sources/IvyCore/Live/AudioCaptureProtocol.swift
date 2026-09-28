@@ -247,12 +247,8 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
         }
 
         var bufferCount = 0
-        print("[AUDIO] TEMPDIAG input format=\(hardwareFormat) vp=\(inputNode.isVoiceProcessingEnabled)")
-        var tapCount = 0
         inputNode.installTap(onBus: 0, bufferSize: 2048, format: hardwareFormat) { [weak self] buffer, _ in
             guard let self else { return }
-            tapCount += 1
-            if tapCount <= 2 { print("[AUDIO] TEMPDIAG tap fired frames=\(buffer.frameLength) fmt=\(buffer.format)") }
 
             let frameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * 16000.0 / buffer.format.sampleRate)
             guard frameCapacity > 0,
@@ -281,16 +277,14 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
                 }
                 let cont = self.state.withLock { $0.continuation }
                 cont?.yield(chunk)
-            } else {
-                if tapCount <= 2 { print("[AUDIO] TEMPDIAG convert status=\(status.rawValue) err=\(error?.localizedDescription ?? "nil") out=\(convertedBuffer.frameLength)") }
-                if let error { print("[AUDIO] capture error: \(error.localizedDescription)") }
+            } else if let error {
+                print("[AUDIO] capture error: \(error.localizedDescription)")
             }
         }
 
         do {
             try audioEngine.start()
             print("[AUDIO] capture started")
-
         } catch {
             inputNode.removeTap(onBus: 0)
             state.withLock { s in

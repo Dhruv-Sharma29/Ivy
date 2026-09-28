@@ -25,15 +25,9 @@ public final class VoicePlaybackManager: ObservableObject {
     @Published public private(set) var state: VoicePlaybackState = .idle
     @Published public private(set) var currentMessageId: UUID? = nil
     @Published public private(set) var errorMessage: String? = nil
-    @Published public var apiKey: String {
-        didSet {
-            configurableKeyProvider?.setAPIKey(apiKey)
-        }
-    }
 
     public let synthesizer: SpeechSynthesizer
     public let player: AudioPlayerProtocol
-    private let configurableKeyProvider: ConfigurableElevenLabsKeyProvider?
 
     private var activeTask: Task<Void, Never>? = nil
     private var generationToken: UUID = UUID()
@@ -41,22 +35,19 @@ public final class VoicePlaybackManager: ObservableObject {
     public init(
         synthesizer: SpeechSynthesizer? = nil,
         player: AudioPlayerProtocol? = nil,
-        apiKey: String? = nil
+        apiKey: String? = nil,
+        credentials: CredentialProvider? = nil
     ) {
-        let initialKey = apiKey ?? ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"] ?? ""
-        self.apiKey = initialKey
         if let synthesizer {
             self.synthesizer = synthesizer
-            if let elevenSynth = synthesizer as? ElevenLabsSpeechSynthesizer,
-               let configProvider = elevenSynth.keyProvider as? ConfigurableElevenLabsKeyProvider {
-                self.configurableKeyProvider = configProvider
-                configProvider.setAPIKey(initialKey)
-            } else {
-                self.configurableKeyProvider = nil
+            if let apiKey,
+               let configProvider = (synthesizer as? ElevenLabsSpeechSynthesizer)?.keyProvider as? ConfigurableElevenLabsKeyProvider {
+                configProvider.setAPIKey(apiKey)
             }
         } else {
-            let keyProvider = ConfigurableElevenLabsKeyProvider(initialKey: initialKey)
-            self.configurableKeyProvider = keyProvider
+            // The key is resolved per request (Keychain, then environment); it is never kept as observable state.
+            let keyProvider: ElevenLabsKeyProvider = apiKey.map { StaticElevenLabsKeyProvider(key: $0) }
+                ?? CredentialElevenLabsKeyProvider(credentials: credentials ?? KeychainCredentialProvider())
             self.synthesizer = ElevenLabsSpeechSynthesizer(keyProvider: keyProvider)
         }
         self.player = player ?? SystemAudioPlayer()

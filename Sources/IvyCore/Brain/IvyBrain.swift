@@ -7,7 +7,17 @@ public final class IvyBrain: ObservableObject {
     @Published public private(set) var isThinking: Bool = false
     @Published public private(set) var errorMessage: String? = nil
     @Published public private(set) var pendingConfirmation: ConfirmationRequest? = nil
-    @Published public var apiKey: String
+    /// Whether a Gemini key is configured. The key itself is never held in observable/UI state.
+    @Published public private(set) var geminiCredentialSource: CredentialSource = .missing
+    public var isGeminiKeyConfigured: Bool { geminiCredentialSource != .missing }
+
+    public let credentials: CredentialProvider
+    /// Current conversation boundary; a new id starts on clear.
+    public private(set) var conversationID = UUID()
+    private var conversationCreatedAt = Date()
+    private let conversationStore: ConversationStore?
+    /// Driven by settings; when false nothing is written to disk.
+    public var persistsHistory: Bool = true
 
     public let toolDispatcher: ToolDispatcher
     private let client: GeminiClientProtocol
@@ -19,13 +29,18 @@ public final class IvyBrain: ObservableObject {
         client: GeminiClientProtocol = URLSessionGeminiClient(),
         toolDispatcher: ToolDispatcher? = nil,
         apiKey: String? = nil,
+        credentials: CredentialProvider? = nil,
+        conversationStore: ConversationStore? = nil,
         systemPrompt: String = IvyPersona.systemPrompt,
         initialMessages: [ChatMessage] = []
     ) {
         self.client = client
         self.systemPrompt = systemPrompt
         self.messages = initialMessages
-        self.apiKey = apiKey ?? ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? ""
+        self.conversationStore = conversationStore
+        // An explicit key wins (tests, injection); otherwise Keychain with environment fallback.
+        self.credentials = apiKey.map { FixedCredentialProvider([.geminiAPIKey: $0]) } ?? credentials ?? KeychainCredentialProvider()
+        self.geminiCredentialSource = self.credentials.source(for: .geminiAPIKey)
 
         if let toolDispatcher {
             self.toolDispatcher = toolDispatcher
@@ -37,6 +52,11 @@ public final class IvyBrain: ObservableObject {
             self.confirmationBridge = bridge
             bridge.handler = self
         }
+    }
+
+    /// Re-reads where the Gemini key comes from (after the user saves or removes it).
+    public func refreshCredentialStatus() {
+        geminiCredentialSource = credentials.source(for: .geminiAPIKey)
     }
 
     public var statusIcon: String {
@@ -71,9 +91,11 @@ public final class IvyBrain: ObservableObject {
         errorMessage = nil
         let userMessage = ChatMessage(role: .user, text: trimmed)
         messages.append(userMessage)
+        // Saved after every turn (success or failure) so an abrupt quit loses nothing.
+        defer { persistConversation() }
 
-        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else {
+        refreshCredentialStatus()
+        guard let trimmedKey = credentials.credential(for: .geminiAPIKey) else {
             let errorText = "I need a Gemini API key to work. Enter it in settings above so I can stop staring at you blankly."
             messages.append(ChatMessage(role: .model, text: errorText, isError: true))
             errorMessage = "API key missing"
@@ -150,14 +172,55 @@ public final class IvyBrain: ObservableObject {
     }
 
     public func clearHistory() {
-        if let continuation = confirmationContinuation {
-            confirmationContinuation = nil
-            pendingConfirmation = nil
-            continuation.resume(returning: false)
+        cancelPendingConfirmation()
+        if let conversationStore {
+            do {
+                try conversationStore.delete(conversationID)
+            } catch {
+                print("[HISTORY] failed to delete conversation: \(error.localizedDescription)")
+            }
         }
         messages.removeAll()
         errorMessage = nil
         isThinking = false
+        conversationID = UUID()
+        conversationCreatedAt = Date()
+    }
+
+    /// Reopens the most recently updated saved conversation, if any. Never runs tools or contacts Gemini.
+    @discardableResult
+    public func restoreLatestConversation() -> Bool {
+        guard let conversationStore, messages.isEmpty,
+              let latest = conversationStore.list().first,
+              let conversation = conversationStore.load(latest.id) else { return false }
+        messages = conversation.chatMessages
+        conversationID = conversation.id
+        conversationCreatedAt = conversation.createdAt
+        return true
+    }
+
+    /// Quit path: a pending approval is denied (never executed) and the conversation is saved.
+    public func prepareForTermination() {
+        cancelPendingConfirmation()
+        persistConversation()
+    }
+
+    public func persistConversation() {
+        guard persistsHistory, let conversationStore else { return }
+        let conversation = Conversation(id: conversationID, createdAt: conversationCreatedAt, chatMessages: messages)
+        guard !conversation.messages.isEmpty else { return }
+        do {
+            try conversationStore.save(conversation)
+        } catch {
+            print("[HISTORY] failed to save conversation: \(error.localizedDescription)")
+        }
+    }
+
+    private func cancelPendingConfirmation() {
+        guard let continuation = confirmationContinuation else { return }
+        confirmationContinuation = nil
+        pendingConfirmation = nil
+        continuation.resume(returning: false)
     }
 }
 
