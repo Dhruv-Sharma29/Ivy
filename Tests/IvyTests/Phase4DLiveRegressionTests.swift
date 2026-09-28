@@ -463,4 +463,64 @@ struct Phase4DLiveRegressionTests {
         await coordinator.stopSession()
         #expect(coordinator.state == .idle)
     }
+
+    @Test("16. Gemini Live API schema: BidiRealtimeInput serializes mediaChunks with 16kHz PCM data")
+    func testBidiRealtimeInputMediaChunksSchema() throws {
+        let pcmData = Data([0x01, 0x02, 0x03, 0x04])
+        let input = BidiRealtimeInput(pcmData: pcmData, sampleRate: 16000)
+        let clientMessage = BidiClientMessage(realtimeInput: input)
+
+        let encoded = try JSONEncoder().encode(clientMessage)
+        let json = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let realtimeDict = try #require(json["realtimeInput"] as? [String: Any])
+
+        let mediaChunks = try #require(realtimeDict["mediaChunks"] as? [[String: Any]])
+        #expect(mediaChunks.count == 1)
+        #expect(mediaChunks.first?["mimeType"] as? String == "audio/pcm;rate=16000")
+        #expect(mediaChunks.first?["data"] as? String == pcmData.base64EncodedString())
+    }
+
+    @Test("17. Audio pipeline: coordinator in .listening streams audio chunks to Gemini Live")
+    func testCoordinatorStreamsAudioChunksInListening() async throws {
+        let (coordinator, session, capture, _, _, _) = createTestCoordinator()
+
+        await coordinator.startSession()
+        #expect(coordinator.state == .listening)
+
+        let chunk = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        capture.simulateAudioChunk(chunk)
+
+        let streamed = await waitForCondition {
+            session.sentAudioChunks.contains(chunk)
+        }
+        #expect(streamed)
+        #expect(session.sentAudioChunks == [chunk])
+
+        await coordinator.stopSession()
+    }
+
+    @Test("18. Playback pipeline: coordinator plays 24kHz audio chunks and handles turnComplete")
+    func testCoordinatorPlaysAudioAndDrainsQueue() async throws {
+        let (coordinator, session, _, player, _, _) = createTestCoordinator(player: MockLiveAudioPlayer(autoDrain: true))
+
+        await coordinator.startSession()
+        #expect(coordinator.state == .listening)
+
+        let responseAudio = Data([0xCA, 0xFE, 0xBA, 0xBE])
+        session.simulateEvent(.audioChunk(responseAudio))
+
+        let isSpeaking = await waitForCondition {
+            coordinator.state == .speaking
+        }
+        #expect(isSpeaking)
+        #expect(player.playedChunks == [responseAudio])
+
+        session.simulateEvent(.turnComplete)
+        let returnedToListening = await waitForCondition {
+            coordinator.state == .listening
+        }
+        #expect(returnedToListening)
+
+        await coordinator.stopSession()
+    }
 }

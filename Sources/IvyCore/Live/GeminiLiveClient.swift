@@ -322,17 +322,23 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         guard let serverMessage = try? JSONDecoder().decode(BidiServerMessage.self, from: payloadData) else {
+            #if DEBUG
+            let preview = String(data: payloadData, encoding: .utf8) ?? ""
+            print("[LIVE] server error: failed to decode message: \(preview.prefix(100))")
+            #endif
             return
         }
 
         if let error = serverMessage.error {
             let msg = error.message ?? "Unknown server error (code: \(error.code ?? -1), status: \(error.status ?? "unknown"))"
-            print("[LIVE] connection error: \(msg)")
+            print("[LIVE] server message received type=error")
+            print("[LIVE] server error: \(msg)")
             handleReceiveError(LiveError.serverError(msg), connectionId: connectionId)
             return
         }
 
         if serverMessage.setupComplete != nil {
+            print("[LIVE] server message received type=setupComplete")
             print("[LIVE] setup acknowledged")
             print("[LIVE] receive loop started")
             let (eventContinuation, pendingSends, ws) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], WebSocketTransport?) in
@@ -357,7 +363,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         if let toolCall = serverMessage.toolCall {
-            print("[LIVE] tool call received")
+            print("[LIVE] server message received type=toolCall")
             let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
                 guard s.currentConnectionId == connectionId else { return nil }
                 return s.continuation
@@ -368,6 +374,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         if let content = serverMessage.serverContent {
+            print("[LIVE] server message received type=serverContent")
             let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
                 guard s.currentConnectionId == connectionId else { return nil }
                 return s.continuation
@@ -381,7 +388,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                 for part in modelTurn.parts {
                     if let inlineData = part.inlineData,
                        let audioData = Data(base64Encoded: inlineData.data) {
-                        print("[LIVE] audio response received")
+                        print("[LIVE] audio response received bytes=\(audioData.count)")
                         continuation?.yield(.audioChunk(audioData))
                     }
                     if let text = part.text {
@@ -395,12 +402,14 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             }
 
             if content.turnComplete == true {
+                print("[LIVE] turn complete")
                 continuation?.yield(.turnComplete)
             }
         }
     }
 
     private func handleReceiveError(_ error: Error, connectionId: UUID) {
+        print("[LIVE] connection error: \(error.localizedDescription)")
         let (continuation, pendingSends, wasActive) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], Bool) in
             guard s.currentConnectionId == connectionId else {
                 return (nil, [], false)

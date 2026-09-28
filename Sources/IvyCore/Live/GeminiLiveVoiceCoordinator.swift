@@ -286,6 +286,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             }
 
             captureTask = Task { [weak self, session] in
+                var sentAudioFrameCount = 0
                 do {
                     for try await chunk in audioStream {
                         guard !Task.isCancelled else { break }
@@ -312,6 +313,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                             // Tool actively executing: do NOT stream mic audio to Gemini Live.
                         } else if self.state == .listening {
                             // Active user-turn capture: stream audio chunk to Gemini Live.
+                            sentAudioFrameCount += 1
+                            if sentAudioFrameCount == 1 || sentAudioFrameCount % 50 == 0 {
+                                print("[AUDIO] PCM frame sent bytes=\(chunk.count)")
+                            }
                             try await session.sendAudio(chunk)
                         }
                     }

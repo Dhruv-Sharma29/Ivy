@@ -168,7 +168,9 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
 
     public func playChunk(_ data: Data) async throws {
         guard let audioFormat else {
-            throw LiveError.serverError("Unsupported audio format for playback.")
+            let err = "Unsupported audio format for playback."
+            print("[AUDIO] playback error: \(err)")
+            throw LiveError.serverError(err)
         }
 
         // Each frame in 16-bit mono is 2 bytes
@@ -176,7 +178,9 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
         guard frameCount > 0 else { return }
 
         guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else {
-            throw LiveError.serverError("Failed to allocate audio buffer.")
+            let err = "Failed to allocate audio buffer."
+            print("[AUDIO] playback error: \(err)")
+            throw LiveError.serverError(err)
         }
 
         pcmBuffer.frameLength = frameCount
@@ -188,18 +192,30 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
             }
         }
 
-        if !audioEngine.isRunning {
-            try audioEngine.start()
+        do {
+            if !audioEngine.isRunning {
+                try audioEngine.start()
+            }
+        } catch {
+            print("[AUDIO] playback error: \(error.localizedDescription)")
+            throw error
+        }
+
+        let wasPlaying = state.withLock { s -> Bool in
+            let was = s.isPlaying
+            s.isPlaying = true
+            s.activeBuffers += 1
+            return was
         }
 
         if !playerNode.isPlaying {
             playerNode.play()
         }
 
-        state.withLock { s in
-            s.isPlaying = true
-            s.activeBuffers += 1
+        if !wasPlaying {
+            print("[AUDIO] playback started")
         }
+        print("[AUDIO] playback scheduled bytes=\(data.count)")
 
         playerNode.scheduleBuffer(pcmBuffer) { [weak self] in
             guard let self else { return }
@@ -207,6 +223,7 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
                 s.activeBuffers = max(0, s.activeBuffers - 1)
                 if s.activeBuffers == 0 {
                     s.isPlaying = false
+                    print("[AUDIO] playback completed")
                     let pending = s.waitContinuations
                     s.waitContinuations = []
                     return pending

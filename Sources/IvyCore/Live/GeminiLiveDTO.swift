@@ -185,23 +185,24 @@ public struct BidiTextPart: Codable, Sendable, Equatable {
 }
 
 public struct BidiRealtimeInput: Codable, Sendable, Equatable {
-    public let audio: BidiBlob?
     public let mediaChunks: [BidiBlob]?
+    public let audio: BidiBlob?
 
     public init(audio: BidiBlob) {
         self.audio = audio
-        self.mediaChunks = nil
+        self.mediaChunks = [audio]
     }
 
     public init(mediaChunks: [BidiBlob]) {
-        self.audio = nil
         self.mediaChunks = mediaChunks
+        self.audio = mediaChunks.first
     }
 
     public init(pcmData: Data, sampleRate: Int = 16000) {
         let base64 = pcmData.base64EncodedString()
-        self.audio = BidiBlob(mimeType: "audio/pcm;rate=\(sampleRate)", data: base64)
-        self.mediaChunks = nil
+        let blob = BidiBlob(mimeType: "audio/pcm;rate=\(sampleRate)", data: base64)
+        self.mediaChunks = [blob]
+        self.audio = blob
     }
 }
 

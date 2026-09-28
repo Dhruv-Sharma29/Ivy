@@ -155,19 +155,12 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
         }
 
         let inputNode = audioEngine.inputNode
-        #if os(macOS)
-        if #available(macOS 10.15, *) {
-            do {
-                try inputNode.setVoiceProcessingEnabled(true)
-            } catch {
-                // Device does not support VoiceProcessingIO; proceed with standard input
-            }
-        }
-        #endif
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
 
         guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else {
-            throw LiveError.connectionFailed("No audio input hardware detected.")
+            let err = "No audio input hardware detected."
+            print("[AUDIO] capture error: \(err)")
+            throw LiveError.connectionFailed(err)
         }
 
         guard let targetFormat = AVAudioFormat(
@@ -176,11 +169,15 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
             channels: 1,
             interleaved: false
         ) else {
-            throw LiveError.connectionFailed("Failed to create 16kHz PCM audio format.")
+            let err = "Failed to create 16kHz PCM audio format."
+            print("[AUDIO] capture error: \(err)")
+            throw LiveError.connectionFailed(err)
         }
 
         guard let converter = AVAudioConverter(from: hardwareFormat, to: targetFormat) else {
-            throw LiveError.connectionFailed("Failed to create audio format converter.")
+            let err = "Failed to create audio format converter from \(hardwareFormat) to \(targetFormat)."
+            print("[AUDIO] capture error: \(err)")
+            throw LiveError.connectionFailed(err)
         }
 
         let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
@@ -190,6 +187,7 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
             s.continuation = continuation
         }
 
+        var bufferCount = 0
         inputNode.installTap(onBus: 0, bufferSize: 2048, format: hardwareFormat) { [weak self] buffer, _ in
             guard let self else { return }
 
@@ -214,15 +212,23 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
             if status != .error, let channelData = convertedBuffer.int16ChannelData {
                 let byteCount = Int(convertedBuffer.frameLength) * 2 // 16-bit mono = 2 bytes per frame
                 let chunk = Data(bytes: channelData[0], count: byteCount)
+                bufferCount += 1
+                if bufferCount == 1 || bufferCount % 50 == 0 {
+                    print("[AUDIO] input buffer received bytes=\(byteCount)")
+                }
                 let cont = self.state.withLock { $0.continuation }
                 cont?.yield(chunk)
+            } else if let error {
+                print("[AUDIO] capture error: \(error.localizedDescription)")
             }
         }
 
         do {
             try audioEngine.start()
+            print("[AUDIO] capture started")
         } catch {
             inputNode.removeTap(onBus: 0)
+            print("[AUDIO] capture error: \(error.localizedDescription)")
             throw LiveError.connectionFailed("Failed to start audio engine: \(error.localizedDescription)")
         }
 
