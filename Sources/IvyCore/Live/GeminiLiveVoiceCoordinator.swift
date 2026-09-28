@@ -31,7 +31,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public let audioCapture: AudioCaptureProtocol
     public let audioPlayer: LiveAudioPlayerProtocol
     public let wakeWordDetector: WakeWordDetectorProtocol
+    public let hotkeyManager: GlobalHotkeyManaging?
 
+    public private(set) var isPushToTalkActive: Bool = false
+    public private(set) var wasSessionStartedByPushToTalk: Bool = false
     private var currentSessionToken: UUID? = nil
 
     private var captureTask: Task<Void, Never>? = nil
@@ -42,12 +45,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         session: GeminiLiveSession,
         audioCapture: AudioCaptureProtocol,
         audioPlayer: LiveAudioPlayerProtocol,
-        wakeWordDetector: WakeWordDetectorProtocol = SystemWakeWordDetector()
+        wakeWordDetector: WakeWordDetectorProtocol = SystemWakeWordDetector(),
+        hotkeyManager: GlobalHotkeyManaging? = nil
     ) {
         self.session = session
         self.audioCapture = audioCapture
         self.audioPlayer = audioPlayer
         self.wakeWordDetector = wakeWordDetector
+        self.hotkeyManager = hotkeyManager
 
         wakeWordDetector.setTranscriptionHandler { [weak self] transcript in
             Task { @MainActor [weak self] in
@@ -63,7 +68,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         apiKey: String,
         model: String = "models/gemini-3.1-flash-live-preview",
         voiceName: String = liveVoiceName,
-        systemInstruction: String = IvyPersona.systemPrompt
+        systemInstruction: String = IvyPersona.systemPrompt,
+        hotkeyManager: GlobalHotkeyManaging? = nil
     ) {
         let client = GeminiLiveClient(apiKey: apiKey, model: model, voiceName: Self.liveVoiceName, systemInstruction: systemInstruction)
         let capture = SystemAudioCapture()
@@ -73,8 +79,65 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             session: client,
             audioCapture: capture,
             audioPlayer: player,
-            wakeWordDetector: detector
+            wakeWordDetector: detector,
+            hotkeyManager: hotkeyManager
         )
+    }
+
+    /// Registers the global push-to-talk hotkey.
+    public func registerHotkey(shortcut: HotkeyShortcut = .defaultPushToTalk) throws {
+        guard let hotkeyManager else { return }
+        try hotkeyManager.register(shortcut: shortcut) { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.beginPushToTalk()
+            }
+        } onKeyUp: { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.endPushToTalk()
+            }
+        }
+    }
+
+    /// Unregisters the global push-to-talk hotkey.
+    public func unregisterHotkey() {
+        hotkeyManager?.unregister()
+    }
+
+    /// Begins push-to-talk listening (idempotent key-down event).
+    public func beginPushToTalk() async {
+        guard !isPushToTalkActive else {
+            // Idempotent: already active, duplicate key-down ignored
+            return
+        }
+        isPushToTalkActive = true
+
+        switch state {
+        case .idle, .error:
+            wasSessionStartedByPushToTalk = true
+            await startSession()
+        case .listening:
+            // Already listening (e.g. continuous hands-free session); do not restart
+            wasSessionStartedByPushToTalk = false
+        case .connecting, .thinking, .speaking, .interrupting:
+            // Active session or transition in progress; do not start duplicate or interrupt speaking
+            break
+        }
+    }
+
+    /// Ends push-to-talk listening (idempotent key-up event).
+    public func endPushToTalk() async {
+        guard isPushToTalkActive else {
+            // Idempotent: already inactive, duplicate key-up ignored
+            return
+        }
+        isPushToTalkActive = false
+
+        if wasSessionStartedByPushToTalk {
+            if state == .listening || state == .connecting {
+                wasSessionStartedByPushToTalk = false
+                await stopSession()
+            }
+        }
     }
 
     /// Updates the API key for the underlying session client if supported.
@@ -84,10 +147,19 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         }
     }
 
+    /// Performs clean shutdown on app termination.
+    public func shutdown() async {
+        unregisterHotkey()
+        isPushToTalkActive = false
+        wasSessionStartedByPushToTalk = false
+        await stopSession()
+    }
+
     deinit {
         captureTask?.cancel()
         eventTask?.cancel()
         drainTask?.cancel()
+        hotkeyManager?.unregister()
     }
 
     /// Starts a live voice conversation session.
@@ -195,6 +267,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
         state = .idle
         latestTranscript = ""
+        wasSessionStartedByPushToTalk = false
     }
 
     /// Handles explicit wake phrase ("Hey Ivy") detection while Ivy is speaking.
@@ -271,7 +344,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                     guard !Task.isCancelled else { return }
                     if self.state == .speaking {
                         await self.wakeWordDetector.reset()
-                        self.state = .listening
+                        if self.wasSessionStartedByPushToTalk && !self.isPushToTalkActive {
+                            await self.stopSession()
+                        } else {
+                            self.state = .listening
+                        }
                     }
                 }
             }
