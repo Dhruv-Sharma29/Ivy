@@ -13,6 +13,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     public let model: String
     public let voiceName: String
     public let systemInstruction: String?
+    public let tools: [ToolDeclarationWrapper]?
     public let session: URLSession
     private let webSocketFactory: WebSocketFactory
 
@@ -33,6 +34,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         model: String = "models/gemini-3.1-flash-live-preview",
         voiceName: String = liveVoiceName,
         systemInstruction: String? = nil,
+        tools: [ToolDeclarationWrapper]? = nil,
         session: URLSession = .shared,
         webSocketFactory: WebSocketFactory? = nil
     ) {
@@ -40,6 +42,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         self.model = model
         self.voiceName = Self.liveVoiceName
         self.systemInstruction = systemInstruction
+        self.tools = tools
         self.session = session
         if let webSocketFactory {
             self.webSocketFactory = webSocketFactory
@@ -113,7 +116,8 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                     )
                 )
             ),
-            systemInstruction: systemInstruction.map { BidiSystemInstruction(text: $0) }
+            systemInstruction: systemInstruction.map { BidiSystemInstruction(text: $0) },
+            tools: tools
         )
         let setupMessage = BidiClientMessage(setup: setup)
 
@@ -150,6 +154,26 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             try await ws.send(.string(jsonString))
         } catch {
             throw LiveError.serverError("Failed to send audio chunk: \(error.localizedDescription)")
+        }
+    }
+
+    public func sendToolResponses(_ responses: [FunctionResponse]) async throws {
+        let ws = try await getConnectedWebSocket()
+
+        let toolResponse = BidiToolResponse(functionResponses: responses.map { BidiFunctionResponse(from: $0) })
+        let message = BidiClientMessage(toolResponse: toolResponse)
+
+        do {
+            let jsonData = try JSONEncoder().encode(message)
+            guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+                throw LiveError.serverError("Failed to encode tool response payload.")
+            }
+            #if DEBUG
+            print("[LIVE VOICE] tool response payload: \(jsonString)")
+            #endif
+            try await ws.send(.string(jsonString))
+        } catch {
+            throw LiveError.serverError("Failed to send tool response: \(error.localizedDescription)")
         }
     }
 
@@ -261,6 +285,13 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             eventContinuation?.yield(.connected)
         }
 
+        if let toolCall = serverMessage.toolCall {
+            let continuation = state.withLock { $0.continuation }
+            for call in toolCall.functionCalls {
+                continuation?.yield(.toolCall(call))
+            }
+        }
+
         if let content = serverMessage.serverContent {
             let continuation = state.withLock { $0.continuation }
 
@@ -276,6 +307,9 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                     }
                     if let text = part.text {
                         continuation?.yield(.textTurn(text))
+                    }
+                    if let functionCall = part.functionCall {
+                        continuation?.yield(.toolCall(functionCall))
                     }
                 }
             }

@@ -56,6 +56,13 @@ public enum SafetyDecision: Sendable, Equatable {
 public protocol SafetyGateProtocol: Sendable {
     /// Evaluates whether a tool call may proceed.
     func evaluate(tool: IvyTool, call: FunctionCall) async -> SafetyDecision
+
+    /// Optional safety policy governing the gate.
+    var policy: SafetyPolicy? { get }
+}
+
+public extension SafetyGateProtocol {
+    var policy: SafetyPolicy? { nil }
 }
 
 /// Default Phase 2A SafetyGate implementation that auto-approves safe tools.

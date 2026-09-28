@@ -48,7 +48,14 @@ public struct IvyPopoverView: View {
                 Divider()
             }
 
-            if let request = brain.pendingConfirmation {
+            if let request = liveVoiceCoordinator.pendingConfirmation {
+                ConfirmationCardView(request: request) { approved in
+                    liveVoiceCoordinator.respondToPendingConfirmation(id: request.id, approved: approved)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                Divider()
+            } else if let request = brain.pendingConfirmation {
                 ConfirmationCardView(request: request) { approved in
                     brain.respondToPendingConfirmation(id: request.id, approved: approved)
                 }
@@ -59,7 +66,7 @@ public struct IvyPopoverView: View {
 
             MessageInputBar(
                 text: $inputText,
-                isThinking: brain.isThinking || brain.pendingConfirmation != nil,
+                isThinking: brain.isThinking || brain.pendingConfirmation != nil || liveVoiceCoordinator.state == .toolConfirmation || liveVoiceCoordinator.state == .toolExecution,
                 isVoiceActive: liveVoiceCoordinator.state.isLive,
                 onToggleVoice: {
                     toggleLiveVoice()
@@ -177,6 +184,10 @@ public struct IvyPopoverView: View {
             return "Ivy Live"
         case .thinking:
             return "Thinking"
+        case .toolConfirmation:
+            return "Confirmation"
+        case .toolExecution:
+            return "Executing"
         case .speaking:
             return "Speaking"
         case .interrupting:
@@ -189,9 +200,9 @@ public struct IvyPopoverView: View {
     // MARK: - Live Voice Bar
     private var liveVoiceBar: some View {
         HStack(spacing: 10) {
-            Image(systemName: liveVoiceCoordinator.state == .speaking ? "waveform" : "mic.fill")
+            Image(systemName: liveVoiceCoordinator.state == .speaking ? "waveform" : (liveVoiceCoordinator.state == .toolConfirmation ? "exclamationmark.shield.fill" : "mic.fill"))
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(liveVoiceCoordinator.state == .speaking ? Color.accentColor : Color.green)
+                .foregroundStyle(liveVoiceCoordinator.state == .speaking ? Color.accentColor : (liveVoiceCoordinator.state == .toolConfirmation ? Color.orange : Color.green))
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(liveVoiceDescription)
@@ -237,6 +248,13 @@ public struct IvyPopoverView: View {
             return "Ivy Live connected"
         case .thinking:
             return "Ivy is thinking..."
+        case .toolConfirmation:
+            return "Action requires your confirmation"
+        case .toolExecution:
+            if let tool = liveVoiceCoordinator.executingToolName {
+                return "Executing \(tool)..."
+            }
+            return "Executing tool..."
         case .speaking:
             return "Ivy is speaking (say \"Hey Ivy\" to interrupt)"
         case .interrupting:

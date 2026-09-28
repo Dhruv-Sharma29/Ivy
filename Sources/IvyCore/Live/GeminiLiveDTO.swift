@@ -7,15 +7,18 @@ public struct BidiClientMessage: Codable, Sendable, Equatable {
     public let setup: BidiSetup?
     public let realtimeInput: BidiRealtimeInput?
     public let clientContent: BidiClientContent?
+    public let toolResponse: BidiToolResponse?
 
     public init(
         setup: BidiSetup? = nil,
         realtimeInput: BidiRealtimeInput? = nil,
-        clientContent: BidiClientContent? = nil
+        clientContent: BidiClientContent? = nil,
+        toolResponse: BidiToolResponse? = nil
     ) {
         self.setup = setup
         self.realtimeInput = realtimeInput
         self.clientContent = clientContent
+        self.toolResponse = toolResponse
     }
 }
 
@@ -23,21 +26,25 @@ public struct BidiSetup: Codable, Sendable, Equatable {
     public let model: String
     public let generationConfig: BidiGenerationConfig
     public let systemInstruction: BidiSystemInstruction?
+    public let tools: [ToolDeclarationWrapper]?
 
     public init(
         model: String = "models/gemini-3.1-flash-live-preview",
         generationConfig: BidiGenerationConfig? = nil,
-        systemInstruction: BidiSystemInstruction? = nil
+        systemInstruction: BidiSystemInstruction? = nil,
+        tools: [ToolDeclarationWrapper]? = nil
     ) {
         self.model = model
         self.generationConfig = generationConfig ?? BidiGenerationConfig()
         self.systemInstruction = systemInstruction
+        self.tools = tools
     }
 
     private enum CodingKeys: String, CodingKey {
         case model
         case generationConfig
         case systemInstruction
+        case tools
     }
 
     public init(from decoder: Decoder) throws {
@@ -45,6 +52,7 @@ public struct BidiSetup: Codable, Sendable, Equatable {
         self.model = try container.decode(String.self, forKey: .model)
         self.generationConfig = (try? container.decode(BidiGenerationConfig.self, forKey: .generationConfig)) ?? BidiGenerationConfig()
         self.systemInstruction = try? container.decode(BidiSystemInstruction.self, forKey: .systemInstruction)
+        self.tools = try? container.decode([ToolDeclarationWrapper].self, forKey: .tools)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -52,6 +60,7 @@ public struct BidiSetup: Codable, Sendable, Equatable {
         try container.encode(model, forKey: .model)
         try container.encode(generationConfig, forKey: .generationConfig)
         try container.encodeIfPresent(systemInstruction, forKey: .systemInstruction)
+        try container.encodeIfPresent(tools, forKey: .tools)
     }
 }
 
@@ -226,16 +235,71 @@ public struct BidiTurn: Codable, Sendable, Equatable {
     }
 }
 
+public struct BidiToolResponse: Codable, Sendable, Equatable {
+    public let functionResponses: [BidiFunctionResponse]
+
+    public init(functionResponses: [BidiFunctionResponse]) {
+        self.functionResponses = functionResponses
+    }
+
+    public init(functionResponse: FunctionResponse) {
+        self.functionResponses = [BidiFunctionResponse(from: functionResponse)]
+    }
+}
+
+public struct BidiFunctionResponse: Codable, Sendable, Equatable {
+    public let id: String?
+    public let name: String?
+    public let response: [String: AnyCodable]
+
+    public init(id: String? = nil, name: String? = nil, response: [String: AnyCodable]) {
+        self.id = id
+        self.name = name
+        self.response = response
+    }
+
+    public init(from functionResponse: FunctionResponse) {
+        self.id = functionResponse.id
+        self.name = functionResponse.name
+        self.response = functionResponse.response
+    }
+}
+
 // MARK: - Server-to-Client Messages
 
 /// Top-level server message received over the Gemini Live WebSocket.
 public struct BidiServerMessage: Codable, Sendable, Equatable {
     public let setupComplete: BidiSetupComplete?
     public let serverContent: BidiServerContent?
+    public let toolCall: BidiToolCall?
+    public let toolCallCancellation: BidiToolCallCancellation?
 
-    public init(setupComplete: BidiSetupComplete? = nil, serverContent: BidiServerContent? = nil) {
+    public init(
+        setupComplete: BidiSetupComplete? = nil,
+        serverContent: BidiServerContent? = nil,
+        toolCall: BidiToolCall? = nil,
+        toolCallCancellation: BidiToolCallCancellation? = nil
+    ) {
         self.setupComplete = setupComplete
         self.serverContent = serverContent
+        self.toolCall = toolCall
+        self.toolCallCancellation = toolCallCancellation
+    }
+}
+
+public struct BidiToolCall: Codable, Sendable, Equatable {
+    public let functionCalls: [FunctionCall]
+
+    public init(functionCalls: [FunctionCall]) {
+        self.functionCalls = functionCalls
+    }
+}
+
+public struct BidiToolCallCancellation: Codable, Sendable, Equatable {
+    public let ids: [String]
+
+    public init(ids: [String] = []) {
+        self.ids = ids
     }
 }
 
@@ -266,10 +330,55 @@ public struct BidiModelTurn: Codable, Sendable, Equatable {
 public struct BidiPart: Codable, Sendable, Equatable {
     public let text: String?
     public let inlineData: BidiBlob?
+    public let functionCall: FunctionCall?
+    public let thoughtSignature: String?
 
-    public init(text: String? = nil, inlineData: BidiBlob? = nil) {
+    public init(
+        text: String? = nil,
+        inlineData: BidiBlob? = nil,
+        functionCall: FunctionCall? = nil,
+        thoughtSignature: String? = nil
+    ) {
         self.text = text
         self.inlineData = inlineData
+        let resolvedSig = thoughtSignature ?? functionCall?.thoughtSignature
+        if let call = functionCall, call.thoughtSignature == nil, let resolvedSig {
+            self.functionCall = FunctionCall(name: call.name, args: call.args, id: call.id, thoughtSignature: resolvedSig)
+        } else {
+            self.functionCall = functionCall
+        }
+        self.thoughtSignature = resolvedSig
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case inlineData
+        case functionCall
+        case thoughtSignature
+        case thoughtSignatureSnakeCase = "thought_signature"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.text = try container.decodeIfPresent(String.self, forKey: .text)
+        self.inlineData = try container.decodeIfPresent(BidiBlob.self, forKey: .inlineData)
+        var call = try container.decodeIfPresent(FunctionCall.self, forKey: .functionCall)
+        let sig = try container.decodeIfPresent(String.self, forKey: .thoughtSignature)
+            ?? container.decodeIfPresent(String.self, forKey: .thoughtSignatureSnakeCase)
+            ?? call?.thoughtSignature
+        self.thoughtSignature = sig
+        if let currentCall = call, currentCall.thoughtSignature == nil, let sig {
+            call = FunctionCall(name: currentCall.name, args: currentCall.args, id: currentCall.id, thoughtSignature: sig)
+        }
+        self.functionCall = call
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(inlineData, forKey: .inlineData)
+        try container.encodeIfPresent(functionCall, forKey: .functionCall)
+        try container.encodeIfPresent(thoughtSignature, forKey: .thoughtSignature)
     }
 }
 
@@ -283,6 +392,7 @@ public enum LiveEvent: Sendable, Equatable {
     case turnComplete
     case interrupted
     case disconnected
+    case toolCall(FunctionCall)
 }
 
 /// Errors occurring in the Gemini Live session.

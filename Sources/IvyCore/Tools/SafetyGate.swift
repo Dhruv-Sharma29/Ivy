@@ -124,7 +124,7 @@ public struct SafetyPolicy: Sendable, Equatable {
 /// Production SafetyGate that automatically executes safe tools and intercepts risky tools for user confirmation.
 public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
     public let policy: SafetyPolicy
-    private let confirmationProvider: ConfirmationProvider
+    public let confirmationProvider: ConfirmationProvider
 
     public init(
         confirmationProvider: ConfirmationProvider,
