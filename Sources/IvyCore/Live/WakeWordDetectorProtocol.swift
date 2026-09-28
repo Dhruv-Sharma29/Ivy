@@ -137,6 +137,18 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTest") != nil {
             return false
         }
+
+        // macOS TCC strictly requires an application bundle (.app) containing NSSpeechRecognitionUsageDescription
+        // in its Info.plist. Calling requestAuthorization from an unbundled CLI binary (e.g. `swift run Ivy` or under `agy`)
+        // triggers an immediate TCC privacy violation crash (SIGABRT / SIGKILL) by macOS tccd.
+        guard Bundle.main.bundleURL.pathExtension == "app",
+              Bundle.main.object(forInfoDictionaryKey: "NSSpeechRecognitionUsageDescription") != nil else {
+            #if DEBUG
+            print("[WAKE_WORD] Speech recognition authorization skipped: process is not running inside a valid .app bundle with NSSpeechRecognitionUsageDescription.")
+            #endif
+            return false
+        }
+
         let status = SFSpeechRecognizer.authorizationStatus()
         switch status {
         case .authorized:
@@ -206,6 +218,8 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
     private func ensureRecognitionTaskRunning() {
         state.withLock { s in
             guard !s.isRunning, let recognizer = speechRecognizer, recognizer.isAvailable else { return }
+            guard Bundle.main.bundleURL.pathExtension == "app",
+                  Bundle.main.object(forInfoDictionaryKey: "NSSpeechRecognitionUsageDescription") != nil else { return }
             guard SFSpeechRecognizer.authorizationStatus() == .authorized else { return }
 
             let request = SFSpeechAudioBufferRecognitionRequest()

@@ -87,7 +87,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
         wakeWordDetector.setTranscriptionHandler { [weak self] transcript in
             Task { @MainActor [weak self] in
-                await self?.processTranscriptionForInterruption(transcript)
+                guard let self else { return }
+                await self.processTranscriptionForInterruption(transcript, token: self.currentSessionToken)
             }
         }
     }
@@ -263,10 +264,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             do {
                 for try await event in events {
                     guard !Task.isCancelled else { break }
-                    await self?.handleLiveEvent(event)
+                    guard let self, self.currentSessionToken == token else { break }
+                    await self.handleLiveEvent(event, token: token)
                 }
             } catch {
-                self?.handleFailure(error)
+                guard let self, self.currentSessionToken == token else { return }
+                self.handleFailure(error, token: token)
             }
         }
 
@@ -278,28 +281,32 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 await session.disconnect()
                 return
             }
-            state = .listening
+            if state == .connecting {
+                state = .listening
+            }
 
             captureTask = Task { [weak self, session] in
                 do {
                     for try await chunk in audioStream {
                         guard !Task.isCancelled else { break }
-                        guard let self else { break }
+                        guard let self, self.currentSessionToken == token else { break }
 
                         if self.state == .speaking {
                             // Monitoring mode: do NOT stream mic audio to Gemini Live to prevent server VAD barge-in.
                             // Only check for the explicit "Hey Ivy" wake phrase.
                             let detected = await self.wakeWordDetector.processAudioChunk(chunk)
+                            guard self.currentSessionToken == token else { break }
                             if detected {
-                                await self.handleWakePhraseDetected()
+                                await self.handleWakePhraseDetected(token: token)
                             }
                         } else if self.state == .toolConfirmation {
                             // In tool confirmation: do NOT stream mic audio to Gemini Live!
                             // Saying "yes" / "sure" through the mic must never approve a confirmation.
                             // Only check for explicit "Hey Ivy" wake phrase for cancellation.
                             let detected = await self.wakeWordDetector.processAudioChunk(chunk)
+                            guard self.currentSessionToken == token else { break }
                             if detected {
-                                await self.handleWakePhraseDetected()
+                                await self.handleWakePhraseDetected(token: token)
                             }
                         } else if self.state == .toolExecution {
                             // Tool actively executing: do NOT stream mic audio to Gemini Live.
@@ -309,7 +316,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                         }
                     }
                 } catch {
-                    self?.handleFailure(error)
+                    guard let self, self.currentSessionToken == token else { return }
+                    self.handleFailure(error, token: token)
                 }
             }
         } catch {
@@ -351,7 +359,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     /// Handles explicit wake phrase ("Hey Ivy") detection while Ivy is speaking or waiting for confirmation.
-    public func handleWakePhraseDetected() async {
+    public func handleWakePhraseDetected(token: UUID? = nil) async {
+        if let token, currentSessionToken != token { return }
         guard state == .speaking || state == .toolConfirmation else { return }
 
         if let cont = confirmationContinuation {
@@ -383,7 +392,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     /// Evaluates transcription text directly for "Hey Ivy" interruption.
-    public func processTranscriptionForInterruption(_ text: String) async {
+    public func processTranscriptionForInterruption(_ text: String, token: UUID? = nil) async {
+        if let token, currentSessionToken != token { return }
         guard state == .speaking || state == .toolConfirmation else { return }
         #if DEBUG
         let preview = text.count > 30 ? String(text.prefix(30)) : text
@@ -394,12 +404,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             #if DEBUG
             print("[WAKE] wake phrase matched")
             #endif
-            await handleWakePhraseDetected()
+            await handleWakePhraseDetected(token: token)
         }
     }
 
     /// Handles events emitted by the Gemini Live session.
-    private func handleLiveEvent(_ event: LiveEvent) async {
+    private func handleLiveEvent(_ event: LiveEvent, token: UUID) async {
+        guard currentSessionToken == token else { return }
         switch event {
         case .connected:
             if state == .connecting {
@@ -421,11 +432,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
             state = .thinking
             executingToolName = call.name
-            let token = currentSessionToken
 
             toolExecutionTask?.cancel()
             toolExecutionTask = Task { [weak self, session] in
-                guard let self else { return }
+                guard let self, self.currentSessionToken == token else { return }
 
                 // Check if tool is classified as safe; if safe, transition directly to .toolExecution
                 if let tool = self.toolDispatcher.registry.tool(named: call.name) {
@@ -452,7 +462,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 do {
                     try await session.sendToolResponse(response)
                 } catch {
-                    self.handleFailure(error)
+                    guard self.currentSessionToken == token else { return }
+                    self.handleFailure(error, token: token)
                 }
             }
 
@@ -468,7 +479,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             do {
                 try await audioPlayer.playChunk(data)
             } catch {
-                handleFailure(error)
+                handleFailure(error, token: token)
             }
 
         case .textTurn(let text):
@@ -479,9 +490,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 // Model finished generation! Wait for playback queue to drain before returning to listening
                 drainTask?.cancel()
                 drainTask = Task { [weak self] in
-                    guard let self else { return }
+                    guard let self, self.currentSessionToken == token else { return }
                     await self.audioPlayer.waitUntilFinished()
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled, self.currentSessionToken == token else { return }
                     if self.state == .speaking {
                         await self.wakeWordDetector.reset()
                         if self.wasSessionStartedByPushToTalk && !self.isPushToTalkActive {
@@ -515,7 +526,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         }
     }
 
-    private func handleFailure(_ error: Error) {
+    private func handleFailure(_ error: Error, token: UUID) {
+        guard currentSessionToken == token else { return }
         drainTask?.cancel()
         drainTask = nil
         toolExecutionTask?.cancel()
@@ -523,10 +535,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         executingToolName = nil
         state = .error(error.localizedDescription)
         Task { [weak self] in
-            await self?.audioCapture.stopCapture()
-            await self?.audioPlayer.stop()
-            await self?.wakeWordDetector.reset()
-            await self?.session.disconnect()
+            guard let self, self.currentSessionToken == token else { return }
+            await self.audioCapture.stopCapture()
+            await self.audioPlayer.stop()
+            await self.wakeWordDetector.reset()
+            await self.session.disconnect()
         }
     }
 }

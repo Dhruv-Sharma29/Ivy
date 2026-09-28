@@ -267,23 +267,38 @@ public struct BidiFunctionResponse: Codable, Sendable, Equatable {
 
 // MARK: - Server-to-Client Messages
 
+public struct BidiServerErrorMessage: Codable, Sendable, Equatable {
+    public let code: Int?
+    public let message: String?
+    public let status: String?
+
+    public init(code: Int? = nil, message: String? = nil, status: String? = nil) {
+        self.code = code
+        self.message = message
+        self.status = status
+    }
+}
+
 /// Top-level server message received over the Gemini Live WebSocket.
 public struct BidiServerMessage: Codable, Sendable, Equatable {
     public let setupComplete: BidiSetupComplete?
     public let serverContent: BidiServerContent?
     public let toolCall: BidiToolCall?
     public let toolCallCancellation: BidiToolCallCancellation?
+    public let error: BidiServerErrorMessage?
 
     public init(
         setupComplete: BidiSetupComplete? = nil,
         serverContent: BidiServerContent? = nil,
         toolCall: BidiToolCall? = nil,
-        toolCallCancellation: BidiToolCallCancellation? = nil
+        toolCallCancellation: BidiToolCallCancellation? = nil,
+        error: BidiServerErrorMessage? = nil
     ) {
         self.setupComplete = setupComplete
         self.serverContent = serverContent
         self.toolCall = toolCall
         self.toolCallCancellation = toolCallCancellation
+        self.error = error
     }
 }
 

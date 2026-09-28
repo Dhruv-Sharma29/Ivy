@@ -4,7 +4,7 @@ import IvyCore
 public struct IvyPopoverView: View {
     @ObservedObject public var brain: IvyBrain
     @ObservedObject public var voiceManager: VoicePlaybackManager
-    @StateObject public var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
+    @ObservedObject public var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
 
@@ -15,9 +15,7 @@ public struct IvyPopoverView: View {
     ) {
         self.brain = brain
         self.voiceManager = voiceManager ?? VoicePlaybackManager()
-        self._liveVoiceCoordinator = StateObject(
-            wrappedValue: liveVoiceCoordinator ?? GeminiLiveVoiceCoordinator(apiKey: brain.apiKey)
-        )
+        self.liveVoiceCoordinator = liveVoiceCoordinator ?? GeminiLiveVoiceCoordinator(apiKey: brain.apiKey)
     }
 
     public var body: some View {

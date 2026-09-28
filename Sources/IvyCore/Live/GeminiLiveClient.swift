@@ -20,8 +20,10 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     private struct State {
         var apiKey: String
         var webSocket: WebSocketTransport? = nil
+        var currentConnectionId: UUID? = nil
         var isConnected: Bool = false
         var isClosed: Bool = false
+        var isSetupSent: Bool = false
         var continuation: AsyncThrowingStream<LiveEvent, Error>.Continuation? = nil
         var receiveTask: Task<Void, Never>? = nil
         var pendingSendContinuations: [CheckedContinuation<WebSocketTransport, Error>] = []
@@ -83,61 +85,107 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     }
 
     public func connect() async throws {
+        print("[LIVE] connect requested")
+
         let currentKey = state.withLock { $0.apiKey }
         guard !currentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            print("[LIVE] connection error: Missing API Key")
             throw LiveError.missingAPIKey
         }
 
         guard let encodedKey = currentKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=\(encodedKey)") else {
+            print("[LIVE] connection error: Invalid URL")
             throw LiveError.invalidURL
+        }
+
+        // Clean up any stale active connection before opening a new one
+        let oldWsAndTask = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, [CheckedContinuation<WebSocketTransport, Error>])? in
+            guard s.isConnected || (s.webSocket != nil && !s.isClosed) else {
+                s.isClosed = false
+                return nil
+            }
+            s.isConnected = false
+            s.isClosed = false
+            s.isSetupSent = false
+            let ws = s.webSocket
+            let task = s.receiveTask
+            let sends = s.pendingSendContinuations
+            s.webSocket = nil
+            s.receiveTask = nil
+            s.pendingSendContinuations = []
+            return (ws, task, sends)
+        }
+
+        if let (oldWs, oldTask, oldSends) = oldWsAndTask {
+            for cont in oldSends {
+                cont.resume(throwing: LiveError.sessionClosed)
+            }
+            oldTask?.cancel()
+            oldWs?.cancel(closeCode: .normalClosure, reason: nil)
+            print("[LIVE] connection closed")
         }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
 
         let ws = webSocketFactory(request)
+        let connectionId = UUID()
         state.withLock { s in
             s.webSocket = ws
+            s.currentConnectionId = connectionId
             s.isClosed = false
             s.isConnected = false
+            s.isSetupSent = false
         }
 
         ws.resume()
+        print("[LIVE] websocket connected")
 
-        // Send Setup Message
-        let setup = BidiSetup(
-            model: model,
-            generationConfig: BidiGenerationConfig(
-                responseModalities: ["AUDIO"],
-                speechConfig: BidiSpeechConfig(
-                    voiceConfig: BidiVoiceConfig(
-                        prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: Self.liveVoiceName)
-                    )
-                )
-            ),
-            systemInstruction: systemInstruction.map { BidiSystemInstruction(text: $0) },
-            tools: tools
-        )
-        let setupMessage = BidiClientMessage(setup: setup)
-
-        do {
-            let data = try JSONEncoder().encode(setupMessage)
-            guard let jsonString = String(data: data, encoding: .utf8) else {
-                throw LiveError.setupFailed("Failed to encode setup payload.")
+        // Send Setup Message exactly once
+        let shouldSendSetup = state.withLock { s -> Bool in
+            guard s.currentConnectionId == connectionId else { return false }
+            if !s.isSetupSent {
+                s.isSetupSent = true
+                return true
             }
-            print("[LIVE VOICE] voice=Kore")
-            #if DEBUG
-            print("[LIVE VOICE] setup payload: \(jsonString)")
-            #endif
-            try await ws.send(.string(jsonString))
-        } catch {
-            ws.cancel(closeCode: .normalClosure, reason: nil)
-            throw LiveError.setupFailed(error.localizedDescription)
+            return false
+        }
+
+        if shouldSendSetup {
+            let filteredTools: [ToolDeclarationWrapper]? = (tools?.isEmpty == true) ? nil : tools
+            let setup = BidiSetup(
+                model: model,
+                generationConfig: BidiGenerationConfig(
+                    responseModalities: ["AUDIO"],
+                    speechConfig: BidiSpeechConfig(
+                        voiceConfig: BidiVoiceConfig(
+                            prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: Self.liveVoiceName)
+                        )
+                    )
+                ),
+                systemInstruction: systemInstruction.map { BidiSystemInstruction(text: $0) },
+                tools: filteredTools
+            )
+            let setupMessage = BidiClientMessage(setup: setup)
+
+            do {
+                let data = try JSONEncoder().encode(setupMessage)
+                guard let jsonString = String(data: data, encoding: .utf8) else {
+                    throw LiveError.setupFailed("Failed to encode setup payload.")
+                }
+                print("[LIVE VOICE] voice=Kore")
+                print("[LIVE] setup sent")
+                try await ws.send(.string(jsonString))
+            } catch {
+                print("[LIVE] connection error: \(error.localizedDescription)")
+                ws.cancel(closeCode: .normalClosure, reason: nil)
+                throw LiveError.setupFailed(error.localizedDescription)
+            }
         }
 
         // Start background message receiver
-        startReceiveLoop(transport: ws)
+        startReceiveLoop(transport: ws, connectionId: connectionId)
     }
 
     public func sendAudio(_ data: Data) async throws {
@@ -204,9 +252,12 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     }
 
     public func disconnect() async {
-        let (ws, task, continuation, pendingSends) = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>]) in
+        let (ws, task, continuation, pendingSends, wasActive) = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], Bool) in
+            let wasActive = s.isConnected || (s.webSocket != nil && !s.isClosed)
             s.isConnected = false
             s.isClosed = true
+            s.isSetupSent = false
+            s.currentConnectionId = nil
             let ws = s.webSocket
             let task = s.receiveTask
             let cont = s.continuation
@@ -215,7 +266,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             s.receiveTask = nil
             s.continuation = nil
             s.pendingSendContinuations = []
-            return (ws, task, cont, sends)
+            return (ws, task, cont, sends, wasActive)
         }
 
         for cont in pendingSends {
@@ -224,33 +275,41 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
 
         task?.cancel()
         ws?.cancel(closeCode: .normalClosure, reason: nil)
+        if wasActive {
+            print("[LIVE] connection closed")
+        }
         continuation?.yield(.disconnected)
         continuation?.finish()
     }
 
     // MARK: - Private Receive Loop
 
-    private func startReceiveLoop(transport: WebSocketTransport) {
+    private func startReceiveLoop(transport: WebSocketTransport, connectionId: UUID) {
         let task = Task { [weak self, transport] in
             while !Task.isCancelled {
                 do {
                     let message = try await transport.receive()
                     guard let self else { break }
-                    self.handleIncomingWebSocketMessage(message)
+                    self.handleIncomingWebSocketMessage(message, connectionId: connectionId)
                 } catch {
                     guard let self else { break }
-                    self.handleReceiveError(error)
+                    self.handleReceiveError(error, connectionId: connectionId)
                     break
                 }
             }
         }
 
         state.withLock { s in
-            s.receiveTask = task
+            if s.currentConnectionId == connectionId {
+                s.receiveTask = task
+            }
         }
     }
 
-    private func handleIncomingWebSocketMessage(_ message: URLSessionWebSocketTask.Message) {
+    private func handleIncomingWebSocketMessage(_ message: URLSessionWebSocketTask.Message, connectionId: UUID) {
+        let isCurrent = state.withLock { $0.currentConnectionId == connectionId }
+        guard isCurrent else { return }
+
         let payloadData: Data
         switch message {
         case .string(let str):
@@ -266,8 +325,20 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             return
         }
 
+        if let error = serverMessage.error {
+            let msg = error.message ?? "Unknown server error (code: \(error.code ?? -1), status: \(error.status ?? "unknown"))"
+            print("[LIVE] connection error: \(msg)")
+            handleReceiveError(LiveError.serverError(msg), connectionId: connectionId)
+            return
+        }
+
         if serverMessage.setupComplete != nil {
+            print("[LIVE] setup acknowledged")
+            print("[LIVE] receive loop started")
             let (eventContinuation, pendingSends, ws) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], WebSocketTransport?) in
+                guard s.currentConnectionId == connectionId else {
+                    return (nil, [], nil)
+                }
                 s.isConnected = true
                 let sends = s.pendingSendContinuations
                 s.pendingSendContinuations = []
@@ -286,14 +357,21 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         if let toolCall = serverMessage.toolCall {
-            let continuation = state.withLock { $0.continuation }
+            print("[LIVE] tool call received")
+            let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
+                guard s.currentConnectionId == connectionId else { return nil }
+                return s.continuation
+            }
             for call in toolCall.functionCalls {
                 continuation?.yield(.toolCall(call))
             }
         }
 
         if let content = serverMessage.serverContent {
-            let continuation = state.withLock { $0.continuation }
+            let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
+                guard s.currentConnectionId == connectionId else { return nil }
+                return s.continuation
+            }
 
             if content.interrupted == true {
                 continuation?.yield(.interrupted)
@@ -303,12 +381,14 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                 for part in modelTurn.parts {
                     if let inlineData = part.inlineData,
                        let audioData = Data(base64Encoded: inlineData.data) {
+                        print("[LIVE] audio response received")
                         continuation?.yield(.audioChunk(audioData))
                     }
                     if let text = part.text {
                         continuation?.yield(.textTurn(text))
                     }
                     if let functionCall = part.functionCall {
+                        print("[LIVE] tool call received")
                         continuation?.yield(.toolCall(functionCall))
                     }
                 }
@@ -320,23 +400,33 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
     }
 
-    private func handleReceiveError(_ error: Error) {
-        let (continuation, pendingSends) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>]) in
+    private func handleReceiveError(_ error: Error, connectionId: UUID) {
+        let (continuation, pendingSends, wasActive) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], Bool) in
+            guard s.currentConnectionId == connectionId else {
+                return (nil, [], false)
+            }
+            let wasActive = s.isConnected || (s.webSocket != nil && !s.isClosed)
             s.isConnected = false
             s.isClosed = true
+            s.isSetupSent = false
             s.webSocket = nil
+            s.currentConnectionId = nil
             let cont = s.continuation
             s.continuation = nil
             let sends = s.pendingSendContinuations
             s.pendingSendContinuations = []
-            return (cont, sends)
+            return (cont, sends, wasActive)
         }
 
         for cont in pendingSends {
             cont.resume(throwing: LiveError.sessionClosed)
         }
 
-        continuation?.yield(.disconnected)
-        continuation?.finish()
+        if wasActive {
+            print("[LIVE] connection error: \(error.localizedDescription)")
+            print("[LIVE] connection closed")
+            continuation?.yield(.disconnected)
+            continuation?.finish()
+        }
     }
 }
