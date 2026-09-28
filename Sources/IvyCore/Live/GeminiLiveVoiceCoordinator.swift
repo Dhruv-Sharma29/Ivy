@@ -32,6 +32,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public let audioPlayer: LiveAudioPlayerProtocol
     public let wakeWordDetector: WakeWordDetectorProtocol
 
+    private var currentSessionToken: UUID? = nil
+
     private var captureTask: Task<Void, Never>? = nil
     private var eventTask: Task<Void, Never>? = nil
     private var drainTask: Task<Void, Never>? = nil
@@ -67,7 +69,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         let capture = SystemAudioCapture()
         let player = SystemLiveAudioPlayer()
         let detector = SystemWakeWordDetector()
-        self.init(session: client, audioCapture: capture, audioPlayer: player, wakeWordDetector: detector)
+        self.init(
+            session: client,
+            audioCapture: capture,
+            audioPlayer: player,
+            wakeWordDetector: detector
+        )
     }
 
     /// Updates the API key for the underlying session client if supported.
@@ -89,11 +96,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             await stopSession()
         }
 
+        let token = UUID()
+        self.currentSessionToken = token
         state = .connecting
         latestTranscript = ""
 
         // Check microphone permission
         let hasMicPermission = await audioCapture.requestPermission()
+        guard currentSessionToken == token else { return }
         guard hasMicPermission else {
             state = .error(LiveError.microphonePermissionDenied.localizedDescription)
             return
@@ -101,12 +111,18 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
         // Request speech recognition permission for wake phrase interruption
         _ = await wakeWordDetector.requestPermission()
+        guard currentSessionToken == token else { return }
 
         // Connect to Gemini Live
         do {
             try await session.connect()
         } catch {
+            guard currentSessionToken == token else { return }
             state = .error("Failed to connect to Ivy Live: \(error.localizedDescription)")
+            return
+        }
+        guard currentSessionToken == token else {
+            await session.disconnect()
             return
         }
 
@@ -126,6 +142,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         // Start microphone capture loop
         do {
             let audioStream = try await audioCapture.startCapture()
+            guard currentSessionToken == token else {
+                await audioCapture.stopCapture()
+                await session.disconnect()
+                return
+            }
             state = .listening
 
             captureTask = Task { [weak self, session] in
@@ -135,10 +156,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                         guard let self else { break }
 
                         if self.state == .speaking {
-                            #if DEBUG
-                            print("[WAKE] state=speaking")
-                            print("[WAKE] microphone buffer received")
-                            #endif
                             // Monitoring mode: do NOT stream mic audio to Gemini Live to prevent server VAD barge-in.
                             // Only check for the explicit "Hey Ivy" wake phrase.
                             let detected = await self.wakeWordDetector.processAudioChunk(chunk)
@@ -156,12 +173,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             }
         } catch {
             await session.disconnect()
+            guard currentSessionToken == token else { return }
             state = .error("Failed to start audio capture: \(error.localizedDescription)")
         }
     }
 
     /// Cleanly terminates the live voice session.
     public func stopSession() async {
+        currentSessionToken = nil
         captureTask?.cancel()
         eventTask?.cancel()
         drainTask?.cancel()
@@ -183,15 +202,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         guard state == .speaking else { return }
         state = .interrupting
         #if DEBUG
-        print("[WAKE] HEY IVY DETECTED")
         print("[WAKE] interruption requested")
         #endif
-        state = .interrupting
         drainTask?.cancel()
         drainTask = nil
-        #if DEBUG
-        print("[WAKE] drain task cancelled")
-        #endif
 
         await audioPlayer.stop()
         #if DEBUG
@@ -209,14 +223,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public func processTranscriptionForInterruption(_ text: String) async {
         guard state == .speaking else { return }
         #if DEBUG
-        print("[WAKE] recognition result received")
-        print("[WAKE] transcript=\"\(text)\"")
+        let preview = text.count > 30 ? String(text.prefix(30)) : text
+        print("[WAKE] recognition partial: \(preview)")
         #endif
         let isMatch = WakePhraseMatcher.containsWakePhrase(text)
-        #if DEBUG
-        print("[WAKE] matcher result=\(isMatch)")
-        #endif
         if isMatch {
+            #if DEBUG
+            print("[WAKE] wake phrase matched")
+            #endif
             await handleWakePhraseDetected()
         }
     }
@@ -232,7 +246,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         case .audioChunk(let data):
             drainTask?.cancel()
             drainTask = nil
-            state = .speaking
+            if state != .speaking {
+                state = .speaking
+                #if DEBUG
+                print("[WAKE] speaking capture active")
+                #endif
+            }
             do {
                 try await audioPlayer.playChunk(data)
             } catch {

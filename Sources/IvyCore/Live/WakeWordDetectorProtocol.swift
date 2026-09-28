@@ -111,8 +111,7 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
         var detected: Bool = false
         var isRunning: Bool = false
         var transcriptionHandler: (@Sendable (String) -> Void)? = nil
-        var lastUtteranceTokens: [String] = []
-        var lastUtteranceTimestamp: Date? = nil
+        var rollingTokens: [(token: String, timestamp: Date)] = []
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -156,9 +155,6 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
     }
 
     public func processAudioChunk(_ data: Data) async -> Bool {
-        #if DEBUG
-        print("[WAKE] wake detector processing")
-        #endif
         let isAlreadyDetected = state.withLock { $0.detected }
         if isAlreadyDetected { return true }
 
@@ -203,8 +199,7 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
             s.recognitionRequest = nil
             s.detected = false
             s.isRunning = false
-            s.lastUtteranceTokens = []
-            s.lastUtteranceTimestamp = nil
+            s.rollingTokens = []
         }
     }
 
@@ -215,7 +210,7 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
 
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
-            request.contextualStrings = ["Hey Ivy", "Ivy"]
+            request.contextualStrings = ["Hey Ivy", "Ivy", "Hey"]
 
             let taskId = UUID()
             s.currentTaskId = taskId
@@ -223,15 +218,10 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
             s.isRunning = true
             s.detected = false
 
-            #if DEBUG
-            print("[WAKE] speech recognizer started")
-            #endif
-
             s.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 guard let self else { return }
                 if let result {
-                    // Check bestTranscription and alternative candidate hypotheses for early partial match
-                    var matchedTranscript: String? = nil
+                    // 1. Check all transcription hypotheses (bestTranscription and alternatives)
                     var candidates = [result.bestTranscription.formattedString]
                     for alt in result.transcriptions {
                         if !candidates.contains(alt.formattedString) {
@@ -239,6 +229,7 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
                         }
                     }
 
+                    var matchedTranscript: String? = nil
                     for candidate in candidates {
                         if WakePhraseMatcher.containsWakePhrase(candidate) {
                             matchedTranscript = candidate
@@ -246,21 +237,18 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
                         }
                     }
 
-                    // Check stitching with trailing token of immediately preceding utterance if within 1.5s
-                    if matchedTranscript == nil {
-                        let currentTokens = result.bestTranscription.formattedString
-                            .lowercased()
-                            .components(separatedBy: CharacterSet.punctuationCharacters)
-                            .joined(separator: " ")
-                            .split(whereSeparator: \.isWhitespace)
-                            .map(String.init)
+                    // 2. Incremental / Fragment Stitching Check
+                    let currentTokens = WakePhraseMatcher.extractTokens(result.bestTranscription.formattedString)
+                    let now = Date()
 
-                        let (prevTokens, prevTime) = self.state.withLock { s in
-                            (s.lastUtteranceTokens, s.lastUtteranceTimestamp)
+                    if matchedTranscript == nil {
+                        let (rolling, isAlreadyDetected) = self.state.withLock { s -> ([(token: String, timestamp: Date)], Bool) in
+                            guard s.currentTaskId == taskId else { return ([], true) }
+                            return (s.rollingTokens, s.detected)
                         }
 
-                        if let prevTime, Date().timeIntervalSince(prevTime) < 1.5, let lastPrev = prevTokens.last, let firstCurr = currentTokens.first {
-                            if lastPrev == "hey" && firstCurr == "ivy" {
+                        if !isAlreadyDetected, let lastRolling = rolling.last, now.timeIntervalSince(lastRolling.timestamp) < 2.0 {
+                            if lastRolling.token == "hey" && currentTokens.first == "ivy" {
                                 matchedTranscript = "Hey Ivy"
                             }
                         }
@@ -269,14 +257,28 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
                     let transcript = matchedTranscript ?? result.bestTranscription.formattedString
                     let isMatch = (matchedTranscript != nil)
 
+                    // 3. Update rolling tokens and handle one-shot notification
                     let (handler, shouldNotify) = self.state.withLock { s -> ((@Sendable (String) -> Void)?, Bool) in
                         guard s.currentTaskId == taskId else { return (nil, false) }
+
+                        // Prune tokens older than 2.0s
+                        s.rollingTokens.removeAll { now.timeIntervalSince($0.timestamp) > 2.0 }
+                        for token in currentTokens {
+                            s.rollingTokens.append((token: token, timestamp: now))
+                        }
+                        if s.rollingTokens.count > 6 {
+                            s.rollingTokens.removeFirst(s.rollingTokens.count - 6)
+                        }
+
                         if isMatch {
                             if !s.detected {
                                 s.detected = true
+                                // One-shot: cancel recognition task immediately to stop further processing
+                                s.recognitionRequest?.endAudio()
+                                s.recognitionTask?.cancel()
+                                s.isRunning = false
                                 return (s.transcriptionHandler, true)
                             }
-                            // Already triggered for this task; suppress duplicates
                             return (nil, false)
                         }
                         return (s.transcriptionHandler, false)
@@ -301,16 +303,6 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
                     self.state.withLock { s in
                         guard s.currentTaskId == taskId else { return }
                         s.isRunning = false
-                        if let result {
-                            let tokens = result.bestTranscription.formattedString
-                                .lowercased()
-                                .components(separatedBy: CharacterSet.punctuationCharacters)
-                                .joined(separator: " ")
-                                .split(whereSeparator: \.isWhitespace)
-                                .map(String.init)
-                            s.lastUtteranceTokens = tokens
-                            s.lastUtteranceTimestamp = Date()
-                        }
                     }
                 }
             }

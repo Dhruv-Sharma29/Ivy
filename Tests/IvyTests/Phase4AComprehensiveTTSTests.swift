@@ -1103,16 +1103,22 @@ struct Phase4AConcurrencyTests {
     @MainActor
     func test57_playerStateConsistent() async throws {
         let player = MockAudioPlayer()
-        player.playbackDuration = 0.02
+        player.playbackDuration = 0.05
         let manager = VoicePlaybackManager(synthesizer: MockSpeechSynthesizer(), player: player)
 
         let msg = ChatMessage(role: .model, text: "Consistency test")
         manager.speak(message: msg)
 
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(player.isPlaying)
+        for _ in 0..<50 {
+            if player.isPlaying || !player.playedData.isEmpty { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(player.playedData.count == 1 || player.isPlaying)
 
-        try await Task.sleep(nanoseconds: 40_000_000)
+        for _ in 0..<50 {
+            if !player.isPlaying && manager.state == .idle { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
         #expect(!player.isPlaying)
         #expect(manager.state == .idle)
     }

@@ -21,6 +21,8 @@ public final class MockAudioCapture: AudioCaptureProtocol, @unchecked Sendable {
         var isCapturing: Bool = false
         var continuation: AsyncThrowingStream<Data, Error>.Continuation? = nil
         var capturedChunksCount: Int = 0
+        var startCaptureCallCount: Int = 0
+        var stopCaptureCallCount: Int = 0
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -43,6 +45,14 @@ public final class MockAudioCapture: AudioCaptureProtocol, @unchecked Sendable {
         state.withLock { $0.capturedChunksCount }
     }
 
+    public var startCaptureCallCount: Int {
+        state.withLock { $0.startCaptureCallCount }
+    }
+
+    public var stopCaptureCallCount: Int {
+        state.withLock { $0.stopCaptureCallCount }
+    }
+
     public func setPermissionGranted(_ granted: Bool) {
         state.withLock { $0.isPermissionGranted = granted }
     }
@@ -60,6 +70,7 @@ public final class MockAudioCapture: AudioCaptureProtocol, @unchecked Sendable {
         let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
 
         state.withLock { s in
+            s.startCaptureCallCount += 1
             s.isCapturing = true
             s.continuation = continuation
         }
@@ -95,6 +106,7 @@ public final class MockAudioCapture: AudioCaptureProtocol, @unchecked Sendable {
 
     public func stopCapture() async {
         let continuation = state.withLock { s -> AsyncThrowingStream<Data, Error>.Continuation? in
+            s.stopCaptureCallCount += 1
             s.isCapturing = false
             let cont = s.continuation
             s.continuation = nil
@@ -143,6 +155,15 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
         }
 
         let inputNode = audioEngine.inputNode
+        #if os(macOS)
+        if #available(macOS 10.15, *) {
+            do {
+                try inputNode.setVoiceProcessingEnabled(true)
+            } catch {
+                // Device does not support VoiceProcessingIO; proceed with standard input
+            }
+        }
+        #endif
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
 
         guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else {
