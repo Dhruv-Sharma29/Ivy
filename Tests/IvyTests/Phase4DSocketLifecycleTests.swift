@@ -215,7 +215,7 @@ struct Phase4DSocketLifecycleTests {
             wakeWordDetector: MockWakeWordDetector()
         )
         await coordinator.startSession()
-        #expect(coordinator.state == .listening)
+        #expect(await waitFor { coordinator.state == .listening })
 
         session.simulateEvent(.disconnected)
 
@@ -266,10 +266,10 @@ struct Phase4DSocketLifecycleTests {
         try coordinator.registerHotkey()
 
         for _ in 0..<5 { hotkey.simulateKeyDown() }
-        #expect(await waitFor { transports.withLock { $0.count } == 1 && coordinator.state == .listening })
+        #expect(await waitFor { transports.withLock { $0.count } == 1 })
         let first = try #require(transports.withLock { $0.first })
         first.enqueueReceiveString(Self.setupComplete)
-        #expect(await waitFor { client.isConnected })
+        #expect(await waitFor { client.isConnected && coordinator.state == .listening })
 
         first.enqueueReceiveError(Self.socketLost)
         #expect(await waitFor { !coordinator.state.isLive && !capture.isCapturing })
@@ -280,7 +280,10 @@ struct Phase4DSocketLifecycleTests {
         hotkey.simulateKeyUp()
         #expect(await waitFor { !coordinator.isPushToTalkActive })
         for _ in 0..<5 { hotkey.simulateKeyDown() }
-        #expect(await waitFor { transports.withLock { $0.count } == 2 && coordinator.state == .listening })
+        #expect(await waitFor { transports.withLock { $0.count } == 2 })
+        let second = try #require(transports.withLock { $0.last })
+        second.enqueueReceiveString(Self.setupComplete)
+        #expect(await waitFor { client.isConnected && coordinator.state == .listening })
         try await Task.sleep(nanoseconds: 50_000_000)
         #expect(transports.withLock { $0.count } == 2)
 

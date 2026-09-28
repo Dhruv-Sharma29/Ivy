@@ -421,6 +421,7 @@ public enum LiveError: Error, LocalizedError, Equatable, Sendable {
     case audioEncodingFailed
     case microphonePermissionDenied
     case microphonePermissionRestricted
+    case timeout(String)
 
     public var errorDescription: String? {
         switch self {
@@ -444,6 +445,8 @@ public enum LiveError: Error, LocalizedError, Equatable, Sendable {
             return "Microphone access was denied. Please allow microphone access in macOS System Settings."
         case .microphonePermissionRestricted:
             return "Microphone access is restricted on this Mac."
+        case .timeout(let msg):
+            return "Ivy Live timed out: \(msg)"
         }
     }
 }

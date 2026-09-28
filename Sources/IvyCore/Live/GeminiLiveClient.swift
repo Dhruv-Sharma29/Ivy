@@ -225,7 +225,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                 throw LiveError.serverError("Failed to encode tool response payload.")
             }
             #if DEBUG
-            print("[LIVE VOICE] tool response payload: \(jsonString)")
+            print("[LIVE VOICE] tool response sent count=\(responses.count) bytes=\(jsonString.utf8.count)")
             #endif
             try await ws.send(.string(jsonString))
         } catch {

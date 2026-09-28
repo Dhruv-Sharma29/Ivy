@@ -651,8 +651,8 @@ struct Phase4DVoiceToolCallingTests {
         }
         #expect(sentToolResp)
 
-        // Coordinator is in .thinking awaiting spoken reply from Gemini Live
-        #expect(coordinator.state == .thinking)
+        // Phase 4E: stays in .toolExecution until the spoken reply arrives (TOOL_EXECUTION -> SPEAKING, no THINKING flicker)
+        #expect(coordinator.state == .toolExecution)
 
         // Gemini Live speaks response
         let spokenChunk = Data([0x12, 0x34])

@@ -172,7 +172,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
         mockSession.simulateEvent(.audioChunk(c3))
 
         for _ in 0..<50 {
-            if coordinator.state == .speaking { break }
+            if coordinator.state == .speaking && mockPlayer.playedChunks.count == 3 { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         #expect(coordinator.state == .speaking)
@@ -324,6 +324,8 @@ struct Phase4BComprehensiveLiveVoiceTests {
         #expect(mockSession.sentAudioChunks.contains(newRequestChunk))
 
         // 4. Gemini Live replies to new request
+        // Phase 4E: the server closes the interrupted turn before replying anew; leftovers of that turn are discarded.
+        mockSession.simulateEvent(.turnComplete)
         let newResponseChunk = Data([0x77, 0x66])
         mockSession.simulateEvent(.audioChunk(newResponseChunk))
 

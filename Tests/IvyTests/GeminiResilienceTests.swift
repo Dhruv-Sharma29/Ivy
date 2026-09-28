@@ -359,6 +359,35 @@ struct GeminiResilienceTests {
         #expect(sleeperCalls == 1)
     }
 
+    @Test("7b. HTTP 429 daily quota exhaustion fails fast with an honest error")
+    func test07b_HTTP429_DailyQuota_NoRetry() async {
+        nonisolated(unsafe) var attempts = 0
+        ResilienceMockURLProtocol.requestHandler = { request in
+            attempts += 1
+            let body = #"""
+            {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"quota","details":[{"violations":[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaValue":"20"}]}]}}
+            """#
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "https://example.com")!,
+                statusCode: 429,
+                httpVersion: nil,
+                headerFields: nil
+            ) ?? HTTPURLResponse()
+            return (response, Data(body.utf8))
+        }
+
+        let client = URLSessionGeminiClient(session: makeMockSession(), retryPolicy: RetryPolicy.testing(maxRetries: 3))
+        await #expect(throws: GeminiClientError.dailyQuotaExhausted) {
+            _ = try await client.generateContent(
+                history: [ChatMessage(role: .user, text: "quota check")],
+                systemPrompt: "You are Ivy",
+                apiKey: "test_key"
+            )
+        }
+        #expect(attempts == 1)
+        #expect(GeminiClientError.dailyQuotaExhausted.localizedDescription.contains("daily"))
+    }
+
     // MARK: - 8. HTTP 500: Retries
 
     @Test("8. HTTP 500 retries and recovers")

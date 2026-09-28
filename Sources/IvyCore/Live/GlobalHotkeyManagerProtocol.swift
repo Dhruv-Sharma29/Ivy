@@ -21,20 +21,26 @@ public struct HotkeyModifiers: OptionSet, Sendable, Equatable, Hashable {
 
 /// Key combination representing a global hotkey shortcut.
 public struct HotkeyShortcut: Sendable, Equatable, Hashable {
-    /// Virtual keycode (e.g. 49 for Space, kVK_Space)
-    public let keyCode: UInt32
+    /// Virtual keycode (e.g. 49 for Space, kVK_Space); nil means a modifier-only chord.
+    public let keyCode: UInt32?
     /// Modifier key flags (e.g. [.command, .shift])
     public let modifiers: HotkeyModifiers
 
-    public init(keyCode: UInt32, modifiers: HotkeyModifiers) {
+    public init(keyCode: UInt32?, modifiers: HotkeyModifiers) {
         self.keyCode = keyCode
         self.modifiers = modifiers
     }
 
-    /// Default Push-to-Talk shortcut: Command + Shift + Space
+    /// Default Push-to-Talk shortcut: Command + Shift + Space (Carbon, zero Accessibility permission required)
     public static let defaultPushToTalk = HotkeyShortcut(
         keyCode: 49, // kVK_Space
         modifiers: [.command, .shift]
+    )
+
+    /// Modifier-only Push-to-Talk chord: Option + Control (requires Accessibility permission)
+    public static let optionControlChord = HotkeyShortcut(
+        keyCode: nil,
+        modifiers: [.option, .control]
     )
 }
 
@@ -45,6 +51,7 @@ public enum HotkeyError: Error, LocalizedError, Equatable, Sendable {
     case eventHandlerInstallationFailed(Int32)
     case notRegistered
     case unsupportedPlatform
+    case accessibilityPermissionRequired
 
     public var errorDescription: String? {
         switch self {
@@ -58,6 +65,8 @@ public enum HotkeyError: Error, LocalizedError, Equatable, Sendable {
             return "Global hotkey is not currently registered."
         case .unsupportedPlatform:
             return "Global hotkeys are not supported on this platform."
+        case .accessibilityPermissionRequired:
+            return "Option + Control push-to-talk needs Accessibility access. Allow it in System Settings › Privacy & Security › Accessibility, then relaunch Ivy."
         }
     }
 }

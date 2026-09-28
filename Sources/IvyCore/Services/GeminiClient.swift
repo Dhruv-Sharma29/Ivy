@@ -5,6 +5,7 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
     case invalidURL
     case invalidAPIKey(String)
     case rateLimited
+    case dailyQuotaExhausted
     case modelNotFound(String)
     case serverError(statusCode: Int, message: String)
     case networkError(String)
@@ -21,6 +22,8 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
             return "Invalid API key: \(msg)"
         case .rateLimited:
             return "Rate limited. Slow down, give me a second."
+        case .dailyQuotaExhausted:
+            return "Gemini's daily request quota for this API key is used up. It resets at midnight Pacific time, or switch to a key with billing enabled."
         case .modelNotFound(let msg):
             return "Gemini model not found (404): \(msg)"
         case .serverError(let code, let msg):
@@ -330,6 +333,11 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
                 throw GeminiClientError.modelNotFound(errorMsg)
 
             default:
+                // A per-day quota won't recover within any retry window; fail fast with the real reason.
+                if httpResponse.statusCode == 429,
+                   String(decoding: data, as: UTF8.self).contains("PerDay") {
+                    throw GeminiClientError.dailyQuotaExhausted
+                }
                 if RetryPolicy.isTransientStatusCode(httpResponse.statusCode) && attempt < retryPolicy.maxRetries {
                     let delay = retryPolicy.delay(forAttempt: attempt)
                     attempt += 1

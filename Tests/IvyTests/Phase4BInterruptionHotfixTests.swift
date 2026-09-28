@@ -673,6 +673,8 @@ struct Phase4BInterruptionHotfixTests {
             let reachedListening = await waitUntil { coordinator.state == .listening }
             #expect(reachedListening, "Cycle \(cycle) should return to listening")
             #expect(mockPlayer.isStopped, "Cycle \(cycle) must stop audio playback")
+            // Phase 4E: the server closes the interrupted turn before replying anew; leftovers of that turn are discarded.
+            mockSession.simulateEvent(.turnComplete)
         }
 
         await coordinator.stopSession()

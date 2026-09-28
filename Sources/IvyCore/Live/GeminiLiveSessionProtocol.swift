@@ -35,6 +35,7 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
         var connectError: Error? = nil
         var sendAudioError: Error? = nil
         var sendToolResponsesError: Error? = nil
+        var suppressSetupAck: Bool = false
         var continuation: AsyncThrowingStream<LiveEvent, Error>.Continuation? = nil
     }
 
@@ -68,13 +69,18 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
         state.withLock { $0.sendAudioError = error }
     }
 
+    /// Simulates a server that accepts the socket but never sends `setupComplete`.
+    public func setSuppressSetupAck(_ suppress: Bool) {
+        state.withLock { $0.suppressSetupAck = suppress }
+    }
+
     public func connect() async throws {
         let (error, continuation) = state.withLock { s -> (Error?, AsyncThrowingStream<LiveEvent, Error>.Continuation?) in
             if let error = s.connectError {
                 return (error, nil)
             }
             s.isConnected = true
-            return (nil, s.continuation)
+            return (nil, s.suppressSetupAck ? nil : s.continuation)
         }
 
         if let error {
@@ -105,7 +111,7 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
 
         state.withLock { s in
             s.continuation = continuation
-            if s.isConnected {
+            if s.isConnected && !s.suppressSetupAck {
                 continuation.yield(.connected)
             }
         }

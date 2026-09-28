@@ -25,6 +25,18 @@ struct Phase4CGlobalHotkeyTests {
         #expect(mockHotkey.registrationCount == 1)
     }
 
+    @Test("1b. Option + Control chord matches exactly; extra or missing modifiers do not trigger")
+    func testModifierChordExactMatch() {
+        let required: HotkeyModifiers = [.option, .control]
+        #expect(SystemGlobalHotkeyManager.chordHeld([.option, .control], required: required))
+        #expect(SystemGlobalHotkeyManager.chordHeld([.option, .control, .capsLock], required: required))
+        #expect(!SystemGlobalHotkeyManager.chordHeld([.option], required: required))
+        #expect(!SystemGlobalHotkeyManager.chordHeld([.control], required: required))
+        #expect(!SystemGlobalHotkeyManager.chordHeld([.option, .control, .command], required: required))
+        #expect(!SystemGlobalHotkeyManager.chordHeld([.option, .control, .shift], required: required))
+        #expect(!SystemGlobalHotkeyManager.chordHeld([], required: required))
+    }
+
     @Test("2. Registration failure is handled gracefully and returns structured error")
     func testRegistrationFailureHandledGracefully() {
         let mockHotkey = MockGlobalHotkeyManager(mockErrorOnRegister: .registrationFailed(-9868))

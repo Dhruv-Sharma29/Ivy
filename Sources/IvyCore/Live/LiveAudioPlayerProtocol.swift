@@ -135,6 +135,8 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
     private struct State {
         var isPlaying: Bool = false
         var activeBuffers: Int = 0
+        /// Bumped by `stop()`; completion handlers from older buffers must not touch the new queue's count.
+        var generation: Int = 0
         var waitContinuations: [CheckedContinuation<Void, Never>] = []
     }
 
@@ -142,13 +144,17 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
     private let audioEngine: AVAudioEngine
     private let playerNode: AVAudioPlayerNode
     private let audioFormat: AVAudioFormat?
+    /// False when the engine is shared with microphone capture: stopping playback must not stop the mic.
+    private let ownsEngine: Bool
 
     public init(
         audioEngine: AVAudioEngine = AVAudioEngine(),
-        playerNode: AVAudioPlayerNode = AVAudioPlayerNode()
+        playerNode: AVAudioPlayerNode = AVAudioPlayerNode(),
+        ownsEngine: Bool = true
     ) {
         self.audioEngine = audioEngine
         self.playerNode = playerNode
+        self.ownsEngine = ownsEngine
         self.audioFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: 24000,
@@ -187,7 +193,8 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
         if let channelData = pcmBuffer.int16ChannelData {
             data.withUnsafeBytes { rawBytes in
                 if let baseAddress = rawBytes.baseAddress {
-                    memcpy(channelData[0], baseAddress, data.count)
+                    // Whole frames only: a malformed odd-length chunk must not overflow the buffer.
+                    memcpy(channelData[0], baseAddress, Int(frameCount) * 2)
                 }
             }
         }
@@ -201,11 +208,11 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
             throw error
         }
 
-        let wasPlaying = state.withLock { s -> Bool in
+        let (wasPlaying, generation) = state.withLock { s -> (Bool, Int) in
             let was = s.isPlaying
             s.isPlaying = true
             s.activeBuffers += 1
-            return was
+            return (was, s.generation)
         }
 
         if !playerNode.isPlaying {
@@ -220,6 +227,8 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
         playerNode.scheduleBuffer(pcmBuffer) { [weak self] in
             guard let self else { return }
             let continuations = self.state.withLock { s -> [CheckedContinuation<Void, Never>] in
+                // playerNode.stop() fires handlers of purged buffers, possibly after new ones were scheduled.
+                guard s.generation == generation else { return [] }
                 s.activeBuffers = max(0, s.activeBuffers - 1)
                 if s.activeBuffers == 0 {
                     s.isPlaying = false
@@ -255,6 +264,7 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
         let continuations = state.withLock { s -> [CheckedContinuation<Void, Never>] in
             s.isPlaying = false
             s.activeBuffers = 0
+            s.generation += 1
             let pending = s.waitContinuations
             s.waitContinuations = []
             return pending
@@ -266,7 +276,7 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
 
         playerNode.stop()
         playerNode.reset()
-        if audioEngine.isRunning {
+        if ownsEngine && audioEngine.isRunning {
             audioEngine.stop()
         }
     }

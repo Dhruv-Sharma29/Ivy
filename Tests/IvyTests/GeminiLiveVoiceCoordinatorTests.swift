@@ -476,6 +476,8 @@ struct GeminiLiveVoiceCoordinatorTests {
         #expect(mockSession.sentAudioChunks.contains(newChunk))
 
         // Ivy answers new request
+        // Phase 4E: the server closes the interrupted turn before replying anew; leftovers of that turn are discarded.
+        mockSession.simulateEvent(.turnComplete)
         let answerChunk = Data([0xCA, 0xFE])
         mockSession.simulateEvent(.audioChunk(answerChunk))
         for _ in 0..<50 {

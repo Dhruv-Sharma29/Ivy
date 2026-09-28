@@ -75,6 +75,9 @@ public struct IvyPopoverView: View {
         }
         .frame(width: 380, height: 520)
         .background(Color(nsColor: .windowBackgroundColor))
+        // A menu-bar-only (LSUIElement) app isn't activated when its status item opens this window,
+        // so the window never becomes key and AppKit drops clicks on its buttons (gear, trash, close).
+        .onAppear { NSApp.activate() }
         .onChange(of: brain.apiKey) { _, newKey in
             liveVoiceCoordinator.updateApiKey(newKey)
         }
@@ -132,16 +135,17 @@ public struct IvyPopoverView: View {
         if liveVoiceCoordinator.state.isLive {
             HStack(spacing: 4) {
                 Circle()
-                    .fill(liveVoiceCoordinator.state == .speaking ? Color.accentColor : Color.green)
+                    .fill(liveStateColor)
                     .frame(width: 7, height: 7)
                 Text(voiceStateBadgeText)
                     .font(.system(size: 10, weight: .semibold))
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(liveVoiceCoordinator.state == .speaking ? Color.accentColor.opacity(0.15) : Color.green.opacity(0.15))
-            .foregroundStyle(liveVoiceCoordinator.state == .speaking ? Color.accentColor : Color.green)
+            .background(liveStateColor.opacity(0.15))
+            .foregroundStyle(liveStateColor)
             .clipShape(Capsule())
+            .animation(.easeInOut(duration: 0.15), value: liveVoiceCoordinator.state)
         } else if brain.pendingConfirmation != nil {
             HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.shield.fill")
@@ -179,13 +183,13 @@ public struct IvyPopoverView: View {
         case .connecting:
             return "Connecting..."
         case .listening:
-            return "Ivy Live"
+            return "Listening"
         case .thinking:
             return "Thinking"
         case .toolConfirmation:
-            return "Confirmation"
+            return "Approve?"
         case .toolExecution:
-            return "Executing"
+            return "Working"
         case .speaking:
             return "Speaking"
         case .interrupting:
@@ -198,9 +202,8 @@ public struct IvyPopoverView: View {
     // MARK: - Live Voice Bar
     private var liveVoiceBar: some View {
         HStack(spacing: 10) {
-            Image(systemName: liveVoiceCoordinator.state == .speaking ? "waveform" : (liveVoiceCoordinator.state == .toolConfirmation ? "exclamationmark.shield.fill" : "mic.fill"))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(liveVoiceCoordinator.state == .speaking ? Color.accentColor : (liveVoiceCoordinator.state == .toolConfirmation ? Color.orange : Color.green))
+            liveStateIndicator
+                .frame(width: 18, height: 18)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(liveVoiceDescription)
@@ -243,22 +246,62 @@ public struct IvyPopoverView: View {
         case .connecting:
             return "Connecting to Ivy Live..."
         case .listening:
-            return "Ivy Live connected"
+            return "Listening — just talk"
         case .thinking:
             return "Ivy is thinking..."
         case .toolConfirmation:
-            return "Action requires your confirmation"
+            return "Approve or deny below (voice can't approve)"
         case .toolExecution:
             if let tool = liveVoiceCoordinator.executingToolName {
                 return "Executing \(tool)..."
             }
             return "Executing tool..."
         case .speaking:
-            return "Ivy is speaking (say \"Hey Ivy\" to interrupt)"
+            return liveVoiceCoordinator.isWakePhraseAvailable
+                ? "Ivy is speaking (say \"Hey Ivy\" to interrupt)"
+                : "Ivy is speaking (\"Hey Ivy\" needs Ivy.app: scripts/run-ivy-app.sh)"
         case .interrupting:
-            return "Interrupting..."
+            return "Stopping Ivy..."
         case .idle, .error:
             return "Ivy Live disconnected"
+        }
+    }
+
+    /// One color per Live state so the badge, dot, and bar icon always agree.
+    private var liveStateColor: Color {
+        switch liveVoiceCoordinator.state {
+        case .listening: return .green
+        case .speaking: return .accentColor
+        case .thinking, .toolExecution: return .purple
+        case .toolConfirmation, .interrupting: return .orange
+        case .connecting, .idle: return .secondary
+        case .error: return .red
+        }
+    }
+
+    @ViewBuilder
+    private var liveStateIndicator: some View {
+        switch liveVoiceCoordinator.state {
+        case .connecting, .thinking, .toolExecution:
+            ProgressView()
+                .controlSize(.small)
+                .tint(liveStateColor)
+        default:
+            Image(systemName: liveStateSymbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(liveStateColor)
+                .symbolEffect(.variableColor.iterative, isActive: liveVoiceCoordinator.state == .speaking)
+                .symbolEffect(.pulse, isActive: liveVoiceCoordinator.state == .listening)
+        }
+    }
+
+    private var liveStateSymbol: String {
+        switch liveVoiceCoordinator.state {
+        case .speaking: return "waveform"
+        case .toolConfirmation: return "exclamationmark.shield.fill"
+        case .interrupting: return "hand.raised.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        default: return "mic.fill"
         }
     }
 

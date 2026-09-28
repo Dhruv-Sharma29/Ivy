@@ -120,14 +120,44 @@ public final class MockAudioCapture: AudioCaptureProtocol, @unchecked Sendable {
 public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable {
     private struct State {
         var isCapturing: Bool = false
+        /// Identifies the live capture so a stale stream's termination can't tear down a newer one.
+        var captureId: UUID? = nil
         var continuation: AsyncThrowingStream<Data, Error>.Continuation? = nil
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let audioEngine: AVAudioEngine
+    private let voiceProcessing: Bool
+    /// Muted sink that pulls the voice-processed input through the graph; without it the input tap never fires.
+    private let voiceSink = AVAudioMixerNode()
+    /// Set once in init, removed in deinit; never mutated concurrently.
+    private var configObserver: NSObjectProtocol?
 
-    public init(audioEngine: AVAudioEngine = AVAudioEngine()) {
+    /// With `voiceProcessing`, Apple's echo cancellation removes audio this engine plays from the mic signal,
+    /// so Ivy's own voice doesn't drown out the user (needed for "Hey Ivy" over speakers). Share the engine
+    /// with the player for it to work.
+    public init(audioEngine: AVAudioEngine = AVAudioEngine(), voiceProcessing: Bool = false) {
         self.audioEngine = audioEngine
+        self.voiceProcessing = voiceProcessing
+        // Enabling voice processing (or a device change) reconfigures the engine and stops it right after
+        // start; without a restart the mic tap goes silent for the rest of the session.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: nil
+        ) { [weak self] _ in
+            guard let self, self.state.withLock({ $0.isCapturing }), !self.audioEngine.isRunning else { return }
+            do {
+                try self.audioEngine.start()
+                print("[AUDIO] engine restarted after configuration change")
+            } catch {
+                print("[AUDIO] capture error: restart after configuration change failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    deinit {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+        }
     }
 
     public func requestPermission() async -> Bool {
@@ -154,7 +184,21 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
             throw LiveError.microphonePermissionDenied
         }
 
+        // Installing a second tap on bus 0 raises an AVFoundation exception; restart cleanly instead.
+        await stopCapture()
+
         let inputNode = audioEngine.inputNode
+        if voiceProcessing && !inputNode.isVoiceProcessingEnabled {
+            // Voice processing can only be reconfigured while the engine is stopped (the player may have started it).
+            if audioEngine.isRunning { audioEngine.stop() }
+            do {
+                try inputNode.setVoiceProcessingEnabled(true)
+                // Don't duck the user's other apps while Ivy listens.
+                inputNode.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+            } catch {
+                print("[AUDIO] echo cancellation unavailable, capturing without it: \(error.localizedDescription)")
+            }
+        }
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
 
         guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else {
@@ -179,17 +223,36 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
             print("[AUDIO] capture error: \(err)")
             throw LiveError.connectionFailed(err)
         }
+        // Voice-processed input is multichannel (e.g. 5 ch); only channel 0 carries the echo-cancelled voice.
+        if hardwareFormat.channelCount > 1 {
+            converter.channelMap = [0]
+        }
+        if inputNode.isVoiceProcessingEnabled {
+            if voiceSink.engine == nil {
+                audioEngine.attach(voiceSink)
+            }
+            audioEngine.disconnectNodeOutput(inputNode)
+            audioEngine.connect(inputNode, to: voiceSink, format: hardwareFormat)
+            audioEngine.connect(voiceSink, to: audioEngine.mainMixerNode, format: nil)
+            voiceSink.outputVolume = 0
+        }
 
         let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
+        let captureId = UUID()
 
         state.withLock { s in
             s.isCapturing = true
+            s.captureId = captureId
             s.continuation = continuation
         }
 
         var bufferCount = 0
+        print("[AUDIO] TEMPDIAG input format=\(hardwareFormat) vp=\(inputNode.isVoiceProcessingEnabled)")
+        var tapCount = 0
         inputNode.installTap(onBus: 0, bufferSize: 2048, format: hardwareFormat) { [weak self] buffer, _ in
             guard let self else { return }
+            tapCount += 1
+            if tapCount <= 2 { print("[AUDIO] TEMPDIAG tap fired frames=\(buffer.frameLength) fmt=\(buffer.format)") }
 
             let frameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * 16000.0 / buffer.format.sampleRate)
             guard frameCapacity > 0,
@@ -218,23 +281,30 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
                 }
                 let cont = self.state.withLock { $0.continuation }
                 cont?.yield(chunk)
-            } else if let error {
-                print("[AUDIO] capture error: \(error.localizedDescription)")
+            } else {
+                if tapCount <= 2 { print("[AUDIO] TEMPDIAG convert status=\(status.rawValue) err=\(error?.localizedDescription ?? "nil") out=\(convertedBuffer.frameLength)") }
+                if let error { print("[AUDIO] capture error: \(error.localizedDescription)") }
             }
         }
 
         do {
             try audioEngine.start()
             print("[AUDIO] capture started")
+
         } catch {
             inputNode.removeTap(onBus: 0)
+            state.withLock { s in
+                s.isCapturing = false
+                s.captureId = nil
+                s.continuation = nil
+            }
             print("[AUDIO] capture error: \(error.localizedDescription)")
             throw LiveError.connectionFailed("Failed to start audio engine: \(error.localizedDescription)")
         }
 
         continuation.onTermination = { [weak self] _ in
             Task { [weak self] in
-                await self?.stopCapture()
+                await self?.stopCapture(only: captureId)
             }
         }
 
@@ -242,9 +312,16 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
     }
 
     public func stopCapture() async {
+        await stopCapture(only: nil)
+    }
+
+    /// Stops capture; with an id, only if that capture is still the live one.
+    private func stopCapture(only captureId: UUID?) async {
         let (wasCapturing, continuation) = state.withLock { s -> (Bool, AsyncThrowingStream<Data, Error>.Continuation?) in
+            if let captureId, s.captureId != captureId { return (false, nil) }
             let was = s.isCapturing
             s.isCapturing = false
+            s.captureId = nil
             let cont = s.continuation
             s.continuation = nil
             return (was, cont)
