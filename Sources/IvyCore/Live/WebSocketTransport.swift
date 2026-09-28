@@ -26,6 +26,8 @@ public final class MockWebSocketTransport: WebSocketTransport, @unchecked Sendab
         var isCancelled: Bool = false
         var closeCode: URLSessionWebSocketTask.CloseCode? = nil
         var sendError: Error? = nil
+        var activeReceives: Int = 0
+        var maxConcurrentReceives: Int = 0
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -46,6 +48,11 @@ public final class MockWebSocketTransport: WebSocketTransport, @unchecked Sendab
 
     public var closeCode: URLSessionWebSocketTask.CloseCode? {
         state.withLock { $0.closeCode }
+    }
+
+    /// Highest number of overlapping `receive()` calls; more than 1 means two receive loops shared this socket.
+    public var maxConcurrentReceives: Int {
+        state.withLock { $0.maxConcurrentReceives }
     }
 
     public func setSendError(_ error: Error?) {
@@ -73,6 +80,12 @@ public final class MockWebSocketTransport: WebSocketTransport, @unchecked Sendab
     }
 
     public func receive() async throws -> URLSessionWebSocketTask.Message {
+        state.withLock { s in
+            s.activeReceives += 1
+            s.maxConcurrentReceives = max(s.maxConcurrentReceives, s.activeReceives)
+        }
+        defer { state.withLock { $0.activeReceives -= 1 } }
+
         // Fast path: if there is already a queued message or error, return immediately
         let queuedResult: Result<URLSessionWebSocketTask.Message, Error>? = state.withLock { s in
             if !s.receiveQueue.isEmpty {

@@ -184,25 +184,23 @@ public struct BidiTextPart: Codable, Sendable, Equatable {
     }
 }
 
+/// Exactly one of `audio` / `mediaChunks` is set: the Live server closes the socket when a frame carries both.
 public struct BidiRealtimeInput: Codable, Sendable, Equatable {
     public let mediaChunks: [BidiBlob]?
     public let audio: BidiBlob?
 
     public init(audio: BidiBlob) {
         self.audio = audio
-        self.mediaChunks = [audio]
+        self.mediaChunks = nil
     }
 
     public init(mediaChunks: [BidiBlob]) {
         self.mediaChunks = mediaChunks
-        self.audio = mediaChunks.first
+        self.audio = nil
     }
 
     public init(pcmData: Data, sampleRate: Int = 16000) {
-        let base64 = pcmData.base64EncodedString()
-        let blob = BidiBlob(mimeType: "audio/pcm;rate=\(sampleRate)", data: base64)
-        self.mediaChunks = [blob]
-        self.audio = blob
+        self.init(audio: BidiBlob(mimeType: "audio/pcm;rate=\(sampleRate)", data: pcmData.base64EncodedString()))
     }
 }
 

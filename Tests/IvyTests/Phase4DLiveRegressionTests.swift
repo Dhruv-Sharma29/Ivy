@@ -464,8 +464,8 @@ struct Phase4DLiveRegressionTests {
         #expect(coordinator.state == .idle)
     }
 
-    @Test("16. Gemini Live API schema: BidiRealtimeInput serializes mediaChunks with 16kHz PCM data")
-    func testBidiRealtimeInputMediaChunksSchema() throws {
+    @Test("16. Gemini Live API schema: BidiRealtimeInput serializes 16kHz PCM as audio only, never alongside mediaChunks")
+    func testBidiRealtimeInputAudioOnlySchema() throws {
         let pcmData = Data([0x01, 0x02, 0x03, 0x04])
         let input = BidiRealtimeInput(pcmData: pcmData, sampleRate: 16000)
         let clientMessage = BidiClientMessage(realtimeInput: input)
@@ -474,10 +474,10 @@ struct Phase4DLiveRegressionTests {
         let json = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         let realtimeDict = try #require(json["realtimeInput"] as? [String: Any])
 
-        let mediaChunks = try #require(realtimeDict["mediaChunks"] as? [[String: Any]])
-        #expect(mediaChunks.count == 1)
-        #expect(mediaChunks.first?["mimeType"] as? String == "audio/pcm;rate=16000")
-        #expect(mediaChunks.first?["data"] as? String == pcmData.base64EncodedString())
+        #expect(Set(realtimeDict.keys) == ["audio"])
+        let audio = try #require(realtimeDict["audio"] as? [String: Any])
+        #expect(audio["mimeType"] as? String == "audio/pcm;rate=16000")
+        #expect(audio["data"] as? String == pcmData.base64EncodedString())
     }
 
     @Test("17. Audio pipeline: coordinator in .listening streams audio chunks to Gemini Live")

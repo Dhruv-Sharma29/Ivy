@@ -65,6 +65,10 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         state.withLock { $0.isConnected }
     }
 
+    var connectionId: UUID? {
+        state.withLock { $0.currentConnectionId }
+    }
+
     public func receiveEvents() -> AsyncThrowingStream<LiveEvent, Error> {
         let (stream, continuation) = AsyncThrowingStream<LiveEvent, Error>.makeStream()
 
@@ -100,7 +104,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         // Clean up any stale active connection before opening a new one
-        let oldWsAndTask = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, [CheckedContinuation<WebSocketTransport, Error>])? in
+        let oldWsAndTask = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, [CheckedContinuation<WebSocketTransport, Error>], UUID?)? in
             guard s.isConnected || (s.webSocket != nil && !s.isClosed) else {
                 s.isClosed = false
                 return nil
@@ -114,16 +118,18 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             s.webSocket = nil
             s.receiveTask = nil
             s.pendingSendContinuations = []
-            return (ws, task, sends)
+            return (ws, task, sends, s.currentConnectionId)
         }
 
-        if let (oldWs, oldTask, oldSends) = oldWsAndTask {
+        if let (oldWs, oldTask, oldSends, oldId) = oldWsAndTask {
+            print("[LIVE] reconnect requested")
+            print("[LIVE] socket closing id=\(Self.shortId(oldId)) reason=reconnect")
             for cont in oldSends {
                 cont.resume(throwing: LiveError.sessionClosed)
             }
             oldTask?.cancel()
             oldWs?.cancel(closeCode: .normalClosure, reason: nil)
-            print("[LIVE] connection closed")
+            print("[LIVE] socket closed id=\(Self.shortId(oldId))")
         }
 
         var request = URLRequest(url: url)
@@ -131,6 +137,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
 
         let ws = webSocketFactory(request)
         let connectionId = UUID()
+        let id = Self.shortId(connectionId)
         state.withLock { s in
             s.webSocket = ws
             s.currentConnectionId = connectionId
@@ -138,9 +145,10 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             s.isConnected = false
             s.isSetupSent = false
         }
+        print("[LIVE] socket created id=\(id)")
 
         ws.resume()
-        print("[LIVE] websocket connected")
+        print("[LIVE] socket connected id=\(id)")
 
         // Send Setup Message exactly once
         let shouldSendSetup = state.withLock { s -> Bool in
@@ -175,10 +183,10 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                     throw LiveError.setupFailed("Failed to encode setup payload.")
                 }
                 print("[LIVE VOICE] voice=Kore")
-                print("[LIVE] setup sent")
                 try await ws.send(.string(jsonString))
+                print("[LIVE] setup sent id=\(id)")
             } catch {
-                print("[LIVE] connection error: \(error.localizedDescription)")
+                print("[LIVE] socket closing id=\(id) reason=setup failed: \(error.localizedDescription)")
                 ws.cancel(closeCode: .normalClosure, reason: nil)
                 throw LiveError.setupFailed(error.localizedDescription)
             }
@@ -252,8 +260,9 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     }
 
     public func disconnect() async {
-        let (ws, task, continuation, pendingSends, wasActive) = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], Bool) in
+        let (ws, task, continuation, pendingSends, wasActive, closingId) = state.withLock { s -> (WebSocketTransport?, Task<Void, Never>?, AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], Bool, UUID?) in
             let wasActive = s.isConnected || (s.webSocket != nil && !s.isClosed)
+            let closingId = s.currentConnectionId
             s.isConnected = false
             s.isClosed = true
             s.isSetupSent = false
@@ -266,9 +275,12 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             s.receiveTask = nil
             s.continuation = nil
             s.pendingSendContinuations = []
-            return (ws, task, cont, sends, wasActive)
+            return (ws, task, cont, sends, wasActive, closingId)
         }
 
+        if wasActive {
+            print("[LIVE] socket closing id=\(Self.shortId(closingId)) reason=disconnect")
+        }
         for cont in pendingSends {
             cont.resume(throwing: LiveError.sessionClosed)
         }
@@ -276,24 +288,43 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         task?.cancel()
         ws?.cancel(closeCode: .normalClosure, reason: nil)
         if wasActive {
-            print("[LIVE] connection closed")
+            print("[LIVE] socket closed id=\(Self.shortId(closingId))")
         }
         continuation?.yield(.disconnected)
         continuation?.finish()
+    }
+
+    private static func shortId(_ id: UUID?) -> String {
+        id.map { String($0.uuidString.prefix(8)) } ?? "none"
+    }
+
+    /// The server's WebSocket close frame explains why it dropped us; `receive()` alone only reports "Socket is not connected".
+    private static func closeDetail(_ transport: WebSocketTransport) -> String {
+        guard let task = transport as? URLSessionWebSocketTask, task.closeCode != .invalid else { return "" }
+        let reason = task.closeReason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return " (close code \(task.closeCode.rawValue)\(reason.isEmpty ? "" : ": \(reason)"))"
     }
 
     // MARK: - Private Receive Loop
 
     private func startReceiveLoop(transport: WebSocketTransport, connectionId: UUID) {
         let task = Task { [weak self, transport] in
+            let id = Self.shortId(connectionId)
+            print("[LIVE] receive loop started id=\(id)")
+            var waitsLogged = 0
             while !Task.isCancelled {
+                // The first two waits prove the loop is still alive after setupComplete.
+                if waitsLogged < 2 {
+                    waitsLogged += 1
+                    print("[LIVE] receive waiting id=\(id)")
+                }
                 do {
                     let message = try await transport.receive()
                     guard let self else { break }
                     self.handleIncomingWebSocketMessage(message, connectionId: connectionId)
                 } catch {
                     guard let self else { break }
-                    self.handleReceiveError(error, connectionId: connectionId)
+                    self.handleReceiveError(error, connectionId: connectionId, transport: transport)
                     break
                 }
             }
@@ -329,18 +360,19 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             return
         }
 
+        let id = Self.shortId(connectionId)
+
         if let error = serverMessage.error {
             let msg = error.message ?? "Unknown server error (code: \(error.code ?? -1), status: \(error.status ?? "unknown"))"
-            print("[LIVE] server message received type=error")
+            print("[LIVE] receive message id=\(id) type=error")
             print("[LIVE] server error: \(msg)")
-            handleReceiveError(LiveError.serverError(msg), connectionId: connectionId)
+            handleReceiveError(LiveError.serverError(msg), connectionId: connectionId, transport: nil)
             return
         }
 
         if serverMessage.setupComplete != nil {
-            print("[LIVE] server message received type=setupComplete")
-            print("[LIVE] setup acknowledged")
-            print("[LIVE] receive loop started")
+            print("[LIVE] receive message id=\(id) type=setupComplete")
+            print("[LIVE] setup acknowledged id=\(id)")
             let (eventContinuation, pendingSends, ws) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], WebSocketTransport?) in
                 guard s.currentConnectionId == connectionId else {
                     return (nil, [], nil)
@@ -363,7 +395,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         if let toolCall = serverMessage.toolCall {
-            print("[LIVE] server message received type=toolCall")
+            print("[LIVE] receive message id=\(id) type=toolCall")
             let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
                 guard s.currentConnectionId == connectionId else { return nil }
                 return s.continuation
@@ -374,7 +406,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
 
         if let content = serverMessage.serverContent {
-            print("[LIVE] server message received type=serverContent")
+            print("[LIVE] receive message id=\(id) type=serverContent")
             let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
                 guard s.currentConnectionId == connectionId else { return nil }
                 return s.continuation
@@ -408,34 +440,42 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
     }
 
-    private func handleReceiveError(_ error: Error, connectionId: UUID) {
-        print("[LIVE] connection error: \(error.localizedDescription)")
-        let (continuation, pendingSends, wasActive) = state.withLock { s -> (AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], Bool) in
+    private func handleReceiveError(_ error: Error, connectionId: UUID, transport: WebSocketTransport?) {
+        let id = Self.shortId(connectionId)
+        let detail = transport.map(Self.closeDetail) ?? ""
+        let (current, continuation, pendingSends, ws) = state.withLock { s -> (Bool, AsyncThrowingStream<LiveEvent, Error>.Continuation?, [CheckedContinuation<WebSocketTransport, Error>], WebSocketTransport?) in
             guard s.currentConnectionId == connectionId else {
-                return (nil, [], false)
+                return (false, nil, [], nil)
             }
-            let wasActive = s.isConnected || (s.webSocket != nil && !s.isClosed)
             s.isConnected = false
             s.isClosed = true
             s.isSetupSent = false
+            let ws = s.webSocket
             s.webSocket = nil
+            s.receiveTask = nil
             s.currentConnectionId = nil
             let cont = s.continuation
             s.continuation = nil
             let sends = s.pendingSendContinuations
             s.pendingSendContinuations = []
-            return (cont, sends, wasActive)
+            return (true, cont, sends, ws)
         }
 
+        guard current else {
+            print("[LIVE] receive failed id=\(id) stale=true ignored error=\(error.localizedDescription)")
+            return
+        }
+
+        print("[LIVE] receive failed id=\(id) error=\(error.localizedDescription)\(detail)")
+        print("[LIVE] socket closing id=\(id) reason=receive failed")
         for cont in pendingSends {
             cont.resume(throwing: LiveError.sessionClosed)
         }
+        ws?.cancel(closeCode: .normalClosure, reason: nil)
+        print("[LIVE] socket closed id=\(id)")
 
-        if wasActive {
-            print("[LIVE] connection error: \(error.localizedDescription)")
-            print("[LIVE] connection closed")
-            continuation?.yield(.disconnected)
-            continuation?.finish()
-        }
+        // Throwing (not a quiet `.disconnected`) routes the coordinator through its failure teardown.
+        let surfaced = (error as? LiveError) ?? LiveError.connectionFailed(error.localizedDescription + detail)
+        continuation?.finish(throwing: surfaced)
     }
 }

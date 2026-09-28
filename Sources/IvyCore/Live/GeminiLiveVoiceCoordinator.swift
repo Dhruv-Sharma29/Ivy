@@ -269,7 +269,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 }
             } catch {
                 guard let self, self.currentSessionToken == token else { return }
-                self.handleFailure(error, token: token)
+                await self.handleFailure(error, token: token)
             }
         }
 
@@ -313,16 +313,16 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                             // Tool actively executing: do NOT stream mic audio to Gemini Live.
                         } else if self.state == .listening {
                             // Active user-turn capture: stream audio chunk to Gemini Live.
+                            try await session.sendAudio(chunk)
                             sentAudioFrameCount += 1
                             if sentAudioFrameCount == 1 || sentAudioFrameCount % 50 == 0 {
-                                print("[AUDIO] PCM frame sent bytes=\(chunk.count)")
+                                print("[AUDIO] PCM frame sent count=\(sentAudioFrameCount) bytes=\(chunk.count)")
                             }
-                            try await session.sendAudio(chunk)
                         }
                     }
                 } catch {
                     guard let self, self.currentSessionToken == token else { return }
-                    self.handleFailure(error, token: token)
+                    await self.handleFailure(error, token: token)
                 }
             }
         } catch {
@@ -468,7 +468,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                     try await session.sendToolResponse(response)
                 } catch {
                     guard self.currentSessionToken == token else { return }
-                    self.handleFailure(error, token: token)
+                    await self.handleFailure(error, token: token)
                 }
             }
 
@@ -484,7 +484,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             do {
                 try await audioPlayer.playChunk(data)
             } catch {
-                handleFailure(error, token: token)
+                await handleFailure(error, token: token)
             }
 
         case .textTurn(let text):
@@ -520,32 +520,17 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             state = .listening
 
         case .disconnected:
-            drainTask?.cancel()
-            drainTask = nil
-            toolExecutionTask?.cancel()
-            toolExecutionTask = nil
-            executingToolName = nil
-            if state.isLive {
-                state = .idle
-            }
+            // Our own stopSession() clears the token first, so reaching here means the socket dropped under us.
+            await handleFailure(LiveError.sessionClosed, token: token)
         }
     }
 
-    private func handleFailure(_ error: Error, token: UUID) {
+    /// Full teardown (mic tap, capture/drain/tool tasks, playback, socket, session token), then a stable error state.
+    private func handleFailure(_ error: Error, token: UUID) async {
         guard currentSessionToken == token else { return }
-        drainTask?.cancel()
-        drainTask = nil
-        toolExecutionTask?.cancel()
-        toolExecutionTask = nil
-        executingToolName = nil
+        await stopSession()
+        guard currentSessionToken == nil else { return }
         state = .error(error.localizedDescription)
-        Task { [weak self] in
-            guard let self, self.currentSessionToken == token else { return }
-            await self.audioCapture.stopCapture()
-            await self.audioPlayer.stop()
-            await self.wakeWordDetector.reset()
-            await self.session.disconnect()
-        }
     }
 }
 
