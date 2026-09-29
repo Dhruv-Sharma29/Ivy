@@ -8,6 +8,7 @@ struct IvyApp: App {
     @StateObject private var voiceManager: VoicePlaybackManager
     @StateObject private var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
     @StateObject private var settings: SettingsModel
+    @StateObject private var wakeWord: WakeWordController
 
     init() {
         // An unbundled `swift run Ivy` process starts as BackgroundOnly, which can never activate, so its
@@ -22,6 +23,9 @@ struct IvyApp: App {
         self._voiceManager = StateObject(wrappedValue: environment.voiceManager)
         self._liveVoiceCoordinator = StateObject(wrappedValue: environment.liveCoordinator)
         self._settings = StateObject(wrappedValue: environment.settings)
+        self._wakeWord = StateObject(wrappedValue: environment.wakeWord)
+        // Audible cue that Ivy woke up and is now listening for the request (like Siri's chime).
+        environment.wakeWord.onWake = { NSSound(named: "Tink")?.play() }
         IvyAppDelegate.shutdown = { await environment.shutdown() }
     }
 
@@ -31,7 +35,8 @@ struct IvyApp: App {
                 brain: brain,
                 voiceManager: voiceManager,
                 liveVoiceCoordinator: liveVoiceCoordinator,
-                settings: settings
+                settings: settings,
+                wakeWord: wakeWord
             )
         }
         .menuBarExtraStyle(.window)

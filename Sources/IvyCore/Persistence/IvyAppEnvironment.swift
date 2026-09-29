@@ -11,6 +11,8 @@ public final class IvyAppEnvironment {
     public let brain: IvyBrain
     public let voiceManager: VoicePlaybackManager
     public let liveCoordinator: GeminiLiveVoiceCoordinator
+    /// Idle "Hey Ivy" wake-up; only listens when the user has turned it on in settings.
+    public let wakeWord: WakeWordController
     /// Why push-to-talk isn't available, if registration failed (shown in the UI; no secrets).
     public private(set) var hotkeyError: String? = nil
 
@@ -22,6 +24,7 @@ public final class IvyAppEnvironment {
         conversationStore: ConversationStore,
         geminiClient: GeminiClientProtocol = URLSessionGeminiClient(),
         voiceManager: VoicePlaybackManager? = nil,
+        wakeWordListener: WakeWordListening = SystemWakeWordListener(),
         makeLiveCoordinator: (CredentialProvider, IvySettings) -> GeminiLiveVoiceCoordinator
     ) {
         // 1. Settings  2. Credentials
@@ -41,6 +44,10 @@ public final class IvyAppEnvironment {
         // 4/5. Voice + Live infrastructure, created idle.
         self.voiceManager = voiceManager ?? VoicePlaybackManager(credentials: credentials)
         self.liveCoordinator = makeLiveCoordinator(credentials, settings.settings)
+        // Opt-in only: with the setting off (the default) launch never opens the microphone.
+        let wakeWord = WakeWordController(listener: wakeWordListener, coordinator: liveCoordinator)
+        wakeWord.setEnabled(settings.settings.wakeWordEnabled)
+        self.wakeWord = wakeWord
 
         if settings.settings.pushToTalkEnabled {
             do {
@@ -51,8 +58,9 @@ public final class IvyAppEnvironment {
             }
         }
 
-        settingsSubscription = settings.$settings.sink { [weak brain] new in
+        settingsSubscription = settings.$settings.sink { [weak brain, weak wakeWord] new in
             brain?.persistsHistory = new.persistConversationHistory
+            wakeWord?.setEnabled(new.wakeWordEnabled)
         }
     }
 
@@ -75,6 +83,7 @@ public final class IvyAppEnvironment {
     /// Live (mic tap, socket, audio queue, hotkey) so nothing stale survives into the next launch.
     public func shutdown() async {
         brain.prepareForTermination()
+        await wakeWord.shutdown()
         voiceManager.stop()
         await liveCoordinator.shutdown()
     }

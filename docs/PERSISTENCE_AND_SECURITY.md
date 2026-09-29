@@ -70,6 +70,12 @@ the hotkey is unregistered. Nothing about a Live session is persisted, so no sta
 
 ## Security boundaries
 
+- Idle "Hey Ivy" wake-up (`wakeWordEnabled`, **off by default**) is the only feature that opens the microphone
+  without a click or key press. It uses on-device speech recognition only (`requiresOnDeviceRecognition`), so
+  ambient audio never leaves the Mac; it refuses to run if on-device English recognition is unavailable. The header
+  shows "Say “Hey Ivy”" whenever it is listening. A wake session answers one request and closes (or closes after
+  ~8 s of silence), then listening resumes.
+
 - Secrets: Keychain only (plus read-only environment fallback). Never in UserDefaults, files, logs, source,
   SwiftUI state or history.
 - Logs: kinds, counts, sizes, ids and state names only. `IVY_DEBUG_WIRE` payload dumps exist only in DEBUG

@@ -6,6 +6,7 @@ public struct IvyPopoverView: View {
     @ObservedObject public var voiceManager: VoicePlaybackManager
     @ObservedObject public var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
     @ObservedObject public var settings: SettingsModel
+    @ObservedObject public var wakeWord: WakeWordController
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
 
@@ -13,12 +14,14 @@ public struct IvyPopoverView: View {
         brain: IvyBrain,
         voiceManager: VoicePlaybackManager,
         liveVoiceCoordinator: GeminiLiveVoiceCoordinator,
-        settings: SettingsModel
+        settings: SettingsModel,
+        wakeWord: WakeWordController
     ) {
         self.brain = brain
         self.voiceManager = voiceManager
         self.liveVoiceCoordinator = liveVoiceCoordinator
         self.settings = settings
+        self.wakeWord = wakeWord
     }
 
     public var body: some View {
@@ -175,6 +178,16 @@ public struct IvyPopoverView: View {
                 .background(Color.orange.opacity(0.2))
                 .foregroundStyle(Color.orange)
                 .clipShape(Capsule())
+        } else if wakeWord.status == .listening {
+            // The microphone is open for the wake word: always make that visible.
+            Label("Say \u{201C}Hey Ivy\u{201D}", systemImage: "ear")
+                .font(.system(size: 10, weight: .medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.green.opacity(0.15))
+                .foregroundStyle(Color.green)
+                .clipShape(Capsule())
+                .help("Listening on-device for the wake word. Turn off in Settings.")
         }
     }
 
@@ -376,7 +389,7 @@ public struct IvyPopoverView: View {
 
     // MARK: - Settings Bar
     private var settingsBar: some View {
-        SettingsPanel(credentials: brain.credentials, settings: settings) {
+        SettingsPanel(credentials: brain.credentials, settings: settings, wakeWord: wakeWord) {
             brain.refreshCredentialStatus()
         }
     }

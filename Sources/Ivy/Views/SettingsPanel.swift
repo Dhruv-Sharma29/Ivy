@@ -5,6 +5,7 @@ import IvyCore
 struct SettingsPanel: View {
     let credentials: CredentialProvider
     @ObservedObject var settings: SettingsModel
+    @ObservedObject var wakeWord: WakeWordController
     var permissionManager: PermissionManaging = SystemPermissionManager()
     let onCredentialsChanged: () -> Void
 
@@ -21,6 +22,13 @@ struct SettingsPanel: View {
                 Toggle("Show live transcript", isOn: $settings.settings.showLiveTranscript)
                 Toggle("Echo cancellation for \"Hey Ivy\" (next launch)", isOn: $settings.settings.echoCancellation)
                 Toggle("Push-to-talk shortcut (next launch)", isOn: $settings.settings.pushToTalkEnabled)
+                Toggle("Wake with \u{201C}Hey Ivy\u{201D} (keeps the mic open, on-device only)", isOn: $settings.settings.wakeWordEnabled)
+                if let wakeStatus {
+                    Text(wakeStatus.text)
+                        .font(.system(size: 10))
+                        .foregroundStyle(wakeStatus.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .toggleStyle(.checkbox)
             .font(.system(size: 11))
@@ -59,6 +67,17 @@ struct SettingsPanel: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
+extension SettingsPanel {
+    fileprivate var wakeStatus: (text: String, color: Color)? {
+        switch wakeWord.status {
+        case .off: return nil
+        case .listening: return ("Listening for \u{201C}Hey Ivy\u{201D}.", .green)
+        case .paused: return ("Paused while a voice session is active.", .secondary)
+        case .unavailable(let reason): return (reason, .orange)
+        }
     }
 }
 
