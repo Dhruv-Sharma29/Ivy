@@ -262,7 +262,7 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
                         }
 
                         if !isAlreadyDetected, let lastRolling = rolling.last, now.timeIntervalSince(lastRolling.timestamp) < 2.0 {
-                            if lastRolling.token == "hey" && currentTokens.first == "ivy" {
+                            if WakePhraseMatcher.isHey(lastRolling.token), let first = currentTokens.first, WakePhraseMatcher.isIvy(first) {
                                 matchedTranscript = "Hey Ivy"
                             }
                         }

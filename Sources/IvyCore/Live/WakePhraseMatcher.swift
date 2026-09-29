@@ -2,14 +2,24 @@ import Foundation
 
 /// Fast, deterministic, normalized wake-phrase matching for Ivy interruptions.
 public struct WakePhraseMatcher: Sendable {
-    /// Checks whether the provided text contains the wake phrase "Hey Ivy" (case-insensitive, ignoring punctuation).
+    /// How the recognizer renders a spoken "hey". Said over Ivy's own voice, echo suppression clips its onset,
+    /// so it often comes back as "a", "AI" or "eh". Other greetings ("hi", "hello") are deliberately excluded:
+    /// only "Hey Ivy" interrupts.
+    static let heyVariants: Set<String> = ["hey", "hay", "hei", "heh", "eh", "ay", "aye", "a", "ai"]
+    /// How the recognizer renders "Ivy" (whole tokens only, so "Ivyberry" never matches).
+    static let ivyVariants: Set<String> = ["ivy", "ivey", "ivie", "ivee", "iv", "ivory"]
+
+    public static func isHey(_ token: String) -> Bool { heyVariants.contains(token) }
+    public static func isIvy(_ token: String) -> Bool { ivyVariants.contains(token) }
+
+    /// Checks whether the text contains "Hey Ivy" (case-insensitive, punctuation ignored, common mishearings allowed).
     public static func containsWakePhrase(_ text: String) -> Bool {
         let tokens = extractTokens(text)
         guard tokens.count >= 2 else { return false }
-        for i in 0..<(tokens.count - 1) {
-            if tokens[i] == "hey" && tokens[i + 1] == "ivy" {
-                return true
-            }
+        for i in 0..<(tokens.count - 1) where isHey(tokens[i]) {
+            if isIvy(tokens[i + 1]) { return true }
+            // Spelled-out "I V".
+            if tokens[i + 1] == "i", i + 2 < tokens.count, tokens[i + 2] == "v" { return true }
         }
         return false
     }

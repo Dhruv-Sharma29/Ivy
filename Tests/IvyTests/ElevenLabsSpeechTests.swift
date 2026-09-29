@@ -589,7 +589,8 @@ struct VoicePlaybackManagerTests {
         let manager = VoicePlaybackManager(synthesizer: mockSynth, player: MockAudioPlayer())
 
         manager.speak(message: ChatMessage(role: .model, text: "Fail now"))
-        try await Task.sleep(nanoseconds: 20_000_000)
+        // Poll instead of a fixed 20ms sleep, which a loaded main actor can overrun.
+        for _ in 0..<400 where manager.errorMessage == nil { try await Task.sleep(nanoseconds: 5_000_000) }
 
         #expect(manager.errorMessage != nil)
         if case .error = manager.state {

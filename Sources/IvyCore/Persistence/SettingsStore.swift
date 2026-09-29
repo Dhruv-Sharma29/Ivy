@@ -13,13 +13,16 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var pushToTalkEnabled: Bool
     /// Show the live transcript line in the voice bar.
     public var showLiveTranscript: Bool
+    /// "Hey Ivy" wakes Ivy while idle (like "Hey Siri"). Keeps the mic open with on-device recognition, so opt-in.
+    public var wakeWordEnabled: Bool
 
     public static let defaults = IvySettings(
         persistConversationHistory: true,
         restoreLastConversation: true,
         echoCancellation: true,
         pushToTalkEnabled: true,
-        showLiveTranscript: true
+        showLiveTranscript: true,
+        wakeWordEnabled: false
     )
 
     public init(
@@ -27,13 +30,15 @@ public struct IvySettings: Codable, Equatable, Sendable {
         restoreLastConversation: Bool,
         echoCancellation: Bool,
         pushToTalkEnabled: Bool,
-        showLiveTranscript: Bool
+        showLiveTranscript: Bool,
+        wakeWordEnabled: Bool = false
     ) {
         self.persistConversationHistory = persistConversationHistory
         self.restoreLastConversation = restoreLastConversation
         self.echoCancellation = echoCancellation
         self.pushToTalkEnabled = pushToTalkEnabled
         self.showLiveTranscript = showLiveTranscript
+        self.wakeWordEnabled = wakeWordEnabled
     }
 
     /// Missing or wrongly-typed fields fall back to their defaults individually, so an older or
@@ -49,6 +54,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
         echoCancellation = value(.echoCancellation, d.echoCancellation)
         pushToTalkEnabled = value(.pushToTalkEnabled, d.pushToTalkEnabled)
         showLiveTranscript = value(.showLiveTranscript, d.showLiveTranscript)
+        wakeWordEnabled = value(.wakeWordEnabled, d.wakeWordEnabled)
     }
 }
 

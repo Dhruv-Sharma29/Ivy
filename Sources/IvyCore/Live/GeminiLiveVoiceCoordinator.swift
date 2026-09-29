@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Combine
 import AVFoundation
 
@@ -86,6 +87,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     public private(set) var isPushToTalkActive: Bool = false
     public private(set) var wasSessionStartedByPushToTalk: Bool = false
+    /// Started by the idle "Hey Ivy" wake word: ends after one answered turn, or after silence.
+    public private(set) var wasSessionStartedByWakeWord: Bool = false
+    private let wakeSilenceTimeout: Duration
+    private var wakeWatchdogTask: Task<Void, Never>? = nil
+    private var lastHeardVoiceAt: ContinuousClock.Instant? = nil
     private var currentSessionToken: UUID? = nil
 
     private var confirmationContinuation: CheckedContinuation<Bool, Never>? = nil
@@ -121,7 +127,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         wakeWordDetector: WakeWordDetectorProtocol = SystemWakeWordDetector(),
         hotkeyManager: GlobalHotkeyManaging? = nil,
         toolDispatcher: ToolDispatcher? = nil,
-        setupTimeout: Duration = .seconds(15)
+        setupTimeout: Duration = .seconds(15),
+        wakeSilenceTimeout: Duration = .seconds(8)
     ) {
         self.session = session
         self.audioCapture = audioCapture
@@ -129,6 +136,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         self.wakeWordDetector = wakeWordDetector
         self.hotkeyManager = hotkeyManager
         self.setupTimeout = setupTimeout
+        self.wakeSilenceTimeout = wakeSilenceTimeout
 
         if let toolDispatcher {
             self.toolDispatcher = toolDispatcher
@@ -152,6 +160,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     public static let liveVoiceName: String = GeminiLiveClient.liveVoiceName
+    /// One line per "Hey Ivy" barge-in (`log stream --predicate 'subsystem == "com.ivy.assistant"'`); never the transcript.
+    nonisolated static let bargeInLog = Logger(subsystem: "com.ivy.assistant", category: "barge-in")
 
     /// Convenience initializer using production implementations. The Gemini key is re-read from `credentials`
     /// at every session start, so a key saved in settings applies without relaunching.
@@ -227,6 +237,34 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         case .connecting, .thinking, .speaking, .interrupting, .toolConfirmation, .toolExecution:
             // Active session or transition in progress; do not start duplicate or interrupt speaking
             break
+        }
+    }
+
+    /// Starts a session because the idle "Hey Ivy" wake word fired. Like "Hey Siri", it answers one request and
+    /// closes; if nobody speaks within `wakeSilenceTimeout` (e.g. a false trigger) it closes without a turn.
+    public func startWakeSession() async {
+        guard !state.isLive else { return }
+        await startSession()
+        guard state.isLive, let token = currentSessionToken else { return }
+        wasSessionStartedByWakeWord = true
+        let startedAt = clock.now
+        wakeWatchdogTask = Task { [weak self] in
+            while true {
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return // cancelled by teardown
+                }
+                guard let self, self.currentSessionToken == token else { return }
+                // A reply (or tool activity) has started: the turn-end path closes the session from here.
+                guard self.state == .listening || self.state == .connecting else { return }
+                let reference = max(startedAt, self.lastHeardVoiceAt ?? startedAt)
+                if self.clock.now - reference > self.wakeSilenceTimeout {
+                    print("[VOICE] wake session closed: no request heard")
+                    await self.stopSession()
+                    return
+                }
+            }
         }
     }
 
@@ -378,6 +416,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                             // Active user-turn capture: stream audio chunk to Gemini Live.
                             if Self.containsVoice(chunk) {
                                 self.turnReferenceAt = self.clock.now
+                                self.lastHeardVoiceAt = self.turnReferenceAt
                             }
                             try await session.sendAudio(chunk)
                             sentAudioFrameCount += 1
@@ -414,6 +453,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         drainTask?.cancel()
         toolExecutionTask?.cancel()
         setupWatchdogTask?.cancel()
+        wakeWatchdogTask?.cancel()
+        wakeWatchdogTask = nil
+        lastHeardVoiceAt = nil
         captureTask = nil
         eventTask = nil
         drainTask = nil
@@ -445,6 +487,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         transition(to: finalState)
         latestTranscript = ""
         wasSessionStartedByPushToTalk = false
+        wasSessionStartedByWakeWord = false
     }
 
     /// Handles explicit wake phrase ("Hey Ivy") detection while Ivy is speaking or waiting for confirmation.
@@ -471,6 +514,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         // A stopSession/failure during the awaits above owns the state now.
         guard state == .interrupting else { return }
         transition(to: .listening)
+        Self.bargeInLog.notice("barge-in: wake phrase interrupted speech; playback stopped, listening")
     }
 
     /// Evaluates transcription text directly for "Hey Ivy" interruption.
@@ -648,7 +692,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Ends a model turn: back to LISTENING, or closes a push-to-talk session whose key is already released.
     private func finishTurn() async {
         await wakeWordDetector.reset()
-        if wasSessionStartedByPushToTalk && !isPushToTalkActive {
+        if (wasSessionStartedByPushToTalk && !isPushToTalkActive) || wasSessionStartedByWakeWord {
             await stopSession()
         } else {
             transition(to: .listening)

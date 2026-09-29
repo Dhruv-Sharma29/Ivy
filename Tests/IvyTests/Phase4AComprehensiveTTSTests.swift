@@ -1038,7 +1038,8 @@ struct Phase4APrivacyTests {
         let msg = ChatMessage(role: .model, text: "Privacy test audio")
         manager.speak(message: msg)
 
-        try await Task.sleep(nanoseconds: 30_000_000)
+        // Poll instead of a fixed 30ms sleep, which a loaded main actor can overrun.
+        for _ in 0..<400 where player.playedData.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
 
         // Verify audio was passed directly in-memory to player and not written to disk
         #expect(player.playedData == [mockAudio])
