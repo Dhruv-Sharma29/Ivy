@@ -319,6 +319,16 @@ public struct IvyPopoverView: View {
 
             Spacer()
 
+            if message.contains("denied") || message.contains("Microphone access") {
+                Button("Settings…") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .buttonStyle(.link)
+            }
+
             Button {
                 Task {
                     await liveVoiceCoordinator.stopSession()

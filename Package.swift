@@ -23,7 +23,8 @@ let package = Package(
             name: "Ivy",
             dependencies: ["IvyCore"],
             exclude: [
-                "Resources/Info.plist"
+                "Resources/Info.plist",
+                "Resources/Ivy.entitlements"
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

@@ -5,6 +5,7 @@ import IvyCore
 struct SettingsPanel: View {
     let credentials: CredentialProvider
     @ObservedObject var settings: SettingsModel
+    var permissionManager: PermissionManaging = SystemPermissionManager()
     let onCredentialsChanged: () -> Void
 
     var body: some View {
@@ -24,6 +25,28 @@ struct SettingsPanel: View {
             .toggleStyle(.checkbox)
             .font(.system(size: 11))
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Permissions")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Privacy Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.link)
+                }
+
+                PermissionRow(title: "Microphone", state: permissionManager.status(for: .microphone))
+                PermissionRow(title: "Speech Recognition", state: permissionManager.status(for: .speechRecognition))
+                PermissionRow(title: "Calendar", state: permissionManager.status(for: .calendar))
+            }
+
             HStack {
                 Spacer()
                 Button("Quit Ivy") { NSApp.terminate(nil) }
@@ -33,6 +56,36 @@ struct SettingsPanel: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
+private struct PermissionRow: View {
+    let title: String
+    let state: PermissionState
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 10))
+            Spacer()
+            badge
+        }
+    }
+
+    @ViewBuilder
+    private var badge: some View {
+        switch state {
+        case .authorized:
+            Text("Allowed").font(.system(size: 9, weight: .medium)).foregroundStyle(.green)
+        case .denied:
+            Text("Denied").font(.system(size: 9, weight: .medium)).foregroundStyle(.red)
+        case .restricted:
+            Text("Restricted").font(.system(size: 9, weight: .medium)).foregroundStyle(.orange)
+        case .notDetermined:
+            Text("Not requested").font(.system(size: 9)).foregroundStyle(.secondary)
+        case .unsupported:
+            Text("Unsupported").font(.system(size: 9)).foregroundStyle(.secondary)
+        }
     }
 }
 

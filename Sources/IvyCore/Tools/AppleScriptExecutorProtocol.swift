@@ -33,6 +33,9 @@ private enum MainActorAppleScriptLauncher {
                 ?? "AppleScript execution error"
             let number = error[NSAppleScript.errorNumber] as? Int
             if let number {
+                if number == -1743 {
+                    throw ToolError.executionFailed("Automation permission denied (Error -1743). Please grant Ivy permission to automate target applications in macOS System Settings > Privacy & Security > Automation.")
+                }
                 throw ToolError.executionFailed("Error \(number): \(message)")
             } else {
                 throw ToolError.executionFailed(message)

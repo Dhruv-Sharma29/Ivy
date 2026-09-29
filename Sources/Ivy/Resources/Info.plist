@@ -6,19 +6,25 @@
     <string>com.ivy.assistant</string>
     <key>CFBundleName</key>
     <string>Ivy</string>
+    <key>CFBundleExecutable</key>
+    <string>Ivy</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
     <key>LSUIElement</key>
     <true/>
-    <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
-    <key>NSCalendarsUsageDescription</key>
-    <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Ivy needs access to your microphone for live voice conversations.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Ivy uses speech recognition to detect the "Hey Ivy" wake phrase for interruption.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Ivy needs permission to automate macOS applications on your behalf.</string>
 </dict>
 </plist>
