@@ -89,9 +89,12 @@ public struct IvyPopoverView: View {
     // MARK: - Header
     private var headerView: some View {
         HStack {
-            Image(systemName: "sparkle")
-                .foregroundStyle(Color.accentColor)
-                .font(.system(size: 14, weight: .semibold))
+            Image(nsImage: IvyLogoImage.template)
+                .renderingMode(.template)
+                .resizable()
+                .frame(width: 16, height: 16)
+                .foregroundStyle(Color(red: 0.231, green: 0.745, blue: 0.431))
+                .accessibilityHidden(true)
 
             Text("Ivy")
                 .font(.system(size: 14, weight: .bold))

@@ -24,7 +24,8 @@ let package = Package(
             dependencies: ["IvyCore"],
             exclude: [
                 "Resources/Info.plist",
-                "Resources/Ivy.entitlements"
+                "Resources/Ivy.entitlements",
+                "Resources/AppIcon.icns"
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

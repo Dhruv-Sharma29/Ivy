@@ -45,6 +45,7 @@ echo "--> Packaging $APP_BUNDLE..."
 cp ".build/release/Ivy" "$APP_BUNDLE/Contents/MacOS/Ivy"
 chmod +x "$APP_BUNDLE/Contents/MacOS/Ivy"
 cp "Sources/Ivy/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+cp "Sources/Ivy/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
 # Ensure CFBundleExecutable is set to 'Ivy'
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Ivy" "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || \
@@ -123,12 +124,19 @@ if [ "${SKIP_DMG:-0}" != "1" ]; then
     cp -R "$APP_BUNDLE" "$DMG_STAGING/"
     ln -s /Applications "$DMG_STAGING/Applications"
 
-    hdiutil create \
-        -volname "Ivy" \
-        -srcfolder "$DMG_STAGING" \
-        -ov \
-        -format UDZO \
-        "$DMG_PATH" >/dev/null
+    # Build writable first so the mounted volume can get Ivy's icon, then compress to the read-only UDZO image.
+    DMG_RW="$DIST_DIR/Ivy-rw.dmg"
+    rm -f "$DMG_RW"
+    hdiutil create -volname "Ivy" -srcfolder "$DMG_STAGING" -ov -format UDRW "$DMG_RW" >/dev/null
+    MOUNT_DIR="$(mktemp -d)"
+    hdiutil attach "$DMG_RW" -mountpoint "$MOUNT_DIR" -nobrowse -noverify -noautoopen >/dev/null
+    cp "Sources/Ivy/Resources/AppIcon.icns" "$MOUNT_DIR/.VolumeIcon.icns"
+    SetFile -c icnC "$MOUNT_DIR/.VolumeIcon.icns"
+    SetFile -a C "$MOUNT_DIR"
+    hdiutil detach "$MOUNT_DIR" >/dev/null
+    rmdir "$MOUNT_DIR"
+    hdiutil convert "$DMG_RW" -format UDZO -o "$DMG_PATH" -ov >/dev/null
+    rm -f "$DMG_RW"
 
     rm -rf "$DMG_STAGING"
 
@@ -174,6 +182,12 @@ else
     echo "      1. Set NOTARY_PROFILE=<profile_name> (configured via 'xcrun notarytool store-credentials'), OR"
     echo "      2. Set APPLE_ID, APPLE_PASSWORD, and APPLE_TEAM_ID environment variables."
     echo "    See docs/RELEASE.md for step-by-step instructions."
+fi
+
+# 8b. Give the .dmg file itself Ivy's icon in Finder. Done after signing/stapling: the icon lives in the file's
+# resource fork, outside the signed data. (Web downloads may drop it; the mounted volume keeps its icon regardless.)
+if [ -f "$DMG_PATH" ]; then
+    osascript -l JavaScript -e "ObjC.import('AppKit'); \$.NSWorkspace.sharedWorkspace.setIconForFileOptions(\$.NSImage.alloc.initWithContentsOfFile('$PWD/Sources/Ivy/Resources/AppIcon.icns'), '$PWD/$DMG_PATH', 0)" >/dev/null
 fi
 
 # 9. Release Artifact Checksums

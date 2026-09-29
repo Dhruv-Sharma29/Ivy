@@ -30,7 +30,7 @@ struct IvyApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Ivy", systemImage: brain.statusIcon) {
+        MenuBarExtra {
             IvyPopoverView(
                 brain: brain,
                 voiceManager: voiceManager,
@@ -38,6 +38,13 @@ struct IvyApp: App {
                 settings: settings,
                 wakeWord: wakeWord
             )
+        } label: {
+            // Idle shows Ivy's leaf logo; busy states keep their SF Symbols (thinking, approval, error).
+            if brain.statusIcon == "sparkle" {
+                Image(nsImage: IvyLogoImage.template)
+            } else {
+                Image(systemName: brain.statusIcon)
+            }
         }
         .menuBarExtraStyle(.window)
     }

@@ -1,12 +1,52 @@
+# Swift Package Manager / build output
 .build/
 .swiftpm/
+DerivedData/
+Package.resolved.orig
+
+# Xcode
 *.xcodeproj
 *.xcworkspace
-.DS_Store
-DerivedData/
-.vscode/
-.codebase-memory/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Release artifacts (scripts/package-release.sh, scripts/run-ivy-app.sh)
+dist/
+/*.app
+*.dmg
+*.iconset/
+
+# Code coverage (swift test --enable-code-coverage)
+*.profraw
+*.profdata
+*.lcov
+
+# Secrets — keys live in the Keychain, never in the repo
 .env
 .env.*
+!.env.example
+*.p8
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+AuthKey_*.p8
+
+# Logs (includes the opt-in IVY_DEBUG_WIRE dump and app diagnostics)
 *.log
-dist/
+
+# Editors & tools
+.vscode/
+.idea/
+.codebase-memory/
+
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+Icon?
