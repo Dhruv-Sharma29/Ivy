@@ -17,7 +17,7 @@ cp Sources/Ivy/Resources/Info.plist "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string Ivy" "$app/Contents/Info.plist" 2>/dev/null || true
 entitlements="Sources/Ivy/Resources/Ivy.entitlements"
 # A stable signing identity keeps macOS privacy grants (mic, speech, calendar) across rebuilds; ad-hoc re-prompts each time.
-identity=$(security find-identity -p codesigning -v 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')
+identity="${CODESIGN_IDENTITY:-$(security find-identity -p codesigning -v 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')}"
 codesign --force --options runtime --entitlements "$entitlements" --sign "${identity:--}" "$app"
 
 for key in GEMINI_API_KEY ELEVENLABS_API_KEY; do

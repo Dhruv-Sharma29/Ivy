@@ -48,6 +48,9 @@ struct SettingsPanel: View {
             }
 
             HStack {
+                Text(IvyVersion.displayVersion)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
                 Spacer()
                 Button("Quit Ivy") { NSApp.terminate(nil) }
                     .font(.system(size: 11))

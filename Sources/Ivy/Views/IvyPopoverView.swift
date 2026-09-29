@@ -433,21 +433,50 @@ public struct IvyPopoverView: View {
 
     // MARK: - Empty State
     private var emptyStateView: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "sparkles")
-                .font(.system(size: 36))
-                .foregroundStyle(Color.accentColor.opacity(0.8))
+            if !brain.isGeminiKeyConfigured {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(Color.accentColor.opacity(0.8))
 
-            Text("Ivy is ready.")
-                .font(.system(size: 15, weight: .semibold))
+                Text("Welcome to Ivy")
+                    .font(.system(size: 15, weight: .semibold))
 
-            Text("I'm waiting. Make it interesting or don't waste my time.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+                Text("To begin pair-programming, tool automation, and voice conversations, enter your Gemini API key in Settings.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
 
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showSettings = true
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "gearshape")
+                        Text("Configure API Keys")
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.top, 4)
+            } else {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 36))
+                    .foregroundStyle(Color.accentColor.opacity(0.8))
+
+                Text("Ivy is ready.")
+                    .font(.system(size: 15, weight: .semibold))
+
+                Text("I'm waiting. Make it interesting or don't waste my time.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity, minHeight: 320)
