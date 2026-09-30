@@ -36,7 +36,8 @@ public final class VoicePlaybackManager: ObservableObject {
         synthesizer: SpeechSynthesizer? = nil,
         player: AudioPlayerProtocol? = nil,
         apiKey: String? = nil,
-        credentials: CredentialProvider? = nil
+        credentials: CredentialProvider? = nil,
+        voiceSettings: @escaping @Sendable () -> ElevenLabsVoiceSettings = { ElevenLabsVoiceSettings() }
     ) {
         if let synthesizer {
             self.synthesizer = synthesizer
@@ -48,7 +49,7 @@ public final class VoicePlaybackManager: ObservableObject {
             // The key is resolved per request (Keychain, then environment); it is never kept as observable state.
             let keyProvider: ElevenLabsKeyProvider = apiKey.map { StaticElevenLabsKeyProvider(key: $0) }
                 ?? CredentialElevenLabsKeyProvider(credentials: credentials ?? KeychainCredentialProvider())
-            self.synthesizer = ElevenLabsSpeechSynthesizer(keyProvider: keyProvider)
+            self.synthesizer = ElevenLabsSpeechSynthesizer(keyProvider: keyProvider, voiceSettings: voiceSettings)
         }
         self.player = player ?? SystemAudioPlayer()
     }

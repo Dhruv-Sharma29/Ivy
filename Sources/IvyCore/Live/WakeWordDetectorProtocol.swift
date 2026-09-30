@@ -224,6 +224,9 @@ public final class SystemWakeWordDetector: WakeWordDetectorProtocol, @unchecked 
 
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
+            // On this Mac when possible: faster partials and no audio sent to Apple. Server recognition is the
+            // fallback, and only ever in-session (the idle wake listener refuses to run without on-device).
+            request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
             request.contextualStrings = ["Hey Ivy", "Ivy", "Hey"]
 
             let taskId = UUID()

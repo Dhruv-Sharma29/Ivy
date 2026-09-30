@@ -224,7 +224,13 @@ public final class SystemLiveAudioPlayer: LiveAudioPlayerProtocol, @unchecked Se
         }
         print("[AUDIO] playback scheduled bytes=\(data.count)")
 
-        playerNode.scheduleBuffer(pcmBuffer) { [weak self] in
+        schedule(pcmBuffer, generation: generation)
+    }
+
+    /// Synchronous on purpose: the completion-handler overload lets `playChunk` return as soon as the buffer is
+    /// queued (streaming), where the async overload would suspend until the buffer has finished playing.
+    private func schedule(_ buffer: AVAudioPCMBuffer, generation: Int) {
+        playerNode.scheduleBuffer(buffer) { [weak self] in
             guard let self else { return }
             let continuations = self.state.withLock { s -> [CheckedContinuation<Void, Never>] in
                 // playerNode.stop() fires handlers of purged buffers, possibly after new ones were scheduled.

@@ -40,6 +40,7 @@ public struct MessageInputBar: View {
                 }
                 .buttonStyle(.plain)
                 .help(isVoiceActive ? "Stop Ivy Live" : "Start Ivy Live")
+                .accessibilityLabel(isVoiceActive ? "Stop voice session" : "Start voice session")
                 .disabled(isThinking)
                 .padding(.bottom, 2)
             }
@@ -75,6 +76,7 @@ public struct MessageInputBar: View {
             .buttonStyle(.plain)
             .disabled(!canSend)
             .padding(.bottom, 2)
+            .accessibilityLabel("Send message")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

@@ -27,17 +27,29 @@ public struct BidiSetup: Codable, Sendable, Equatable {
     public let generationConfig: BidiGenerationConfig
     public let systemInstruction: BidiSystemInstruction?
     public let tools: [ToolDeclarationWrapper]?
+    /// Present (as `{}`) when the server should send text transcripts of what the user said / what Ivy said.
+    public let inputAudioTranscription: BidiTranscriptionConfig?
+    public let outputAudioTranscription: BidiTranscriptionConfig?
+    /// Turn-taking tuning. Absent = the server's own activity detection defaults.
+    public let realtimeInputConfig: BidiRealtimeInputConfig?
 
     public init(
         model: String = "models/gemini-3.1-flash-live-preview",
         generationConfig: BidiGenerationConfig? = nil,
         systemInstruction: BidiSystemInstruction? = nil,
-        tools: [ToolDeclarationWrapper]? = nil
+        tools: [ToolDeclarationWrapper]? = nil,
+        transcribesAudio: Bool = false,
+        silenceDurationMs: Int? = nil
     ) {
+        self.realtimeInputConfig = silenceDurationMs.map {
+            BidiRealtimeInputConfig(automaticActivityDetection: BidiActivityDetection(silenceDurationMs: $0))
+        }
         self.model = model
         self.generationConfig = generationConfig ?? BidiGenerationConfig()
         self.systemInstruction = systemInstruction
         self.tools = tools
+        self.inputAudioTranscription = transcribesAudio ? BidiTranscriptionConfig() : nil
+        self.outputAudioTranscription = transcribesAudio ? BidiTranscriptionConfig() : nil
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -45,6 +57,9 @@ public struct BidiSetup: Codable, Sendable, Equatable {
         case generationConfig
         case systemInstruction
         case tools
+        case inputAudioTranscription
+        case outputAudioTranscription
+        case realtimeInputConfig
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +68,9 @@ public struct BidiSetup: Codable, Sendable, Equatable {
         self.generationConfig = (try? container.decode(BidiGenerationConfig.self, forKey: .generationConfig)) ?? BidiGenerationConfig()
         self.systemInstruction = try? container.decode(BidiSystemInstruction.self, forKey: .systemInstruction)
         self.tools = try? container.decode([ToolDeclarationWrapper].self, forKey: .tools)
+        self.inputAudioTranscription = try container.decodeIfPresent(BidiTranscriptionConfig.self, forKey: .inputAudioTranscription)
+        self.outputAudioTranscription = try container.decodeIfPresent(BidiTranscriptionConfig.self, forKey: .outputAudioTranscription)
+        self.realtimeInputConfig = try container.decodeIfPresent(BidiRealtimeInputConfig.self, forKey: .realtimeInputConfig)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -61,6 +79,40 @@ public struct BidiSetup: Codable, Sendable, Equatable {
         try container.encode(generationConfig, forKey: .generationConfig)
         try container.encodeIfPresent(systemInstruction, forKey: .systemInstruction)
         try container.encodeIfPresent(tools, forKey: .tools)
+        try container.encodeIfPresent(inputAudioTranscription, forKey: .inputAudioTranscription)
+        try container.encodeIfPresent(outputAudioTranscription, forKey: .outputAudioTranscription)
+        try container.encodeIfPresent(realtimeInputConfig, forKey: .realtimeInputConfig)
+    }
+}
+
+public struct BidiRealtimeInputConfig: Codable, Sendable, Equatable {
+    public let automaticActivityDetection: BidiActivityDetection
+
+    public init(automaticActivityDetection: BidiActivityDetection) {
+        self.automaticActivityDetection = automaticActivityDetection
+    }
+}
+
+/// Server-side voice activity detection. Only the fields Ivy tunes are modelled.
+public struct BidiActivityDetection: Codable, Sendable, Equatable {
+    /// How long the user must be silent before the server treats the turn as finished.
+    public let silenceDurationMs: Int?
+
+    public init(silenceDurationMs: Int? = nil) {
+        self.silenceDurationMs = silenceDurationMs
+    }
+}
+
+public struct BidiTranscriptionConfig: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+/// A fragment of transcript; the server sends these incrementally alongside the audio.
+public struct BidiTranscription: Codable, Sendable, Equatable {
+    public let text: String?
+
+    public init(text: String? = nil) {
+        self.text = text
     }
 }
 
@@ -325,11 +377,18 @@ public struct BidiServerContent: Codable, Sendable, Equatable {
     public let modelTurn: BidiModelTurn?
     public let turnComplete: Bool?
     public let interrupted: Bool?
+    public let inputTranscription: BidiTranscription?
+    public let outputTranscription: BidiTranscription?
 
-    public init(modelTurn: BidiModelTurn? = nil, turnComplete: Bool? = nil, interrupted: Bool? = nil) {
+    public init(
+        modelTurn: BidiModelTurn? = nil, turnComplete: Bool? = nil, interrupted: Bool? = nil,
+        inputTranscription: BidiTranscription? = nil, outputTranscription: BidiTranscription? = nil
+    ) {
         self.modelTurn = modelTurn
         self.turnComplete = turnComplete
         self.interrupted = interrupted
+        self.inputTranscription = inputTranscription
+        self.outputTranscription = outputTranscription
     }
 }
 
@@ -407,6 +466,10 @@ public enum LiveEvent: Sendable, Equatable {
     case interrupted
     case disconnected
     case toolCall(FunctionCall)
+    /// A fragment of what the user said (server-side transcription of the mic audio).
+    case inputTranscript(String)
+    /// A fragment of what Ivy is saying.
+    case outputTranscript(String)
 }
 
 /// Errors occurring in the Gemini Live session.
@@ -422,6 +485,21 @@ public enum LiveError: Error, LocalizedError, Equatable, Sendable {
     case microphonePermissionDenied
     case microphonePermissionRestricted
     case timeout(String)
+
+    /// Whether reconnecting could help. Transport drops are; authentication, quota and policy rejections are not
+    /// (retrying those only burns requests).
+    public var isRecoverable: Bool {
+        let message: String
+        switch self {
+        case .sessionClosed, .timeout: return true
+        case .connectionFailed(let m), .serverError(let m): message = m.lowercased()
+        case .missingAPIKey, .invalidURL, .setupFailed, .decodingError, .audioEncodingFailed,
+             .microphonePermissionDenied, .microphonePermissionRestricted: return false
+        }
+        let permanent = ["api key", "quota", "resource_exhausted", "permission", "billing", "unauthenticated",
+                         "invalid argument", "close code 1007", "close code 1008"]
+        return !permanent.contains { message.contains($0) }
+    }
 
     public var errorDescription: String? {
         switch self {

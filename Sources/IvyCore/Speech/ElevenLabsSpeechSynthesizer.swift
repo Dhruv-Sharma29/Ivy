@@ -5,12 +5,16 @@ public final class ElevenLabsSpeechSynthesizer: SpeechSynthesizer, Sendable {
     public let configuration: ElevenLabsConfiguration
     public let keyProvider: ElevenLabsKeyProvider
     private let session: URLSession
+    /// Read for every request, so a change in settings applies to the next playback.
+    private let voiceSettings: @Sendable () -> ElevenLabsVoiceSettings
 
     public init(
         configuration: ElevenLabsConfiguration = ElevenLabsConfiguration(),
         keyProvider: ElevenLabsKeyProvider = ConfigurableElevenLabsKeyProvider(),
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        voiceSettings: @escaping @Sendable () -> ElevenLabsVoiceSettings = { ElevenLabsVoiceSettings() }
     ) {
+        self.voiceSettings = voiceSettings
         self.configuration = configuration
         self.keyProvider = keyProvider
         self.session = session
@@ -55,14 +59,18 @@ public final class ElevenLabsSpeechSynthesizer: SpeechSynthesizer, Sendable {
         request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
         request.timeoutInterval = 30.0
 
-        let payload: [String: String] = [
+        var payload: [String: Any] = [
             "text": trimmedText,
             "model_id": configuration.modelID
         ]
+        let voice = voiceSettings()
+        if !voice.isDefault {
+            payload["voice_settings"] = voice.payload
+        }
 
         let requestBody: Data
         do {
-            requestBody = try JSONEncoder().encode(payload)
+            requestBody = try JSONSerialization.data(withJSONObject: payload)
         } catch {
             throw SpeechError.decodingError("Failed to encode synthesis payload: \(error.localizedDescription)")
         }

@@ -67,6 +67,31 @@ public struct StaticElevenLabsKeyProvider: ElevenLabsKeyProvider, Sendable, Equa
     }
 }
 
+/// How the read-aloud voice speaks. Values are clamped to what ElevenLabs accepts.
+public struct ElevenLabsVoiceSettings: Sendable, Equatable {
+    public static let defaultSpeed = 1.0
+    public static let defaultStability = 0.5
+    public static let defaultStyle = 0.0
+    public static let speedRange = 0.7...1.2
+
+    public let speed: Double
+    public let stability: Double
+    public let style: Double
+
+    public init(speed: Double = defaultSpeed, stability: Double = defaultStability, style: Double = defaultStyle) {
+        self.speed = min(max(speed, Self.speedRange.lowerBound), Self.speedRange.upperBound)
+        self.stability = min(max(stability, 0), 1)
+        self.style = min(max(style, 0), 1)
+    }
+
+    /// Untouched settings are not sent at all, so the voice keeps its own defaults.
+    public var isDefault: Bool { self == ElevenLabsVoiceSettings() }
+
+    var payload: [String: Double] {
+        ["speed": speed, "stability": stability, "style": style]
+    }
+}
+
 /// Centralized configuration for the ElevenLabs Text-to-Speech API.
 public struct ElevenLabsConfiguration: Sendable, Equatable {
     /// Default API endpoint for ElevenLabs text-to-speech.

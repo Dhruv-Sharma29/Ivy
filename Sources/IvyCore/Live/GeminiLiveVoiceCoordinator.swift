@@ -13,11 +13,13 @@ public enum VoiceSessionState: Equatable, Sendable {
     case toolExecution
     case speaking
     case interrupting
+    /// The socket dropped; the session is kept while Ivy reconnects (attempt number, starting at 1).
+    case reconnecting(Int)
     case error(String)
 
     public var isLive: Bool {
         switch self {
-        case .connecting, .listening, .thinking, .toolConfirmation, .toolExecution, .speaking, .interrupting:
+        case .connecting, .listening, .thinking, .toolConfirmation, .toolExecution, .speaking, .interrupting, .reconnecting:
             return true
         case .idle, .error:
             return false
@@ -43,6 +45,7 @@ public enum VoiceSessionState: Equatable, Sendable {
         case .toolExecution: return "TOOL_EXECUTION"
         case .speaking: return "SPEAKING"
         case .interrupting: return "INTERRUPTING"
+        case .reconnecting: return "RECONNECTING"
         case .error: return "ERROR"
         }
     }
@@ -85,11 +88,51 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Production key source; nil when a session was injected with its own key (tests).
     private var credentials: CredentialProvider? = nil
 
+    /// Receives each finished utterance of a session as text: (text, spoken by the user, cut off by an interruption).
+    public var onTranscript: ((String, Bool, Bool) -> Void)?
+    /// Receives every tool a voice session ran, with its result, so the conversation can remember it.
+    public var onToolResult: ((FunctionCall, FunctionResponse) -> Void)?
+    private var heardText = ""
+    private var spokenText = ""
+
+    /// Loudness of the user's voice and of Ivy's, for the UI.
+    public let levelMeter = AudioLevelMeter()
+    /// True while the user is audibly speaking during LISTENING.
+    @Published public private(set) var isHearingUser: Bool = false
+    /// "Hey Ivy, mute": the mic stays open for "Hey Ivy" only; nothing is streamed to Gemini.
+    @Published public private(set) var isMuted: Bool = false
+    /// Lets a lone "Ivy" (without "hey") interrupt while the user is audibly speaking. Off by default:
+    /// its false-trigger rate has not been measured.
+    public var loneIvyInterrupts: Bool = false
+    private var vad = VoiceActivityDetector()
+    /// Mic audio captured before the socket is up (and handed over by the idle wake listener); sent first.
+    private var preRoll = PCMRingBuffer(seconds: 3)
+    /// The user just said "Hey Ivy": their next utterance may be a bare command ("stop", "cancel", …).
+    private var isAwaitingCommand = false
+    /// Audio of the reply in progress and of the last finished one, for "repeat that". Memory only, this session only.
+    private var currentReplyAudio: [Data] = []
+    private var lastReplyAudio: [Data] = []
+    private var outputLevels: [(at: ContinuousClock.Instant, level: Float)] = []
+    private var outputLevelTask: Task<Void, Never>? = nil
+
+    /// Background tasks currently owned by a session. Must be 0 whenever the coordinator is idle (leak invariant).
+    var activeTaskCount: Int {
+        [captureTask, eventTask, drainTask, toolExecutionTask, setupWatchdogTask, wakeWatchdogTask, reconnectTask]
+            .filter { $0 != nil }.count
+    }
+
+    private var isReconnecting: Bool {
+        if case .reconnecting = state { return true }
+        return false
+    }
+
     public private(set) var isPushToTalkActive: Bool = false
     public private(set) var wasSessionStartedByPushToTalk: Bool = false
     /// Started by the idle "Hey Ivy" wake word: ends after one answered turn, or after silence.
     public private(set) var wasSessionStartedByWakeWord: Bool = false
     private let wakeSilenceTimeout: Duration
+    /// Wake sessions that closed without hearing a request (likely false triggers). Local only, this launch only.
+    public private(set) var unansweredWakeCount = 0
     private var wakeWatchdogTask: Task<Void, Never>? = nil
     private var lastHeardVoiceAt: ContinuousClock.Instant? = nil
     private var currentSessionToken: UUID? = nil
@@ -105,6 +148,17 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     private var setupWatchdogTask: Task<Void, Never>? = nil
     /// A new session waits for in-flight teardowns, so an old teardown's late steps (mic stop, socket
     /// disconnect) can never land on the new session during a rapid stop/start (e.g. PTT press-release-press).
+    /// 0 (the default for injected sessions) keeps the old behaviour: a dropped socket ends the session.
+    private let maxReconnectAttempts: Int
+    private let reconnectBaseDelay: Duration
+    private let reconnectOfflineGrace: Duration
+    private let networkPath: NetworkPathChecking
+    private var reconnectAttempt = 0
+    private var reconnectTask: Task<Void, Never>? = nil
+    /// Reconnect only sessions that were working; a first connect that fails is reported straight away.
+    private var hasBeenEstablished = false
+    /// Bumped for every (re)connection, so failures reported by tasks of a dead socket are ignored.
+    private var connectionEpoch = 0
     private var teardownsInFlight = 0
     private var teardownWaiters: [CheckedContinuation<Void, Never>] = []
     private var isSetupAcknowledged = false
@@ -128,7 +182,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         hotkeyManager: GlobalHotkeyManaging? = nil,
         toolDispatcher: ToolDispatcher? = nil,
         setupTimeout: Duration = .seconds(15),
-        wakeSilenceTimeout: Duration = .seconds(8)
+        wakeSilenceTimeout: Duration = .seconds(8),
+        maxReconnectAttempts: Int = 0,
+        reconnectBaseDelay: Duration = .milliseconds(500),
+        reconnectOfflineGrace: Duration = .seconds(30),
+        networkPath: NetworkPathChecking = AlwaysOnlineNetworkPath()
     ) {
         self.session = session
         self.audioCapture = audioCapture
@@ -137,6 +195,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         self.hotkeyManager = hotkeyManager
         self.setupTimeout = setupTimeout
         self.wakeSilenceTimeout = wakeSilenceTimeout
+        self.maxReconnectAttempts = maxReconnectAttempts
+        self.reconnectBaseDelay = reconnectBaseDelay
+        self.reconnectOfflineGrace = reconnectOfflineGrace
+        self.networkPath = networkPath
 
         if let toolDispatcher {
             self.toolDispatcher = toolDispatcher
@@ -172,17 +234,23 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         voiceName: String = liveVoiceName,
         systemInstruction: String = IvyPersona.systemPrompt,
         hotkeyManager: GlobalHotkeyManaging? = nil,
-        toolDispatcher: ToolDispatcher? = nil
+        toolDispatcher: ToolDispatcher? = nil,
+        transcribesAudio: Bool = false,
+        silenceDurationMs: Int? = nil,
+        toolRegistry: ToolRegistry? = nil
     ) {
         let bridge = ConfirmationBridge()
         let safetyGate = InteractiveSafetyGate(confirmationProvider: bridge)
-        let dispatcher = toolDispatcher ?? ToolDispatcher(registry: .defaultRegistry(), safetyGate: safetyGate)
+        // Live declares every tool once, at setup: there is no later request to add a group to.
+        let dispatcher = toolDispatcher ?? ToolDispatcher(registry: toolRegistry ?? .standardRegistry(), safetyGate: safetyGate)
         let client = GeminiLiveClient(
             apiKey: credentials.credential(for: .geminiAPIKey) ?? "",
             model: model,
             voiceName: Self.liveVoiceName,
             systemInstruction: systemInstruction,
-            tools: dispatcher.registry.toolDeclarations
+            tools: dispatcher.registry.toolDeclarations,
+            transcribesAudio: transcribesAudio,
+            silenceDurationMs: silenceDurationMs
         )
         // Capture and playback share one engine so voice processing can cancel Ivy's own voice from the mic.
         let engine = AVAudioEngine()
@@ -195,7 +263,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             audioPlayer: player,
             wakeWordDetector: detector,
             hotkeyManager: hotkeyManager,
-            toolDispatcher: dispatcher
+            toolDispatcher: dispatcher,
+            maxReconnectAttempts: 4,
+            networkPath: SystemNetworkPath()
         )
         self.credentials = credentials
     }
@@ -234,7 +304,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         case .listening:
             // Already listening (e.g. continuous hands-free session); do not restart
             wasSessionStartedByPushToTalk = false
-        case .connecting, .thinking, .speaking, .interrupting, .toolConfirmation, .toolExecution:
+        case .connecting, .thinking, .speaking, .interrupting, .toolConfirmation, .toolExecution, .reconnecting:
             // Active session or transition in progress; do not start duplicate or interrupt speaking
             break
         }
@@ -242,9 +312,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     /// Starts a session because the idle "Hey Ivy" wake word fired. Like "Hey Siri", it answers one request and
     /// closes; if nobody speaks within `wakeSilenceTimeout` (e.g. a false trigger) it closes without a turn.
-    public func startWakeSession() async {
+    /// `preRoll` is what the idle listener heard around the wake phrase (16 kHz PCM), so a request spoken in the
+    /// same breath ("Hey Ivy, what time is it?") is not lost.
+    public func startWakeSession(preRoll: Data = Data()) async {
         guard !state.isLive else { return }
-        await startSession()
+        await startSession(preRoll: preRoll)
         guard state.isLive, let token = currentSessionToken else { return }
         wasSessionStartedByWakeWord = true
         let startedAt = clock.now
@@ -261,6 +333,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 let reference = max(startedAt, self.lastHeardVoiceAt ?? startedAt)
                 if self.clock.now - reference > self.wakeSilenceTimeout {
                     print("[VOICE] wake session closed: no request heard")
+                    self.unansweredWakeCount += 1
                     await self.stopSession()
                     return
                 }
@@ -290,7 +363,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         isPushToTalkActive = false
 
         if wasSessionStartedByPushToTalk {
-            if state == .listening || state == .connecting {
+            if state == .listening || state == .connecting || isReconnecting {
                 wasSessionStartedByPushToTalk = false
                 await stopSession()
             }
@@ -321,7 +394,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     /// Starts a live voice conversation session.
-    public func startSession() async {
+    public func startSession(preRoll initialAudio: Data = Data()) async {
         if state.isLive {
             await stopSession()
         }
@@ -339,6 +412,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         latency = LiveLatencyMetrics()
         sessionStartedAt = clock.now
         isSetupAcknowledged = false
+        vad = VoiceActivityDetector()
+        preRoll = PCMRingBuffer(seconds: 3)
+        preRoll.append(initialAudio)
 
         // Check microphone permission
         let hasMicPermission = await audioCapture.requestPermission()
@@ -353,12 +429,26 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         guard currentSessionToken == token else { return }
         isWakePhraseAvailable = wakeAvailable
 
+        // Open the microphone before the socket: what the user says while it connects is kept and sent first.
+        do {
+            let audioStream = try await audioCapture.startCapture()
+            guard currentSessionToken == token else {
+                await audioCapture.stopCapture()
+                return
+            }
+            startCaptureLoop(audioStream, token: token)
+        } catch {
+            guard currentSessionToken == token else { return }
+            await tearDown(then: .error("Failed to start audio capture: \(error.localizedDescription)"))
+            return
+        }
+
         // Connect to Gemini Live
         do {
             try await session.connect()
         } catch {
             guard currentSessionToken == token else { return }
-            transition(to: .error("Failed to connect to Ivy Live: \(error.localizedDescription)"))
+            await tearDown(then: .error("Failed to connect to Ivy Live: \(error.localizedDescription)"))
             return
         }
         guard currentSessionToken == token else {
@@ -366,78 +456,81 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             return
         }
         latency.connect = elapsed(since: sessionStartedAt)
+        connectionEpoch += 1
         startSetupWatchdog(token: token)
+        startEventLoop(token: token)
+        if state == .connecting {
+            transition(to: .listening)
+        }
+    }
 
-        // Start event processing loop
-        let events = session.receiveEvents()
-        eventTask = Task { [weak self] in
+    private func startCaptureLoop(_ audioStream: AsyncThrowingStream<Data, Error>, token: UUID) {
+        captureTask = Task { [weak self, session] in
+            var sentAudioFrameCount = 0
             do {
-                for try await event in events {
+                for try await chunk in audioStream {
                     guard !Task.isCancelled else { break }
                     guard let self, self.currentSessionToken == token else { break }
-                    await self.handleLiveEvent(event, token: token)
-                }
-            } catch {
-                guard let self, self.currentSessionToken == token else { return }
-                await self.handleFailure(error, token: token)
-            }
-        }
 
-        // Start microphone capture loop
-        do {
-            let audioStream = try await audioCapture.startCapture()
-            guard currentSessionToken == token else {
-                await audioCapture.stopCapture()
-                await session.disconnect()
-                return
-            }
-            if state == .connecting {
-                transition(to: .listening)
-            }
+                    let heardVoice = self.vad.process(chunk)
+                    self.levelMeter.reportInput(self.vad.level)
+                    let hearing = self.vad.isSpeech && self.state == .listening && !self.isMuted
+                    if self.isHearingUser != hearing { self.isHearingUser = hearing }
 
-            captureTask = Task { [weak self, session] in
-                var sentAudioFrameCount = 0
-                do {
-                    for try await chunk in audioStream {
-                        guard !Task.isCancelled else { break }
-                        guard let self, self.currentSessionToken == token else { break }
-
-                        switch self.state {
-                        case .speaking, .toolConfirmation:
-                            // Monitoring mode: mic audio is NOT streamed to Gemini Live. While speaking this prevents
-                            // server VAD barge-in; during confirmation, saying "yes" must never approve a SafetyGate
-                            // request. Only the explicit "Hey Ivy" wake phrase is checked.
-                            let detected = await self.wakeWordDetector.processAudioChunk(chunk)
-                            guard self.currentSessionToken == token else { break }
-                            if detected {
-                                await self.handleWakePhraseDetected(token: token)
-                            }
-                        case .listening:
-                            // Active user-turn capture: stream audio chunk to Gemini Live.
-                            if Self.containsVoice(chunk) {
-                                self.turnReferenceAt = self.clock.now
-                                self.lastHeardVoiceAt = self.turnReferenceAt
+                    switch self.state {
+                    case .speaking, .toolConfirmation, .thinking, .toolExecution:
+                        await self.monitorForWakePhrase(chunk, token: token)
+                    case .listening where self.isMuted:
+                        await self.monitorForWakePhrase(chunk, token: token)
+                    case .connecting:
+                        // No socket yet: hold the audio (bounded, memory only) so the start of the request isn't lost.
+                        self.preRoll.append(chunk)
+                    case .listening:
+                        // Active user-turn capture: stream audio chunk to Gemini Live.
+                        if heardVoice {
+                            self.turnReferenceAt = self.clock.now
+                            self.lastHeardVoiceAt = self.turnReferenceAt
+                        }
+                        let epoch = self.connectionEpoch
+                        do {
+                            if !self.preRoll.isEmpty {
+                                // ponytail: quarter-second frames keep each WebSocket message small.
+                                let held = self.preRoll.drain()
+                                for offset in stride(from: 0, to: held.count, by: 8000) {
+                                    try await session.sendAudio(held.subdata(in: offset..<min(offset + 8000, held.count)))
+                                }
                             }
                             try await session.sendAudio(chunk)
-                            sentAudioFrameCount += 1
-                            if sentAudioFrameCount == 1 || sentAudioFrameCount % 50 == 0 {
-                                print("[AUDIO] PCM frame sent count=\(sentAudioFrameCount) bytes=\(chunk.count)")
-                            }
-                        case .idle, .connecting, .thinking, .toolExecution, .interrupting, .error:
-                            // Mic audio is dropped: these states must never feed Gemini Live.
-                            break
+                        } catch {
+                            // The socket died under us: recover (or fail) the connection, keep the mic loop alive.
+                            guard self.currentSessionToken == token else { break }
+                            await self.handleFailure(error, token: token, epoch: epoch)
+                            continue
                         }
+                        sentAudioFrameCount += 1
+                        if sentAudioFrameCount == 1 || sentAudioFrameCount % 50 == 0 {
+                            print("[AUDIO] PCM frame sent count=\(sentAudioFrameCount) bytes=\(chunk.count)")
+                        }
+                    case .idle, .interrupting, .reconnecting, .error:
+                        // Mic audio is dropped: these states must never feed Gemini Live.
+                        break
                     }
-                } catch {
-                    guard let self, self.currentSessionToken == token else { return }
-                    await self.handleFailure(error, token: token)
                 }
+            } catch {
+                // The microphone stream itself failed: nothing a reconnect can fix.
+                guard let self, self.currentSessionToken == token else { return }
+                await self.tearDown(then: .error(error.localizedDescription))
             }
-        } catch {
-            await session.disconnect()
-            guard currentSessionToken == token else { return }
-            transition(to: .error("Failed to start audio capture: \(error.localizedDescription)"))
         }
+    }
+
+    /// Monitoring mode: mic audio is NOT streamed to Gemini Live. While Ivy speaks this prevents server-side
+    /// barge-in on her own voice; during a confirmation, saying "yes" must never approve a SafetyGate request.
+    /// Only the explicit "Hey Ivy" wake phrase is listened for, on this Mac.
+    private func monitorForWakePhrase(_ chunk: Data, token: UUID) async {
+        let detected = await wakeWordDetector.processAudioChunk(chunk)
+        guard currentSessionToken == token, detected else { return }
+        await handleWakePhraseDetected(token: token)
     }
 
     /// Cleanly terminates the live voice session.
@@ -446,7 +539,23 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     /// Releases mic, playback, tasks, and socket, then settles in `finalState` (no IDLE flicker on the way to ERROR).
+    /// Hands the buffered transcripts to `onTranscript`: the user's words first, then Ivy's.
+    private func flushTranscripts(interrupted: Bool) {
+        flushHeard()
+        let spoken = spokenText.trimmingCharacters(in: .whitespacesAndNewlines)
+        spokenText = ""
+        if !spoken.isEmpty { onTranscript?(spoken, false, interrupted) }
+    }
+
+    private func flushHeard() {
+        let heard = heardText.trimmingCharacters(in: .whitespacesAndNewlines)
+        heardText = ""
+        if !heard.isEmpty { onTranscript?(heard, true, false) }
+    }
+
     private func tearDown(then finalState: VoiceSessionState) async {
+        // A session that ends mid-reply still keeps what was said so far.
+        flushTranscripts(interrupted: isModelTurnOpen)
         currentSessionToken = nil
         captureTask?.cancel()
         eventTask?.cancel()
@@ -456,6 +565,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         wakeWatchdogTask?.cancel()
         wakeWatchdogTask = nil
         lastHeardVoiceAt = nil
+        reconnectAttempt = 0
+        hasBeenEstablished = false
+        connectionEpoch += 1
+        reconnectTask?.cancel()
+        reconnectTask = nil
         captureTask = nil
         eventTask = nil
         drainTask = nil
@@ -469,6 +583,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         isModelTurnOpen = false
         isDiscardingInterruptedTurn = false
         turnReferenceAt = nil
+        isAwaitingCommand = false
+        isMuted = false
+        isHearingUser = false
+        _ = preRoll.drain()
+        currentReplyAudio = []
+        lastReplyAudio = []
 
         teardownsInFlight += 1
         await audioCapture.stopCapture()
@@ -488,13 +608,44 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         latestTranscript = ""
         wasSessionStartedByPushToTalk = false
         wasSessionStartedByWakeWord = false
+        levelMeter.reset()
+    }
+
+    /// States in which "Hey Ivy" is listened for locally instead of streaming the mic to Gemini.
+    private var isMonitoringForWakePhrase: Bool {
+        switch state {
+        case .speaking, .toolConfirmation, .thinking, .toolExecution: return true
+        case .listening: return isMuted
+        default: return false
+        }
     }
 
     /// Handles explicit wake phrase ("Hey Ivy") detection while Ivy is speaking or waiting for confirmation.
     public func handleWakePhraseDetected(token: UUID? = nil) async {
         if let token, currentSessionToken != token { return }
-        guard state == .speaking || state == .toolConfirmation else { return }
+        guard isMonitoringForWakePhrase else { return }
+        // What the user says next may be a bare command ("stop", "cancel", "goodbye", …).
+        isAwaitingCommand = true
 
+        if state == .listening {
+            // Muted: "Hey Ivy" reopens the microphone.
+            isMuted = false
+            await wakeWordDetector.reset()
+            return
+        }
+        if state == .thinking || state == .toolExecution {
+            // The turn is abandoned: whatever Ivy says about it is dropped. A tool that is already running is
+            // left to finish and report back, so the server can close the turn (and end the discarding).
+            isDiscardingInterruptedTurn = true
+            await wakeWordDetector.reset()
+            guard isMonitoringForWakePhrase else { return }
+            transition(to: .listening)
+            Self.bargeInLog.notice("barge-in: wake phrase cancelled the turn in progress")
+            return
+        }
+
+        if !currentReplyAudio.isEmpty { lastReplyAudio = currentReplyAudio }
+        flushTranscripts(interrupted: true)
         cancelPendingConfirmation()
         transition(to: .interrupting)
         // Only a still-streaming turn has leftovers to drop; one already complete is merely draining locally.
@@ -520,11 +671,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Evaluates transcription text directly for "Hey Ivy" interruption.
     public func processTranscriptionForInterruption(_ text: String, token: UUID? = nil) async {
         if let token, currentSessionToken != token { return }
-        guard state == .speaking || state == .toolConfirmation else { return }
+        guard isMonitoringForWakePhrase else { return }
         #if DEBUG
         print("[WAKE] recognition partial chars=\(text.count)")
         #endif
-        if WakePhraseMatcher.containsWakePhrase(text) {
+        let loneIvy = loneIvyInterrupts && vad.isSpeech && WakePhraseMatcher.containsIvy(text)
+        if WakePhraseMatcher.containsWakePhrase(text) || loneIvy {
             #if DEBUG
             print("[WAKE] wake phrase matched")
             #endif
@@ -538,8 +690,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         switch event {
         case .connected:
             isSetupAcknowledged = true
+            hasBeenEstablished = true
             setupWatchdogTask?.cancel()
             setupWatchdogTask = nil
+            if case .reconnecting = state {
+                print("[LIVE] reconnected after \(reconnectAttempt) attempt(s)")
+                reconnectAttempt = 0
+                transition(to: .listening)
+            }
             if latency.setupAck == nil {
                 latency.setupAck = elapsed(since: sessionStartedAt)
                 #if DEBUG
@@ -551,6 +709,16 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             }
 
         case .toolCall(let call):
+            if await interceptCommand(token: token) { return }
+            if isDiscardingInterruptedTurn {
+                // The user abandoned this turn: its tools are never run. Answering lets the server close the turn.
+                do {
+                    try await session.sendToolResponse(FunctionResponse(name: call.name, response: ["error": "Cancelled by the user."], id: call.id))
+                } catch {
+                    await handleFailure(error, token: token, epoch: connectionEpoch)
+                }
+                return
+            }
             drainTask?.cancel()
             drainTask = nil
 
@@ -568,6 +736,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             executingToolName = call.name
 
             toolExecutionTask?.cancel()
+            let toolEpoch = connectionEpoch
             toolExecutionTask = Task { [weak self, session] in
                 guard let self, self.currentSessionToken == token else { return }
 
@@ -580,6 +749,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 }
 
                 let response = await self.toolDispatcher.dispatch(call)
+                self.onToolResult?(call, response)
 
                 guard self.currentSessionToken == token else {
                     #if DEBUG
@@ -595,7 +765,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                     self.turnReferenceAt = self.clock.now
                 } catch {
                     guard self.currentSessionToken == token else { return }
-                    await self.handleFailure(error, token: token)
+                    await self.handleFailure(error, token: token, epoch: toolEpoch)
                 }
             }
 
@@ -604,10 +774,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 // Leftover audio of a turn the user interrupted with "Hey Ivy": never play it.
                 return
             }
+            if await interceptCommand(token: token) { return }
             drainTask?.cancel()
             drainTask = nil
             if !isModelTurnOpen {
                 isModelTurnOpen = true
+                currentReplyAudio = []
                 latency.firstAudio = elapsed(since: turnReferenceAt)
                 latency.playbackStart = nil
                 latency.responseComplete = nil
@@ -622,7 +794,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             do {
                 try await audioPlayer.playChunk(data)
             } catch {
-                await handleFailure(error, token: token)
+                // Local playback failure: reconnecting the socket can't fix it.
+                guard currentSessionToken == token else { return }
+                await tearDown(then: .error(error.localizedDescription))
                 return
             }
             guard epoch == playbackEpoch else {
@@ -633,9 +807,22 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             if latency.playbackStart == nil {
                 latency.playbackStart = elapsed(since: turnReferenceAt)
             }
+            currentReplyAudio.append(data)
+            scheduleOutputLevels(for: data)
 
         case .textTurn(let text):
             latestTranscript = text
+
+        case .inputTranscript(let text):
+            heardText += text
+
+        case .outputTranscript(let text):
+            // The rest of a reply the user cut off with "Hey Ivy" was never heard: don't record it.
+            if isDiscardingInterruptedTurn { return }
+            if await interceptCommand(token: token) { return }
+            // Ivy has started answering, so the user's utterance is complete.
+            if spokenText.isEmpty { flushHeard() }
+            spokenText += text
 
         case .turnComplete:
             if isDiscardingInterruptedTurn {
@@ -643,7 +830,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 isDiscardingInterruptedTurn = false
                 return
             }
+            if await interceptCommand(token: token) {
+                // The reply to a command ended before anything of it was played.
+                isDiscardingInterruptedTurn = false
+                return
+            }
+            flushTranscripts(interrupted: false)
             isModelTurnOpen = false
+            if !currentReplyAudio.isEmpty { lastReplyAudio = currentReplyAudio }
             switch state {
             case .speaking:
                 // Generation is done but queued audio may still be playing; LISTENING only once it drains.
@@ -669,6 +863,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             }
 
         case .interrupted:
+            if !currentReplyAudio.isEmpty { lastReplyAudio = currentReplyAudio }
+            flushTranscripts(interrupted: true)
             // Server-side barge-in closes the current turn itself; nothing left to discard.
             isDiscardingInterruptedTurn = false
             isModelTurnOpen = false
@@ -685,7 +881,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
         case .disconnected:
             // Our own stopSession() clears the token first, so reaching here means the socket dropped under us.
-            await handleFailure(LiveError.sessionClosed, token: token)
+            await handleFailure(LiveError.sessionClosed, token: token, epoch: connectionEpoch)
         }
     }
 
@@ -709,7 +905,92 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     private func stopPlayback() async {
         playbackEpoch += 1
+        outputLevelTask?.cancel()
+        outputLevelTask = nil
+        outputLevels = []
+        levelMeter.reportOutput(0)
         await audioPlayer.stop()
+    }
+
+    /// Queues the loudness of a reply chunk (24 kHz PCM) against the time it will actually be heard: chunks
+    /// arrive faster than they play, so reporting on arrival would show a burst and then nothing.
+    private func scheduleOutputLevels(for data: Data) {
+        let window = 2400 // 50 ms
+        var at = max(clock.now, outputLevels.last.map { $0.at + .milliseconds(50) } ?? clock.now)
+        for offset in stride(from: 0, to: data.count, by: window) {
+            outputLevels.append((at, VoiceActivityDetector.level(of: data.subdata(in: offset..<min(offset + window, data.count)))))
+            at += .milliseconds(50)
+        }
+        guard outputLevelTask == nil else { return }
+        outputLevelTask = Task { [weak self] in
+            while let self, let next = self.outputLevels.first {
+                do {
+                    try await Task.sleep(until: next.at, clock: self.clock)
+                } catch {
+                    return // playback was stopped; stopPlayback() already zeroed the meter
+                }
+                guard !self.outputLevels.isEmpty else { return }
+                self.levelMeter.reportOutput(self.outputLevels.removeFirst().level)
+            }
+            self?.levelMeter.reportOutput(0)
+            self?.outputLevelTask = nil
+        }
+    }
+
+    /// Runs when the first piece of a reply arrives, i.e. once the user's utterance is complete. If that
+    /// utterance was one of Ivy's own commands, it is handled here and the model's reply to it is dropped
+    /// (returns true). The allow-list cannot approve anything: a pending confirmation is only ever denied.
+    private func interceptCommand(token: UUID) async -> Bool {
+        guard !heardText.isEmpty else { return false }
+        let command = VoiceCommand.parse(heardText, afterWake: isAwaitingCommand)
+        isAwaitingCommand = false
+        guard let command else { return false }
+        heardText = ""
+        print("[VOICE] local command handled")
+        switch command {
+        case .endSession:
+            await stopSession()
+            return true
+        case .stop:
+            break
+        case .cancel:
+            cancelPendingConfirmation()
+        case .mute:
+            isMuted = true
+        case .unmute:
+            isMuted = false
+        case .repeatLast:
+            isDiscardingInterruptedTurn = true
+            await replayLastReply(token: token)
+            return true
+        }
+        isDiscardingInterruptedTurn = true
+        return true
+    }
+
+    /// "Repeat that": plays the last reply again from memory.
+    private func replayLastReply(token: UUID) async {
+        guard !lastReplyAudio.isEmpty else { return }
+        transition(to: .speaking)
+        let epoch = playbackEpoch
+        for chunk in lastReplyAudio {
+            do {
+                try await audioPlayer.playChunk(chunk)
+            } catch {
+                guard currentSessionToken == token else { return }
+                await tearDown(then: .error(error.localizedDescription))
+                return
+            }
+            guard epoch == playbackEpoch, currentSessionToken == token else { return }
+            scheduleOutputLevels(for: chunk)
+        }
+        drainTask?.cancel()
+        drainTask = Task { [weak self] in
+            guard let self else { return }
+            await self.audioPlayer.waitUntilFinished()
+            guard !Task.isCancelled, self.currentSessionToken == token, self.state == .speaking else { return }
+            await self.finishTurn()
+        }
     }
 
     private func cancelPendingConfirmation() {
@@ -725,6 +1006,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Fails the session if the server never acknowledges setup (otherwise mic sends would wait forever).
     private func startSetupWatchdog(token: UUID) {
         setupWatchdogTask?.cancel()
+        let epoch = connectionEpoch
         setupWatchdogTask = Task { [weak self, setupTimeout] in
             do {
                 try await Task.sleep(for: setupTimeout)
@@ -732,14 +1014,109 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 return // cancelled: setup was acknowledged or the session ended
             }
             guard let self, self.currentSessionToken == token, !self.isSetupAcknowledged else { return }
-            await self.handleFailure(LiveError.timeout("no setup acknowledgement from the server."), token: token)
+            await self.handleFailure(LiveError.timeout("no setup acknowledgement from the server."), token: token, epoch: epoch)
+        }
+    }
+
+    /// Consumes the current connection's events; a stream failure is reported with this connection's epoch.
+    private func startEventLoop(token: UUID) {
+        eventTask?.cancel()
+        let epoch = connectionEpoch
+        let events = session.receiveEvents()
+        eventTask = Task { [weak self] in
+            do {
+                for try await event in events {
+                    guard !Task.isCancelled else { break }
+                    guard let self, self.currentSessionToken == token, self.connectionEpoch == epoch else { break }
+                    await self.handleLiveEvent(event, token: token)
+                }
+            } catch {
+                guard let self, self.currentSessionToken == token else { return }
+                await self.handleFailure(error, token: token, epoch: epoch)
+            }
         }
     }
 
     /// Full teardown (mic tap, capture/drain/tool tasks, playback, socket, session token), then a stable error state.
-    private func handleFailure(_ error: Error, token: UUID) async {
+    private func handleFailure(_ error: Error, token: UUID, epoch: Int) async {
+        // A task of an already-replaced connection failing is old news: the reconnect loop owns recovery.
+        guard currentSessionToken == token, epoch == connectionEpoch else { return }
+        guard hasBeenEstablished, reconnectAttempt < maxReconnectAttempts, Self.isRecoverable(error) else {
+            await tearDown(then: .error(error.localizedDescription))
+            return
+        }
+        // Claim the recovery synchronously (later reports of the same drop see a newer epoch), then run it in its
+        // own task: the caller is usually the dead connection's event loop, which the reconnect cancels.
+        connectionEpoch += 1
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            await self?.reconnect(after: error, token: token)
+        }
+    }
+
+    static func isRecoverable(_ error: Error) -> Bool {
+        if let live = error as? LiveError { return live.isRecoverable }
+        return error is URLError
+    }
+
+    /// Keeps the session (mic, conversation, state machine) and replaces only the dead socket, with backoff.
+    /// Anything tied to the old socket is dropped: queued audio, the partial model turn, and a pending tool
+    /// confirmation (denied — a tool is never executed for a connection that no longer exists).
+    private func reconnect(after error: Error, token: UUID) async {
+        var lastError = error
+        eventTask?.cancel()
+        eventTask = nil
+        drainTask?.cancel()
+        drainTask = nil
+        toolExecutionTask?.cancel()
+        toolExecutionTask = nil
+        setupWatchdogTask?.cancel()
+        setupWatchdogTask = nil
+        cancelPendingConfirmation()
+        executingToolName = nil
+        pendingToolCalls = 0
+        isModelTurnOpen = false
+        isDiscardingInterruptedTurn = false
+        await stopPlayback()
+        await wakeWordDetector.reset()
+
+        while currentSessionToken == token, reconnectAttempt < maxReconnectAttempts {
+            reconnectAttempt += 1
+            transition(to: .reconnecting(reconnectAttempt))
+            print("[LIVE] connection lost; reconnect attempt \(reconnectAttempt)/\(maxReconnectAttempts)")
+            await session.disconnect()
+            guard currentSessionToken == token else { return }
+
+            guard await networkPath.waitUntilOnline(timeout: reconnectOfflineGrace) else {
+                lastError = LiveError.connectionFailed("the Mac is offline.")
+                break
+            }
+            do {
+                try await Task.sleep(for: reconnectBaseDelay * (1 << (reconnectAttempt - 1)))
+            } catch {
+                return // the session was torn down while waiting
+            }
+            guard currentSessionToken == token else { return }
+
+            do {
+                isSetupAcknowledged = false
+                connectionEpoch += 1
+                try await session.connect()
+                guard currentSessionToken == token else {
+                    await session.disconnect()
+                    return
+                }
+                startSetupWatchdog(token: token)
+                startEventLoop(token: token)
+                return // `.connected` moves RECONNECTING → LISTENING; a new failure re-enters with the attempts used so far
+            } catch {
+                lastError = error
+                if !Self.isRecoverable(error) { break }
+            }
+        }
+
         guard currentSessionToken == token else { return }
-        await tearDown(then: .error(error.localizedDescription))
+        await tearDown(then: .error("Lost connection to Ivy Live: \(lastError.localizedDescription)"))
     }
 
     private func elapsed(since start: ContinuousClock.Instant?) -> Duration? {

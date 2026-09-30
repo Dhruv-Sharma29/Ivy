@@ -24,6 +24,12 @@ public struct WakePhraseMatcher: Sendable {
         return false
     }
 
+    /// "Ivy" on its own. Far more prone to false triggers than the full phrase, so callers gate it
+    /// (a setting, plus the user audibly speaking).
+    public static func containsIvy(_ text: String) -> Bool {
+        extractTokens(text).contains(where: isIvy)
+    }
+
     /// Normalizes and tokenizes text by stripping punctuation, lowercasing, and splitting on whitespace.
     public static func extractTokens(_ text: String) -> [String] {
         guard !text.isEmpty else { return [] }

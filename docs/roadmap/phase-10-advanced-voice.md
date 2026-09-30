@@ -127,3 +127,36 @@ Latency targets met on fixtures and on-device; all slices accepted; manual check
 - [ ] Switch AirPods ↔ built-in mid-session.
 - [ ] Close the lid during Live; reopen — clean state, wake word listening again.
 - [ ] "Hey Ivy, cancel" during a confirmation — denied, nothing runs.
+
+## Implementation status (2026-09-30)
+| Slice | Status | Notes |
+|---|---|---|
+| 10.1 Turn-taking | Partly done | `VoiceActivityDetector` (RMS per 20 ms, adaptive floor) replaces the amplitude gate and drives "Hearing you…" and the wake-session timeout. "Wait through pauses" setting → `realtimeInputConfig.automaticActivityDetection.silenceDurationMs` (short 300 ms, normal = server default, long 1500 ms); the live server accepts the field. **Not done:** explicit `activityStart/End` for push-to-talk; the 20-utterance cut-off comparison. |
+| 10.2 Barge-in | Partly done | In-session recogniser uses on-device recognition when the Mac supports it (server fallback otherwise). Lone-"Ivy" heuristic exists behind `loneIvyBargeIn` (off, no UI). **Not done:** double-talk / AGC A/B, the ≤ 300 ms p50 measurement, false-positive rate. |
+| 10.3 Wake reliability | Partly done | Idle listener keeps a 1.5 s pre-roll and hands it to the wake session; the mic now opens before the socket and up to 3 s spoken while connecting is sent first. Unanswered wakes are counted and shown in diagnostics. **Not done:** energy gate for the recogniser, idle-CPU measurement. |
+| 10.4 Levels | Done (logic) | `AudioLevelMeter` (≤ 30 Hz on the main actor); halo around the Live icon follows the user while listening and Ivy while speaking; Reduce Motion hides it. Ivy's level is scheduled against playback time from the PCM, not tapped from the output device. |
+| 10.5 Voice settings | Partly done | ElevenLabs speed / stability / style (sent only when changed) with a preview button; Live answer length and pace as instruction hints; Kore untouched. **Not done:** input-device picker. |
+| 10.6 Device switching | Not started here | Mid-session route changes were already handled in Phase 8.3. No picker, no AirPods preference. |
+| 10.7 Sleep / wake / lock | Done (logic) | `IvyAppEnvironment.handle(_:)` + `observeSystemEvents()`. |
+| 10.8 Voice commands | Done, with a deviation | stop, cancel, end/goodbye, mute/unmute, repeat that. See below. |
+
+Tests: `Tests/IvyTests/Phase10VoiceTests.swift` (28 tests). Everything above is verified with fakes only.
+
+### Deviations
+- **Commands are read from the Live input transcript, not recognised on-device first.** The in-session
+  recogniser fires on "Hey Ivy" and stops, so the word after it only exists in the audio already streamed to
+  Gemini. A command is acted on when the reply to it starts; that reply is dropped. If the server ever sends
+  the reply before the transcript, the command is missed and Ivy simply answers it.
+- "Hey Ivy" now also works while Ivy is thinking or running a tool: the turn is abandoned, its speech is
+  dropped and any further tool call in it is answered "Cancelled by the user." without running. A tool that
+  was already executing is not undone.
+- Bare "goodbye" / "bye" ends the session without "Hey Ivy". Every other command needs the wake phrase.
+- The pre-roll can include up to ~1 s of what was said just before "Hey Ivy", and the wake chime.
+- Session start order changed for every session: microphone first, then socket.
+
+### Needs a hands-on pass (nothing here was run against a real microphone)
+- The whole manual checklist above.
+- New session start order with echo cancellation on.
+- Idle wake listener with the pre-roll converter installed (only runs when "Hey Ivy" is enabled).
+- On-device in-session recognition: barge-in speed and accuracy versus before.
+- Settings panel layout (now scrolls) and the level halo.

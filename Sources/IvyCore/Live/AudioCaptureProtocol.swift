@@ -132,6 +132,7 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
     private let voiceSink = AVAudioMixerNode()
     /// Set once in init, removed in deinit; never mutated concurrently.
     private var configObserver: NSObjectProtocol?
+    private let routeQueue = DispatchQueue(label: "com.ivy.assistant.audio-route")
 
     /// With `voiceProcessing`, Apple's echo cancellation removes audio this engine plays from the mic signal,
     /// so Ivy's own voice doesn't drown out the user (needed for "Hey Ivy" over speakers). Share the engine
@@ -144,12 +145,9 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
         configObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: audioEngine, queue: nil
         ) { [weak self] _ in
-            guard let self, self.state.withLock({ $0.isCapturing }), !self.audioEngine.isRunning else { return }
-            do {
-                try self.audioEngine.start()
-                print("[AUDIO] engine restarted after configuration change")
-            } catch {
-                print("[AUDIO] capture error: restart after configuration change failed: \(error.localizedDescription)")
+            // Off the notification thread, one change at a time.
+            self?.routeQueue.async { [weak self] in
+                self?.handleConfigurationChange()
             }
         }
     }
@@ -199,29 +197,55 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
                 print("[AUDIO] echo cancellation unavailable, capturing without it: \(error.localizedDescription)")
             }
         }
+        let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
+        let captureId = UUID()
+
+        state.withLock { s in
+            s.isCapturing = true
+            s.captureId = captureId
+            s.continuation = continuation
+        }
+
+        do {
+            try installInputTap()
+            try audioEngine.start()
+            print("[AUDIO] capture started")
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            state.withLock { s in
+                s.isCapturing = false
+                s.captureId = nil
+                s.continuation = nil
+            }
+            print("[AUDIO] capture error: \(error.localizedDescription)")
+            if let live = error as? LiveError { throw live }
+            throw LiveError.connectionFailed("Failed to start audio engine: \(error.localizedDescription)")
+        }
+
+        continuation.onTermination = { [weak self] _ in
+            Task { [weak self] in
+                await self?.stopCapture(only: captureId)
+            }
+        }
+
+        return stream
+    }
+
+    /// Installs the microphone tap for the *current* input device: reads its format, builds the 16 kHz mono
+    /// converter, and (with voice processing) wires the muted sink that keeps the input flowing.
+    /// Called at start and again whenever the audio route changes, since a new device has a new format.
+    private func installInputTap() throws {
+        let inputNode = audioEngine.inputNode
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
 
         guard hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0 else {
-            let err = "No audio input hardware detected."
-            print("[AUDIO] capture error: \(err)")
-            throw LiveError.connectionFailed(err)
+            throw LiveError.connectionFailed("No audio input hardware detected.")
         }
-
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatInt16,
-            sampleRate: 16000,
-            channels: 1,
-            interleaved: false
-        ) else {
-            let err = "Failed to create 16kHz PCM audio format."
-            print("[AUDIO] capture error: \(err)")
-            throw LiveError.connectionFailed(err)
+        guard let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: false) else {
+            throw LiveError.connectionFailed("Failed to create 16kHz PCM audio format.")
         }
-
         guard let converter = AVAudioConverter(from: hardwareFormat, to: targetFormat) else {
-            let err = "Failed to create audio format converter from \(hardwareFormat) to \(targetFormat)."
-            print("[AUDIO] capture error: \(err)")
-            throw LiveError.connectionFailed(err)
+            throw LiveError.connectionFailed("Failed to create audio format converter from \(hardwareFormat) to \(targetFormat).")
         }
         // Voice-processed input is multichannel (e.g. 5 ch); only channel 0 carries the echo-cancelled voice.
         if hardwareFormat.channelCount > 1 {
@@ -235,15 +259,6 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
             audioEngine.connect(inputNode, to: voiceSink, format: hardwareFormat)
             audioEngine.connect(voiceSink, to: audioEngine.mainMixerNode, format: nil)
             voiceSink.outputVolume = 0
-        }
-
-        let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
-        let captureId = UUID()
-
-        state.withLock { s in
-            s.isCapturing = true
-            s.captureId = captureId
-            s.continuation = continuation
         }
 
         var bufferCount = 0
@@ -281,28 +296,31 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
                 print("[AUDIO] capture error: \(error.localizedDescription)")
             }
         }
+    }
 
+    /// The audio route changed (device plugged/unplugged, default input switched, or voice processing just
+    /// reconfigured the engine). Rebuild the tap for the new device and restart; if there is no microphone any
+    /// more, end the capture stream with an error so the session is torn down cleanly.
+    private func handleConfigurationChange() {
+        guard state.withLock({ $0.isCapturing }) else { return }
+        audioEngine.inputNode.removeTap(onBus: 0)
         do {
-            try audioEngine.start()
-            print("[AUDIO] capture started")
+            try installInputTap()
+            if !audioEngine.isRunning {
+                try audioEngine.start()
+            }
+            print("[AUDIO] audio route changed; capture reconfigured")
         } catch {
-            inputNode.removeTap(onBus: 0)
-            state.withLock { s in
+            print("[AUDIO] capture error: audio route change could not be recovered: \(error.localizedDescription)")
+            let continuation = state.withLock { s -> AsyncThrowingStream<Data, Error>.Continuation? in
                 s.isCapturing = false
                 s.captureId = nil
-                s.continuation = nil
+                defer { s.continuation = nil }
+                return s.continuation
             }
-            print("[AUDIO] capture error: \(error.localizedDescription)")
-            throw LiveError.connectionFailed("Failed to start audio engine: \(error.localizedDescription)")
+            audioEngine.stop()
+            continuation?.finish(throwing: LiveError.connectionFailed("The microphone was disconnected."))
         }
-
-        continuation.onTermination = { [weak self] _ in
-            Task { [weak self] in
-                await self?.stopCapture(only: captureId)
-            }
-        }
-
-        return stream
     }
 
     public func stopCapture() async {

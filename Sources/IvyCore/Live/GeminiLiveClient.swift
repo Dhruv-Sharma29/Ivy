@@ -14,6 +14,10 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     public let voiceName: String
     public let systemInstruction: String?
     public let tools: [ToolDeclarationWrapper]?
+    /// Ask the server for text transcripts of both sides (for saving voice sessions into the conversation).
+    public let transcribesAudio: Bool
+    /// End-of-speech patience sent in setup; nil keeps the server default.
+    public let silenceDurationMs: Int?
     public let session: URLSession
     private let webSocketFactory: WebSocketFactory
 
@@ -37,6 +41,8 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         voiceName: String = liveVoiceName,
         systemInstruction: String? = nil,
         tools: [ToolDeclarationWrapper]? = nil,
+        transcribesAudio: Bool = false,
+        silenceDurationMs: Int? = nil,
         session: URLSession = .shared,
         webSocketFactory: WebSocketFactory? = nil
     ) {
@@ -45,6 +51,8 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         self.voiceName = Self.liveVoiceName
         self.systemInstruction = systemInstruction
         self.tools = tools
+        self.transcribesAudio = transcribesAudio
+        self.silenceDurationMs = silenceDurationMs
         self.session = session
         if let webSocketFactory {
             self.webSocketFactory = webSocketFactory
@@ -173,7 +181,9 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                     )
                 ),
                 systemInstruction: systemInstruction.map { BidiSystemInstruction(text: $0) },
-                tools: filteredTools
+                tools: filteredTools,
+                transcribesAudio: transcribesAudio,
+                silenceDurationMs: silenceDurationMs
             )
             let setupMessage = BidiClientMessage(setup: setup)
 
@@ -413,6 +423,14 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
 
             if content.interrupted == true {
                 continuation?.yield(.interrupted)
+            }
+
+            // Transcript text is never logged.
+            if let heard = content.inputTranscription?.text, !heard.isEmpty {
+                continuation?.yield(.inputTranscript(heard))
+            }
+            if let spoken = content.outputTranscription?.text, !spoken.isEmpty {
+                continuation?.yield(.outputTranscript(spoken))
             }
 
             if let modelTurn = content.modelTurn {

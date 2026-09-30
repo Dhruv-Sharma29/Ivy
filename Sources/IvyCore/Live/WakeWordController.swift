@@ -21,6 +21,12 @@ public final class WakeWordController: ObservableObject {
     private let listener: WakeWordListening
     private let coordinator: GeminiLiveVoiceCoordinator
     private var enabled = false
+    /// Why listening is held off even though it is enabled ("sleep", "lock"). Empty = not suspended.
+    private var suspensions: Set<String> = []
+    /// How many times the wake word fired this launch, and how many of those heard no request afterwards
+    /// (likely false triggers). Local only.
+    public private(set) var wakeCount = 0
+    public var unansweredWakeCount: Int { coordinator.unansweredWakeCount }
     private var isListening = false
     /// Set when starting failed (e.g. permission denied): no retry until re-enabled, so the user isn't re-prompted.
     private var failed = false
@@ -45,6 +51,19 @@ public final class WakeWordController: ObservableObject {
         enabled = on
         failed = false
         requestSync()
+    }
+
+    /// Holds listening off (the Mac is going to sleep, the screen is locked) without changing the setting.
+    public func setSuspended(_ suspended: Bool, reason: String) {
+        let changed = suspended ? suspensions.insert(reason).inserted : suspensions.remove(reason) != nil
+        if changed { requestSync() }
+    }
+
+    /// Returns once any start/stop in flight has settled.
+    public func waitUntilSettled() async {
+        while syncing {
+            await withCheckedContinuation { syncWaiters.append($0) }
+        }
     }
 
     /// Quit path: releases the microphone, including one a start still in flight was about to open.
@@ -80,7 +99,7 @@ public final class WakeWordController: ObservableObject {
 
     private func reconcile() async {
         let live = coordinator.state.isLive
-        let want = enabled && !live && !failed
+        let want = enabled && !live && !failed && suspensions.isEmpty
         if want && !isListening {
             do {
                 try await listener.start { [weak self] in
@@ -89,7 +108,7 @@ public final class WakeWordController: ObservableObject {
                 isListening = true
                 status = .listening
                 // Disabled, shut down, or a session began while the start was in flight: release the mic now.
-                if !(enabled && !coordinator.state.isLive) {
+                if !(enabled && !coordinator.state.isLive && suspensions.isEmpty) {
                     needsSync = true
                 }
             } catch {
@@ -108,14 +127,16 @@ public final class WakeWordController: ObservableObject {
     private func handleWake() async {
         // The listener already stopped itself to free the microphone.
         isListening = false
-        guard enabled, !coordinator.state.isLive else {
+        guard enabled, suspensions.isEmpty, !coordinator.state.isLive else {
+            _ = listener.takePreRoll()
             requestSync()
             return
         }
+        wakeCount += 1
         status = .paused
         print("[WAKE] \"Hey Ivy\" heard while idle; starting a wake session")
         onWake?()
-        await coordinator.startWakeSession()
+        await coordinator.startWakeSession(preRoll: listener.takePreRoll())
         requestSync() // if the session failed to start, resume listening
     }
 }

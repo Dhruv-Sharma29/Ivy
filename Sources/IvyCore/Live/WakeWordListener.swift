@@ -9,6 +9,13 @@ public protocol WakeWordListening: AnyObject, Sendable {
     /// Starts listening; `onWake` fires once, after which the listener has already stopped itself.
     func start(onWake: @escaping @Sendable () -> Void) async throws
     func stop() async
+    /// The last moments of microphone audio before the wake fired (16 kHz 16-bit mono), handed over once.
+    /// Memory only. Empty if the listener keeps no pre-roll.
+    func takePreRoll() -> Data
+}
+
+public extension WakeWordListening {
+    func takePreRoll() -> Data { Data() }
 }
 
 public enum WakeWordListenerError: Error, LocalizedError, Equatable, Sendable {
@@ -44,14 +51,37 @@ public final class SystemWakeWordListener: WakeWordListening, @unchecked Sendabl
         var taskId: UUID? = nil
         var onWake: (@Sendable () -> Void)? = nil
         var recentRestarts: [Date] = []
+        /// ponytail: 1.5 s covers "Hey Ivy" plus the recognizer's lag, so the words right after it survive the
+        /// hand-over; it can also hold a moment of what was said just before. Trim to the phrase's end time if
+        /// the recognizer's segment timestamps prove reliable.
+        var preRoll = PCMRingBuffer(seconds: 1.5)
     }
+
+    private static let preRollFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: false)
 
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let engine = AVAudioEngine()
     private let recognizer: SFSpeechRecognizer?
 
+    private let routeQueue = DispatchQueue(label: "com.ivy.assistant.wake-route")
+    /// Set once in init, removed in deinit; never mutated concurrently.
+    private var configObserver: NSObjectProtocol?
+
     public init(locale: Locale = Locale(identifier: "en-US")) {
         self.recognizer = SFSpeechRecognizer(locale: locale)
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+        ) { [weak self] _ in
+            self?.routeQueue.async { [weak self] in
+                self?.handleConfigurationChange()
+            }
+        }
+    }
+
+    deinit {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+        }
     }
 
     public func start(onWake: @escaping @Sendable () -> Void) async throws {
@@ -66,19 +96,7 @@ public final class SystemWakeWordListener: WakeWordListening, @unchecked Sendabl
         }
 
         await stop()
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw WakeWordListenerError.audioEngineFailed("no audio input device")
-        }
-        // The recognizer accepts the device's native format; no conversion needed.
-        print("[WAKEDIAG] input format \(format.sampleRate)Hz \(format.channelCount)ch \(format.commonFormat.rawValue) vp=\(input.isVoiceProcessingEnabled)") // WAKEDIAG
-        nonisolated(unsafe) var diagCount = 0 // WAKEDIAG
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
-            let hasRequest = self?.state.withLock { s -> Bool in s.request?.append(buffer); return s.request != nil } ?? false
-            diagCount += 1 // WAKEDIAG
-            if diagCount % 40 == 1, let ch = buffer.floatChannelData { var peak: Float = 0; for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(ch[0][i])) }; print("[WAKEDIAG] tap #\(diagCount) peak=\(peak) appended=\(hasRequest)") } // WAKEDIAG
-        }
+        try installTap()
         state.withLock { s in
             s.isListening = true
             s.onWake = onWake
@@ -94,9 +112,83 @@ public final class SystemWakeWordListener: WakeWordListening, @unchecked Sendabl
         print("[WAKE] idle wake-word listening started (on-device)")
     }
 
+    /// Taps the current input device in its native format (the recognizer needs no conversion).
+    private func installTap() throws {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw WakeWordListenerError.audioEngineFailed("no audio input device")
+        }
+        let converter = Self.preRollFormat.flatMap { AVAudioConverter(from: format, to: $0) }
+        if format.channelCount > 1 { converter?.channelMap = [0] }
+        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
+            let pcm = converter.flatMap { Self.convert(buffer, with: $0) }
+            self?.state.withLock { s in
+                s.request?.append(buffer)
+                if let pcm { s.preRoll.append(pcm) }
+            }
+        }
+    }
+
+    private static func convert(_ buffer: AVAudioPCMBuffer, with converter: AVAudioConverter) -> Data? {
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * 16000.0 / buffer.format.sampleRate)
+        guard capacity > 0, let format = preRollFormat,
+              let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+        var consumed = false
+        var error: NSError?
+        let status = converter.convert(to: out, error: &error) { _, outStatus in
+            if consumed {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return buffer
+        }
+        // A failed conversion only costs the pre-roll; wake detection itself uses the unconverted buffer.
+        guard status != .error, let samples = out.int16ChannelData else { return nil }
+        return Data(bytes: samples[0], count: Int(out.frameLength) * 2)
+    }
+
+    public func takePreRoll() -> Data {
+        state.withLock { $0.preRoll.drain() }
+    }
+
+    /// Audio route changed while listening (device plugged/unplugged, default input switched): re-tap the new
+    /// device with its own format and start a fresh recognition request for it.
+    private func handleConfigurationChange() {
+        guard state.withLock({ $0.isListening }) else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        do {
+            try installTap()
+            startRecognitionTask()
+            if !engine.isRunning {
+                try engine.start()
+            }
+            print("[WAKE] audio route changed; wake-word listening reconfigured")
+        } catch {
+            print("[WAKE] wake-word listening stopped: audio route change could not be recovered: \(error.localizedDescription)")
+            state.withLock { s in
+                s.isListening = false
+                s.request?.endAudio()
+                s.task?.cancel()
+                s.request = nil
+                s.task = nil
+                s.taskId = nil
+                s.onWake = nil
+            }
+            engine.stop()
+        }
+    }
+
     public func stop() async {
+        await stop(keepPreRoll: false)
+    }
+
+    private func stop(keepPreRoll: Bool) async {
         let (wasListening, request, task) = state.withLock { s -> (Bool, SFSpeechAudioBufferRecognitionRequest?, SFSpeechRecognitionTask?) in
             defer {
+                if !keepPreRoll { _ = s.preRoll.drain() }
                 s.isListening = false
                 s.request = nil
                 s.task = nil
@@ -133,13 +225,10 @@ public final class SystemWakeWordListener: WakeWordListening, @unchecked Sendabl
         }
         guard started else { return }
 
-        print("[WAKEDIAG] recognition task start onDevice=\(recognizer.supportsOnDeviceRecognition) available=\(recognizer.isAvailable)") // WAKEDIAG
         let task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
-            if let error { print("[WAKEDIAG] recognition error: \(error.localizedDescription)") } // WAKEDIAG
             if let result {
                 let heard = [result.bestTranscription.formattedString] + result.transcriptions.map(\.formattedString)
-                print("[WAKEDIAG] heard final=\(result.isFinal) \(heard.prefix(3))") // WAKEDIAG
                 if heard.contains(where: WakePhraseMatcher.containsWakePhrase) {
                     self.fireWake(taskId: taskId)
                     return
@@ -162,7 +251,7 @@ public final class SystemWakeWordListener: WakeWordListening, @unchecked Sendabl
         }
         guard let onWake else { return }
         Task { [weak self] in
-            await self?.stop() // hand the microphone to Live
+            await self?.stop(keepPreRoll: true) // hand the microphone to Live; the controller collects the pre-roll
             onWake()
         }
     }
