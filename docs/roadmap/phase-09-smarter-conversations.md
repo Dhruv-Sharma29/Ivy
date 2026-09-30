@@ -132,3 +132,31 @@ migrates; full suite green; manual checklist passed.
 - [ ] Read a file with Ivy, relaunch, ask "what was in that file?" — answered from the tool note.
 - [ ] Voice session transcript appears in the conversation.
 - [ ] Export to Markdown; confirm a pasted fake key is redacted.
+
+## Implementation status (2026-09-30)
+| Slice | Status | Where |
+|---|---|---|
+| 9.1 Schema v2 + migration + index | Done | `ConversationStore.swift` (`StoredMessage.Kind`, `Conversation` v2, `index.json`) |
+| 9.2 ConversationLibrary | Done | `ConversationLibrary.swift`; `IvyBrain.load/startNewConversation/updateConversation` |
+| 9.3 Auto-titles | Done | `IvyBrain.generateTitleIfNeeded`; setting `autoTitleConversations` |
+| 9.4 Search | Done | `ConversationSearchIndex` (in memory, prefix match, AND across words) |
+| 9.5 ContextBudget + compaction | Done | `ConversationContext.swift`, `IvyBrain.requestContext/compactIfNeeded` |
+| 9.6 Tool notes | Done | `ToolNote`; typed and voice tool calls |
+| 9.7 Voice transcripts | Done | `BidiSetup` transcription config, `LiveEvent.inputTranscript/outputTranscript`, `onTranscript`; setting `saveVoiceTranscripts` |
+| 9.8 Export | Done | `ConversationExporter` (Markdown / JSON), save panel in the conversations panel |
+| 9.9 Popover hooks | Done | `ConversationsPanel.swift` (list, new, search, rename, pin, archive, export, delete) |
+
+Tests: `Tests/IvyTests/Phase9ConversationTests.swift` (35 tests).
+
+Deviations and open items:
+- Token counts are estimated (chars / 4); the API's `countTokens` is not called.
+- The default budget is the spec's 60% of a 1,048,576-token limit, so compaction only starts on very long
+  conversations. Lower `ContextBudget.modelLimit` to compact (and save quota) sooner.
+- "Tool notes still relevant" = the 10 most recent.
+- A conversation switch during an in-flight request discards that reply (the question stays saved); the
+  request itself is not cancelled, so the new conversation shows "thinking" until it returns.
+- Search snippets use the first message containing the first query word as a substring.
+- Live transcription is always requested (Phase 10 reads spoken commands from it); the setting only
+  controls whether transcripts are added to the conversation, and applies immediately.
+- Manual checklist: only the panel listing and a saved failed turn were checked in the running app; rename,
+  pin, archive, export, search-hit scrolling and a real auto-title still need a hands-on pass.

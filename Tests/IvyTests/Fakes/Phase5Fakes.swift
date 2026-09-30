@@ -65,7 +65,7 @@ final class InMemoryConversationStore: ConversationStore, @unchecked Sendable {
     func delete(_ id: UUID) throws { _ = items.withLock { $0.removeValue(forKey: id) } }
     func list() -> [ConversationSummary] {
         items.withLock { Array($0.values) }
-            .map { ConversationSummary(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, messageCount: $0.messages.count) }
+            .map(\.indexEntry)
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 }
