@@ -107,7 +107,8 @@ struct Phase6PermissionManagerTests {
         #expect(PermissionType.speechRecognition.displayName == "Speech Recognition")
         #expect(PermissionType.calendar.displayName == "Calendar")
         #expect(PermissionType.automation.displayName == "Automation")
-        #expect(PermissionType.allCases.count == 4)
+        // Phase 11 added reminders, contacts, screen recording, accessibility and notifications for its tools.
+        #expect(PermissionType.allCases.count == 9)
     }
 
     @Test("MockPermissionManager defaults to notDetermined and records requests")

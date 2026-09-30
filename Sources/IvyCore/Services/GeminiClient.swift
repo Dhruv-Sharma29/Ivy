@@ -5,6 +5,8 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
     case invalidURL
     case invalidAPIKey(String)
     case rateLimited
+    /// Rate limited, and the server said how long to wait.
+    case rateLimitedRetry(after: TimeInterval)
     case dailyQuotaExhausted
     case modelNotFound(String)
     case serverError(statusCode: Int, message: String)
@@ -22,6 +24,8 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
             return "Invalid API key: \(msg)"
         case .rateLimited:
             return "Rate limited. Slow down, give me a second."
+        case .rateLimitedRetry(let seconds):
+            return "Rate limited. Try again in \(Int(seconds.rounded(.up))) s."
         case .dailyQuotaExhausted:
             return "Gemini's daily request quota for this API key is used up. It resets at midnight Pacific time, or switch to a key with billing enabled."
         case .modelNotFound(let msg):
@@ -113,6 +117,8 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
     public let baseURLString: String
     public let thinkingLevel: ThinkingLevel?
     public let retryPolicy: RetryPolicy
+    /// Longest server-requested rate-limit delay the client waits out itself before surfacing it.
+    static let maxInlineRateLimitWait: TimeInterval = 10
 
     public init(
         session: URLSession = .shared,
@@ -324,9 +330,20 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
 
             default:
                 // A per-day quota won't recover within any retry window; fail fast with the real reason.
-                if httpResponse.statusCode == 429,
-                   String(decoding: data, as: UTF8.self).contains("PerDay") {
-                    throw GeminiClientError.dailyQuotaExhausted
+                if httpResponse.statusCode == 429 {
+                    let quota = QuotaStatus.parse(responseBody: data)
+                    if quota.isDaily {
+                        throw GeminiClientError.dailyQuotaExhausted
+                    }
+                    if let serverDelay = quota.retryDelay {
+                        // Honour the server's own delay when it's short; a long one goes back to the UI as a countdown.
+                        guard serverDelay <= Self.maxInlineRateLimitWait, attempt < retryPolicy.maxRetries else {
+                            throw GeminiClientError.rateLimitedRetry(after: serverDelay)
+                        }
+                        attempt += 1
+                        try await retryPolicy.sleeper(serverDelay)
+                        continue
+                    }
                 }
                 if RetryPolicy.isTransientStatusCode(httpResponse.statusCode) && attempt < retryPolicy.maxRetries {
                     let delay = retryPolicy.delay(forAttempt: attempt)

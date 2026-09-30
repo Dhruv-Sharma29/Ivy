@@ -159,3 +159,33 @@ manual checklist passed.
 - [ ] Corrupt a conversation file → reported once, file in Quarantine.
 - [ ] 1 hour of mixed use: memory < 100 MB, no audio engine running while idle.
 - [ ] VoiceOver: send a message, approve a confirmation, start/stop Live.
+
+---
+
+## Implementation status (2026-09-30)
+
+| Slice | Status | What shipped |
+|---|---|---|
+| 8.1 Reconnect | Done | `VoiceSessionState.reconnecting(n)`; backoff 0.5 s × 2ⁿ, 4 attempts in the app (0 for injected sessions); `NetworkPathChecking` waits for the network; auth/quota/policy errors never retry (`LiveError.isRecoverable`); a pending confirmation is denied on drop; connection-epoch guard ignores failures from the dead socket. Not done: server `goAway` / session-resumption handles. |
+| 8.2 Quota | Done | `QuotaStatus` (per-minute / per-day, reset time); server `retryDelay` honoured when ≤ 10 s, surfaced as a countdown otherwise; the brain stops sending requests that cannot succeed; live banner. Not done: optional model fallback. |
+| 8.3 Audio devices | Done (needs a hardware pass) | Capture and the idle wake listener rebuild their tap/converter for the new device on every `AVAudioEngineConfigurationChange`; no input device → the session ends with "The microphone was disconnected." Verified in the app for the voice-processing reconfiguration; plug/unplug not yet tried by hand. |
+| 8.4 Permissions | Done | Per-permission deep links (`PermissionType.settingsURL`), "Open Settings" on denied rows, statuses refresh when the app becomes active. |
+| 8.5 Storage / Keychain | Done | Corrupt conversation files move to `Application Support/Ivy/Quarantine/<date>/` and are reported once; `schemaVersion` on conversations (newer files are skipped, not quarantined); failed saves surface in the UI; `CredentialSource.keychainInaccessible` and item repair on re-save. |
+| 8.6 Resources | Done (tests) | `activeTaskCount` invariant over 30 sessions, abnormal ends, and a retain-cycle test. Instruments Leaks runs still to do by hand. |
+| 8.7 Performance | Measured, partly met | See table below. |
+| 8.8 Accessibility | Partly done | VoiceOver labels on icon buttons, Reduce Motion honoured, ⌘, toggles settings, confirmation approval moved from Return to **⌘Return** (a stray Return can no longer approve a risky action). A full VoiceOver walkthrough is still a manual item. |
+| 8.9 Diagnostics | Done | `DiagnosticsReport` (versions, settings, permission states, credential *sources*, redacted log tail), "Export Diagnostics…" in settings, MetricKit crash payloads kept locally (last 5). |
+| 8.10 Tests / warnings | Partly done | Zero compiler warnings; shared `waitUntil` helper (`Tests/IvyTests/Support/`); all new tests poll. The ~260 older fixed sleeps are not yet converted; timer durations are injectable but there is no virtual clock. |
+
+### Measured on a MacBook Air (Ivy.app, debug build)
+
+| Metric | Budget | Measured | Verdict |
+|---|---|---|---|
+| Idle CPU (wake word off) | < 0.5 % | 0.0 % | met |
+| Idle memory before any voice session | < 100 MB | ~80 MB | met |
+| Memory after a Live session (echo cancellation on) | < 100 MB | ~175 MB, flat across 5 sessions | **not met** — Apple's voice-processing models stay mapped; no growth, so not a leak |
+| CPU during Live (listening, echo cancellation on) | — | 24–34 % of one core | cost of voice processing (libBNNS/vDSP in the profile), not Ivy code |
+| CPU after a session ends | ~0 % | 0.0 % | met (audio engine released) |
+| Idle CPU with wake word on, popover open time, 1,000-message scroll | see 8.7 | not measured | open |
+
+Turning "Echo cancellation" off in settings avoids both the CPU and the memory cost (headphones recommended).

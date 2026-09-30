@@ -5,6 +5,12 @@ public enum CredentialSource: Equatable, Sendable {
     case keychain
     case environment
     case missing
+    /// A key is stored but the Keychain refused to hand it over (access denied, locked, damaged item).
+    /// Saving the key again replaces the item and restores access.
+    case keychainInaccessible
+
+    /// Whether a usable key is available right now.
+    public var isUsable: Bool { self == .keychain || self == .environment }
 }
 
 /// Clients ask for credentials through this; none of them touch Security.framework.
@@ -34,18 +40,35 @@ public struct KeychainCredentialProvider: CredentialProvider {
     }
 
     public func source(for key: CredentialKey) -> CredentialSource {
-        if keychainValue(for: key) != nil { return .keychain }
+        var keychainFailed = false
+        do {
+            if Self.normalized(String(data: try keychain.read(key), encoding: .utf8)) != nil { return .keychain }
+        } catch KeychainError.itemNotFound {
+            keychainFailed = false
+        } catch {
+            keychainFailed = true
+        }
         if environmentValue(for: key) != nil { return .environment }
-        return .missing
+        return keychainFailed ? .keychainInaccessible : .missing
     }
 
     public func store(_ value: String, for key: CredentialKey) throws {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw KeychainError.invalidData }
         let data = Data(trimmed.utf8)
-        if keychain.exists(key) {
-            try keychain.update(data, for: key)
-        } else {
+        do {
+            if keychain.exists(key) {
+                try keychain.update(data, for: key)
+            } else {
+                try keychain.save(data, for: key)
+            }
+        } catch KeychainError.itemNotFound, KeychainError.duplicateItem, KeychainError.accessDenied, KeychainError.invalidData {
+            // The existing item is unusable (stale ACL after re-signing, damaged, or racing): replace it outright.
+            do {
+                try keychain.delete(key)
+            } catch KeychainError.itemNotFound {
+                // nothing to remove; fall through to a clean save
+            }
             try keychain.save(data, for: key)
         }
     }

@@ -2,6 +2,10 @@ import Foundation
 import AVFoundation
 import Speech
 import EventKit
+import Contacts
+import UserNotifications
+import ApplicationServices
+import CoreGraphics
 import os
 
 /// The system privacy permissions required by Ivy's features.
@@ -14,14 +18,46 @@ public enum PermissionType: String, CaseIterable, Sendable {
     case calendar
     /// AppleEvents automation for AppleScript tool execution.
     case automation
+    /// Reminders, for the `reminders` tool.
+    case reminders
+    /// Contacts, for the `contacts` tool.
+    case contacts
+    /// Screen recording, for the `screenshot` tool.
+    case screenRecording
+    /// Accessibility, for moving and resizing windows.
+    case accessibility
+    /// Local notifications, for the `notify` tool.
+    case notifications
 
     public var displayName: String {
         switch self {
+        case .reminders: return "Reminders"
+        case .contacts: return "Contacts"
+        case .screenRecording: return "Screen Recording"
+        case .accessibility: return "Accessibility"
+        case .notifications: return "Notifications"
         case .microphone: return "Microphone"
         case .speechRecognition: return "Speech Recognition"
         case .calendar: return "Calendar"
         case .automation: return "Automation"
         }
+    }
+
+    /// Deep link to this permission's pane in System Settings › Privacy & Security.
+    public var settingsURL: URL? {
+        let anchor: String
+        switch self {
+        case .reminders: anchor = "Privacy_Reminders"
+        case .contacts: anchor = "Privacy_Contacts"
+        case .screenRecording: anchor = "Privacy_ScreenCapture"
+        case .accessibility: anchor = "Privacy_Accessibility"
+        case .notifications: return URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+        case .microphone: anchor = "Privacy_Microphone"
+        case .speechRecognition: anchor = "Privacy_SpeechRecognition"
+        case .calendar: anchor = "Privacy_Calendars"
+        case .automation: anchor = "Privacy_Automation"
+        }
+        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")
     }
 }
 
@@ -57,6 +93,33 @@ public struct SystemPermissionManager: PermissionManaging {
         case .automation:
             // macOS does not provide a general pre-flight API for AppleEvents; it prompts on first event.
             return .notDetermined
+        case .reminders:
+            return Self.eventKitState(EKEventStore.authorizationStatus(for: .reminder))
+        case .contacts:
+            switch CNContactStore.authorizationStatus(for: .contacts) {
+            case .authorized: return .authorized
+            case .denied: return .denied
+            case .restricted: return .restricted
+            case .notDetermined: return .notDetermined
+            @unknown default: return .denied
+            }
+        case .screenRecording:
+            return CGPreflightScreenCaptureAccess() ? .authorized : .notDetermined
+        case .accessibility:
+            return AXIsProcessTrusted() ? .authorized : .notDetermined
+        case .notifications:
+            // The notification centre only answers asynchronously; `requestPermission` reports the real state.
+            return .notDetermined
+        }
+    }
+
+    private static func eventKitState(_ status: EKAuthorizationStatus) -> PermissionState {
+        switch status {
+        case .authorized, .fullAccess: return .authorized
+        case .writeOnly, .denied: return .denied
+        case .restricted: return .restricted
+        case .notDetermined: return .notDetermined
+        @unknown default: return .denied
         }
     }
 
@@ -104,6 +167,38 @@ public struct SystemPermissionManager: PermissionManaging {
 
         case .automation:
             return .notDetermined
+
+        case .reminders:
+            do {
+                return try await EKEventStore().requestFullAccessToReminders() ? .authorized : .denied
+            } catch {
+                return .denied
+            }
+
+        case .contacts:
+            do {
+                return try await CNContactStore().requestAccess(for: .contacts) ? .authorized : .denied
+            } catch {
+                return .denied
+            }
+
+        case .screenRecording:
+            // Shows the system prompt the first time; access only takes effect after the user allows it.
+            return CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() ? .authorized : .denied
+
+        case .accessibility:
+            // The literal value of kAXTrustedCheckOptionPrompt (a global the concurrency checker rejects).
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            return AXIsProcessTrustedWithOptions(options) ? .authorized : .denied
+
+        case .notifications:
+            // The notification centre traps in a process without a bundle (`swift run`, tests).
+            guard Bundle.main.bundleURL.pathExtension == "app" else { return .unsupported }
+            do {
+                return try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) ? .authorized : .denied
+            } catch {
+                return .denied
+            }
         }
     }
 
