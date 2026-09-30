@@ -30,5 +30,11 @@
     <string>Ivy needs access to your calendar to schedule events on your behalf.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Ivy needs permission to automate macOS applications on your behalf.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Ivy needs access to your reminders to list, create and complete them when you ask.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Ivy needs access to your reminders to list, create and complete them when you ask.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Ivy looks up a contact's phone number or email when you ask, after you approve each lookup.</string>
 </dict>
 </plist>

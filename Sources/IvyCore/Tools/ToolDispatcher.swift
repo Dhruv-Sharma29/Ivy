@@ -4,13 +4,16 @@ import Foundation
 public final class ToolDispatcher: Sendable {
     public let registry: ToolRegistry
     public let safetyGate: SafetyGateProtocol
+    public let permissions: PermissionManaging
 
     public init(
         registry: ToolRegistry,
-        safetyGate: SafetyGateProtocol = PassThroughSafetyGate()
+        safetyGate: SafetyGateProtocol = PassThroughSafetyGate(),
+        permissions: PermissionManaging = SystemPermissionManager()
     ) {
         self.registry = registry
         self.safetyGate = safetyGate
+        self.permissions = permissions
     }
 
     /// Dispatches a single FunctionCall and produces a FunctionResponse.
@@ -64,8 +67,40 @@ public final class ToolDispatcher: Sendable {
             break
         }
 
+        // 3. macOS permissions: only now, so the user is never prompted for access to something they
+        // haven't agreed to let Ivy do.
+        for permission in tool.requiredPermissions(for: call.args) {
+            let state = await permissions.requestPermission(for: permission)
+            guard state == .authorized else {
+                var response: [String: AnyCodable] = [
+                    "error": AnyCodable("\(permission.displayName) access is \(state == .unsupported ? "not available" : "not allowed") for Ivy. "
+                        + "The user can turn it on in System Settings › Privacy & Security › \(permission.displayName), then ask again."),
+                    "success": AnyCodable(false),
+                    "permissionDenied": AnyCodable(true),
+                    "permission": AnyCodable(permission.rawValue)
+                ]
+                if let url = permission.settingsURL {
+                    response["settingsURL"] = AnyCodable(url.absoluteString)
+                }
+                return FunctionResponse(name: call.name, response: response, id: call.id)
+            }
+        }
+
         do {
-            let result = try await tool.execute(arguments: call.args)
+            var result = try await tool.execute(arguments: call.args)
+            // The v1.0 core tools keep their own limits; everything newer is capped here.
+            if tool.group != .core { result = result.capped() }
+            if let summary = result.summary, !result.isError {
+                return FunctionResponse(
+                    name: call.name,
+                    response: [
+                        "result": AnyCodable(result.output),
+                        "success": AnyCodable(true),
+                        "summary": AnyCodable(summary)
+                    ],
+                    id: call.id
+                )
+            }
             if result.isError {
                 return FunctionResponse(
                     name: call.name,

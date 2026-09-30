@@ -111,13 +111,16 @@ public struct SafetyPolicy: Sendable, Equatable {
             return .risky
         }
 
-        if riskyToolNames.contains(tool.name) || tool.safetyClassification == .risky {
+        // The tool's own view of this particular call (its static classification when there is no call, and
+        // for every tool that doesn't distinguish between its actions).
+        let own = call.map { tool.classification(for: $0.args) } ?? tool.safetyClassification
+        if riskyToolNames.contains(tool.name) || own == .risky {
             return .risky
         }
         if safeToolNames.contains(tool.name) {
             return .safe
         }
-        return tool.safetyClassification
+        return own
     }
 }
 
@@ -224,6 +227,8 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
                 prompt: "You're about to run a shell command. If this breaks your system, don't blame me. Do it or chicken out?",
                 detail: command
             )
+        } else if let custom = tool.confirmation(for: call.args) {
+            return ConfirmationRequest(callId: call.id, toolName: tool.name, title: custom.title, prompt: custom.prompt, detail: custom.detail)
         } else {
             return ConfirmationRequest(
                 callId: call.id,

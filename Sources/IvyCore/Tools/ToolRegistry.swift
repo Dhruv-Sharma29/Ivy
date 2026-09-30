@@ -38,6 +38,24 @@ public final class ToolRegistry: Sendable {
         Array(toolsByName.values)
     }
 
+    /// True when some tools are outside `core`, i.e. when declaring by group saves anything.
+    public var hasOptionalGroups: Bool {
+        toolsByName.values.contains { $0.group != .core }
+    }
+
+    /// Declarations for the given groups only, plus `enable_tools` so the model can ask for the rest.
+    /// A registry of core tools alone is declared exactly as before.
+    public func toolDeclarations(for groups: Set<ToolGroup>) -> [ToolDeclarationWrapper] {
+        guard hasOptionalGroups else { return toolDeclarations }
+        let decls = toolsByName.values.filter { groups.contains($0.group) }.map(\.declaration).sorted { $0.name < $1.name }
+        return [ToolDeclarationWrapper(functionDeclarations: decls + [EnableToolsTool.declaration])]
+    }
+
+    /// Names of the tools in a group, for telling the model what `enable_tools` just unlocked.
+    public func toolNames(in group: ToolGroup) -> [String] {
+        toolsByName.values.filter { $0.group == group }.map(\.name).sorted()
+    }
+
     /// Gemini tool declarations wrapping all registered tools.
     public var toolDeclarations: [ToolDeclarationWrapper] {
         let decls = toolsByName.values.map(\.declaration).sorted { $0.name < $1.name }
@@ -60,6 +78,15 @@ public final class ToolRegistry: Sendable {
             CalendarEventTool(executor: calendarExecutor),
             FileOpTool(executor: fileExecutor, allowedRoot: allowedFileRoot),
             RunShellTool(executor: shellExecutor)
+        ])
+    }
+
+    /// The v1.0 core tools plus the expanded macOS tools. What the app runs with.
+    public static func standardRegistry() -> ToolRegistry {
+        defaultRegistry().registering(contentsOf: [
+            NotifyTool(), ClipboardTool(), SystemSettingsTool(), VolumeBrightnessTool(), NetworkBluetoothTool(),
+            WindowTool(), ScreenshotTool(), FinderTool(), FileSearchTool(), MediaTool(),
+            RemindersTool(), NotesTool(), ContactsTool(), MailTool(),
         ])
     }
 

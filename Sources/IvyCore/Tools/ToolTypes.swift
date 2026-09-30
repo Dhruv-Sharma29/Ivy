@@ -4,14 +4,18 @@ import Foundation
 public struct ToolResult: Sendable, Equatable {
     public let output: String
     public let isError: Bool
+    /// What the conversation remembers about this call instead of `output` (e.g. "looked up a contact"),
+    /// for tools whose results are personal data that must not be stored.
+    public let summary: String?
 
-    public init(output: String, isError: Bool = false) {
+    public init(output: String, isError: Bool = false, summary: String? = nil) {
         self.output = output
         self.isError = isError
+        self.summary = summary
     }
 
-    public static func success(_ output: String) -> ToolResult {
-        ToolResult(output: output, isError: false)
+    public static func success(_ output: String, summary: String? = nil) -> ToolResult {
+        ToolResult(output: output, isError: false, summary: summary)
     }
 
     public static func failure(_ error: String) -> ToolResult {

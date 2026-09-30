@@ -48,3 +48,21 @@ All permission usage descriptions are defined in `Info.plist`:
 - **Speech Recognition Denied / Unavailable**: Under `swift run` or when permission is denied, `isWakePhraseAvailable` is marked `false`. Live voice continues working via Push-to-Talk; the UI displays informative status (`"Hey Ivy" needs Ivy.app`).
 - **Calendar Denied**: Tool execution fails cleanly with `CalendarError.permissionDenied`. Error is returned to the model as a structured `ToolResult` without crashing.
 - **Automation Denied**: Apple Events error `-1743` (`errAEEventNotPermitted`) is caught and translated to a clear instruction guiding the user to System Settings.
+
+## Phase 11 tools: permissions added
+
+Every permission below is requested only after the user has approved the specific tool call that needs it
+(`ToolDispatcher`: validation → SafetyGate → permission → execution). Nothing is requested at launch.
+
+| Permission | Tool (actions) | Declared by | Notes |
+|---|---|---|---|
+| Reminders | `reminders` (all) | `NSRemindersUsageDescription`, `NSRemindersFullAccessUsageDescription` | EventKit; covered by the existing calendars entitlement |
+| Contacts | `contacts` | `NSContactsUsageDescription`, entitlement `com.apple.security.personal-information.addressbook` | Every lookup is confirmed; only phone/email, at most 5 people |
+| Screen Recording | `screenshot` | prompted by macOS (no usage string) | Image stays in memory unless the user asks to save it |
+| Accessibility | `window` (move, tile) | prompted by macOS | Not needed for `window` list/focus |
+| Notifications | `notify` | prompted by macOS on first use | Requires the app bundle |
+| Automation (existing) | `notes`, `mail` search, `media`, `finder` selection | `NSAppleEventsUsageDescription` | macOS asks once per target app |
+
+Not used: Location (so the Wi-Fi network name may be unavailable), Bluetooth (status comes from
+`system_profiler`), Full Disk Access. When a permission is refused the tool returns a structured
+`permissionDenied` result with the Settings deep link; Ivy never retries the prompt on its own.

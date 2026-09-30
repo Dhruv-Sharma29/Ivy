@@ -100,3 +100,44 @@ set; no regression in v1.0 tool tests.
 - [ ] "Email John the notes from today" → Mail draft opens; nothing sent.
 - [ ] "Turn off Wi-Fi" → warning + confirmation; Cancel does nothing.
 - [ ] Deny Contacts → clear message with a link to Settings.
+
+## Implementation status (2026-09-30)
+All 14 catalogue tools and the 11.0 framework are implemented with mocks and tests
+(`Tests/IvyTests/Phase11ToolsTests.swift`, 34 tests). Files: `Tools/ToolSupport.swift` (groups, router,
+`enable_tools`, argument validation, rate limiter, AppleScript literals), `Tools/SystemTools.swift`,
+`Tools/AppTools.swift`, `Tools/SystemExecutors.swift`; `ToolRegistry.standardRegistry()` is what the app runs.
+
+| Tool | Safe | Risky (approval card) | Checked on this Mac |
+|---|---|---|---|
+| `notify` | post | — | no |
+| `clipboard` | — | read, write | no |
+| `system_settings` | open pane | — | no (pane identifiers are from memory) |
+| `volume_brightness` | volume, mute | — | get volume: yes |
+| `network_bluetooth` | status | Wi-Fi on/off | status: yes |
+| `window` | list, focus | move, tile | list: yes |
+| `screenshot` | — | capture | no |
+| `finder` | reveal, open, selection | — | no |
+| `file_search` | search | — | yes |
+| `media` | all | — | no |
+| `reminders` | list | create, complete | no |
+| `notes` | search titles | read, create | no |
+| `contacts` | — | find | no |
+| `mail` | — | draft, search | no |
+
+Deviations from the plan:
+- **No "confirm once per task / once per note".** Every risky call shows its own card.
+- **Brightness** always returns a structured "unsupported" error (no public API).
+- **`file_search`** uses `mdfind` (the Spotlight CLI) rather than `NSMetadataQuery`.
+- **`screenshot`** captures the main display only (no window or region).
+- **`media`** has no media-key fallback; Music and Spotify only.
+- **`network_bluetooth`** reports Bluetooth via `system_profiler`; the Wi-Fi name needs Location access, which
+  Ivy does not request.
+- **Tool-selection eval:** the 50-prompt set is scored against the local keyword router (it clears the 90% bar), not against
+  the model. A model-side eval needs ~50 REST requests (the free tier allows 20 a day).
+- **Live** declares all 19 tools at setup (the server accepts them); there is no `enable_tools` in voice.
+- The 8 KB result cap applies to the new tools only; the v1.0 tools keep their own limits.
+- `SafetyPolicy.classification(for:call:)` now asks the tool about the specific call. The five v1.0 tools
+  classify exactly as before (tested).
+
+Still to do by hand: the manual checklist above, each TCC prompt, and one REST chat that uses a new tool
+(the REST endpoint returned 503 during implementation, so the declarations were only validated by Live).

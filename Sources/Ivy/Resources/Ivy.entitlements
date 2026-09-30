@@ -11,6 +11,9 @@
     <!-- Calendar event scheduling for the calendar_event tool -->
     <key>com.apple.security.personal-information.calendars</key>
     <true/>
+    <!-- Contact lookups for the contacts tool (each lookup is confirmed by the user) -->
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
     <!-- AppleScript execution for the run_applescript automation tool -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>

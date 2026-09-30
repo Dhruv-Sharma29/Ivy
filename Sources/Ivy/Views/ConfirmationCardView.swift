@@ -68,6 +68,7 @@ public struct ConfirmationCardView: View {
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(hasResponded)
+                .accessibilityHint("Refuses this action. Nothing will run.")
 
                 Button {
                     guard !hasResponded else { return }
@@ -80,8 +81,11 @@ public struct ConfirmationCardView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.orange)
-                .keyboardShortcut(.return, modifiers: [])
+                // Deliberate chord, not plain Return: a stray Return while typing must never approve a risky action.
+                .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(hasResponded)
+                .accessibilityLabel("Do it")
+                .accessibilityHint("Approves and runs this action. Shortcut: Command Return.")
             }
         }
         .padding(12)
