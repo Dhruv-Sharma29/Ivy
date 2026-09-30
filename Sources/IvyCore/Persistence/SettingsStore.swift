@@ -15,6 +15,43 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var showLiveTranscript: Bool
     /// "Hey Ivy" wakes Ivy while idle (like "Hey Siri"). Keeps the mic open with on-device recognition, so opt-in.
     public var wakeWordEnabled: Bool
+    /// Add what was said in Live voice sessions to the conversation as text. No audio is ever stored.
+    public var saveVoiceTranscripts: Bool
+    /// Let Ivy name new conversations. Costs one extra Gemini request per conversation.
+    public var autoTitleConversations: Bool
+    /// How long a pause Ivy waits through before answering in Live. Applies at launch.
+    public var voicePatience: VoicePatience
+    /// Spoken-style hints for Live (the voice itself is always Kore). Apply at launch.
+    public var voiceResponseLength: VoiceResponseLength
+    public var voiceSpeakingPace: VoiceSpeakingPace
+    /// ElevenLabs read-aloud voice settings.
+    public var ttsSpeed: Double
+    public var ttsStability: Double
+    public var ttsStyle: Double
+    /// Stop listening for "Hey Ivy" while the screen is locked.
+    public var pauseWakeWordWhenLocked: Bool
+    /// Experimental: a lone "Ivy" (no "hey") interrupts while you are audibly speaking.
+    public var loneIvyBargeIn: Bool
+    /// Master switch for everything Ivy does on its own initiative. Off unless the user turns it on.
+    public var proactiveEnabled: Bool
+    /// Reminders, follow-ups and "tell me when…" watches.
+    public var proactiveReminders: Bool
+    /// Heads-up before calendar events (only calendars named in `headsUpCalendars`).
+    public var proactiveCalendar: Bool
+    public var proactiveBriefing: Bool
+    /// No notifications during quiet hours; they are held for one digest afterwards.
+    public var quietHoursEnabled: Bool
+    /// Minutes after midnight, local time.
+    public var quietStartMinutes: Int
+    public var quietEndMinutes: Int
+    public var briefingMinutes: Int
+    public var headsUpMinutes: Int
+    public var headsUpCalendars: [String]
+    public var launchAtLogin: Bool
+
+    public var ttsVoiceSettings: ElevenLabsVoiceSettings {
+        ElevenLabsVoiceSettings(speed: ttsSpeed, stability: ttsStability, style: ttsStyle)
+    }
 
     public static let defaults = IvySettings(
         persistConversationHistory: true,
@@ -22,7 +59,9 @@ public struct IvySettings: Codable, Equatable, Sendable {
         echoCancellation: true,
         pushToTalkEnabled: true,
         showLiveTranscript: true,
-        wakeWordEnabled: false
+        wakeWordEnabled: false,
+        saveVoiceTranscripts: true,
+        autoTitleConversations: true
     )
 
     public init(
@@ -31,7 +70,28 @@ public struct IvySettings: Codable, Equatable, Sendable {
         echoCancellation: Bool,
         pushToTalkEnabled: Bool,
         showLiveTranscript: Bool,
-        wakeWordEnabled: Bool = false
+        wakeWordEnabled: Bool = false,
+        saveVoiceTranscripts: Bool = true,
+        autoTitleConversations: Bool = true,
+        voicePatience: VoicePatience = .normal,
+        voiceResponseLength: VoiceResponseLength = .normal,
+        voiceSpeakingPace: VoiceSpeakingPace = .normal,
+        ttsSpeed: Double = ElevenLabsVoiceSettings.defaultSpeed,
+        ttsStability: Double = ElevenLabsVoiceSettings.defaultStability,
+        ttsStyle: Double = ElevenLabsVoiceSettings.defaultStyle,
+        pauseWakeWordWhenLocked: Bool = true,
+        loneIvyBargeIn: Bool = false,
+        proactiveEnabled: Bool = false,
+        proactiveReminders: Bool = true,
+        proactiveCalendar: Bool = false,
+        proactiveBriefing: Bool = false,
+        quietHoursEnabled: Bool = true,
+        quietStartMinutes: Int = 22 * 60,
+        quietEndMinutes: Int = 8 * 60,
+        briefingMinutes: Int = 8 * 60 + 30,
+        headsUpMinutes: Int = 10,
+        headsUpCalendars: [String] = [],
+        launchAtLogin: Bool = false
     ) {
         self.persistConversationHistory = persistConversationHistory
         self.restoreLastConversation = restoreLastConversation
@@ -39,6 +99,27 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.pushToTalkEnabled = pushToTalkEnabled
         self.showLiveTranscript = showLiveTranscript
         self.wakeWordEnabled = wakeWordEnabled
+        self.saveVoiceTranscripts = saveVoiceTranscripts
+        self.autoTitleConversations = autoTitleConversations
+        self.voicePatience = voicePatience
+        self.voiceResponseLength = voiceResponseLength
+        self.voiceSpeakingPace = voiceSpeakingPace
+        self.ttsSpeed = ttsSpeed
+        self.ttsStability = ttsStability
+        self.ttsStyle = ttsStyle
+        self.pauseWakeWordWhenLocked = pauseWakeWordWhenLocked
+        self.loneIvyBargeIn = loneIvyBargeIn
+        self.proactiveEnabled = proactiveEnabled
+        self.proactiveReminders = proactiveReminders
+        self.proactiveCalendar = proactiveCalendar
+        self.proactiveBriefing = proactiveBriefing
+        self.quietHoursEnabled = quietHoursEnabled
+        self.quietStartMinutes = quietStartMinutes
+        self.quietEndMinutes = quietEndMinutes
+        self.briefingMinutes = briefingMinutes
+        self.headsUpMinutes = headsUpMinutes
+        self.headsUpCalendars = headsUpCalendars
+        self.launchAtLogin = launchAtLogin
     }
 
     /// Missing or wrongly-typed fields fall back to their defaults individually, so an older or
@@ -55,6 +136,34 @@ public struct IvySettings: Codable, Equatable, Sendable {
         pushToTalkEnabled = value(.pushToTalkEnabled, d.pushToTalkEnabled)
         showLiveTranscript = value(.showLiveTranscript, d.showLiveTranscript)
         wakeWordEnabled = value(.wakeWordEnabled, d.wakeWordEnabled)
+        saveVoiceTranscripts = value(.saveVoiceTranscripts, d.saveVoiceTranscripts)
+        autoTitleConversations = value(.autoTitleConversations, d.autoTitleConversations)
+        func other<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback
+        }
+        voicePatience = other(.voicePatience, d.voicePatience)
+        voiceResponseLength = other(.voiceResponseLength, d.voiceResponseLength)
+        voiceSpeakingPace = other(.voiceSpeakingPace, d.voiceSpeakingPace)
+        ttsSpeed = other(.ttsSpeed, d.ttsSpeed)
+        ttsStability = other(.ttsStability, d.ttsStability)
+        ttsStyle = other(.ttsStyle, d.ttsStyle)
+        pauseWakeWordWhenLocked = value(.pauseWakeWordWhenLocked, d.pauseWakeWordWhenLocked)
+        loneIvyBargeIn = value(.loneIvyBargeIn, d.loneIvyBargeIn)
+        proactiveEnabled = value(.proactiveEnabled, d.proactiveEnabled)
+        proactiveReminders = value(.proactiveReminders, d.proactiveReminders)
+        proactiveCalendar = value(.proactiveCalendar, d.proactiveCalendar)
+        proactiveBriefing = value(.proactiveBriefing, d.proactiveBriefing)
+        quietHoursEnabled = value(.quietHoursEnabled, d.quietHoursEnabled)
+        func minutes(_ key: CodingKeys, _ fallback: Int) -> Int {
+            let stored: Int = other(key, fallback)
+            return (0..<1440).contains(stored) ? stored : fallback
+        }
+        quietStartMinutes = minutes(.quietStartMinutes, d.quietStartMinutes)
+        quietEndMinutes = minutes(.quietEndMinutes, d.quietEndMinutes)
+        briefingMinutes = minutes(.briefingMinutes, d.briefingMinutes)
+        headsUpMinutes = min(120, max(1, other(.headsUpMinutes, d.headsUpMinutes)))
+        headsUpCalendars = other(.headsUpCalendars, d.headsUpCalendars)
+        launchAtLogin = value(.launchAtLogin, d.launchAtLogin)
     }
 }
 

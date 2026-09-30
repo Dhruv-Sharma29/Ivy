@@ -7,7 +7,10 @@ struct SettingsPanel: View {
     @ObservedObject var settings: SettingsModel
     @ObservedObject var wakeWord: WakeWordController
     var permissionManager: PermissionManaging = SystemPermissionManager()
+    /// Reads a sample line with the current read-aloud settings.
+    var onPreviewVoice: (() -> Void)? = nil
     let onCredentialsChanged: () -> Void
+    @State private var permissionRefresh = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -19,10 +22,13 @@ struct SettingsPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("Save conversation history", isOn: $settings.settings.persistConversationHistory)
                 Toggle("Reopen last conversation on launch", isOn: $settings.settings.restoreLastConversation)
+                Toggle("Name new conversations automatically (1 extra request each)", isOn: $settings.settings.autoTitleConversations)
+                Toggle("Add voice sessions to the conversation as text", isOn: $settings.settings.saveVoiceTranscripts)
                 Toggle("Show live transcript", isOn: $settings.settings.showLiveTranscript)
                 Toggle("Echo cancellation for \"Hey Ivy\" (next launch)", isOn: $settings.settings.echoCancellation)
                 Toggle("Push-to-talk shortcut (next launch)", isOn: $settings.settings.pushToTalkEnabled)
                 Toggle("Wake with \u{201C}Hey Ivy\u{201D} (keeps the mic open, on-device only)", isOn: $settings.settings.wakeWordEnabled)
+                Toggle("Pause \u{201C}Hey Ivy\u{201D} while the screen is locked", isOn: $settings.settings.pauseWakeWordWhenLocked)
                 if let wakeStatus {
                     Text(wakeStatus.text)
                         .font(.system(size: 10))
@@ -32,6 +38,10 @@ struct SettingsPanel: View {
             }
             .toggleStyle(.checkbox)
             .font(.system(size: 11))
+
+            Divider()
+
+            voiceSection
 
             Divider()
 
@@ -50,9 +60,14 @@ struct SettingsPanel: View {
                     .buttonStyle(.link)
                 }
 
-                PermissionRow(title: "Microphone", state: permissionManager.status(for: .microphone))
-                PermissionRow(title: "Speech Recognition", state: permissionManager.status(for: .speechRecognition))
-                PermissionRow(title: "Calendar", state: permissionManager.status(for: .calendar))
+                ForEach([PermissionType.microphone, .speechRecognition, .calendar], id: \.self) { type in
+                    PermissionRow(type: type, state: permissionManager.status(for: type))
+                }
+            }
+            // Re-read the permission states when the user returns from System Settings.
+            .id(permissionRefresh)
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                permissionRefresh += 1
             }
 
             HStack {
@@ -71,6 +86,55 @@ struct SettingsPanel: View {
 }
 
 extension SettingsPanel {
+    /// Live (Kore) speaking style and the ElevenLabs read-aloud voice. None of this changes which voice is used.
+    fileprivate var voiceSection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Voice")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            choice("Wait through pauses", $settings.settings.voicePatience,
+                   [(.short, "Short"), (.normal, "Normal"), (.long, "Long")])
+            choice("Answer length", $settings.settings.voiceResponseLength,
+                   [(.brief, "Brief"), (.normal, "Normal"), (.detailed, "Detailed")])
+            choice("Speaking pace", $settings.settings.voiceSpeakingPace,
+                   [(.slow, "Slow"), (.normal, "Normal"), (.fast, "Fast")])
+            Text("Ivy Live voice options apply from the next launch.")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+
+            slider("Read-aloud speed", $settings.settings.ttsSpeed, ElevenLabsVoiceSettings.speedRange)
+            slider("Stability", $settings.settings.ttsStability, 0...1)
+            slider("Style", $settings.settings.ttsStyle, 0...1)
+            if let onPreviewVoice {
+                Button("Preview read-aloud voice", action: onPreviewVoice)
+                    .font(.system(size: 11))
+            }
+        }
+        .font(.system(size: 11))
+    }
+
+    private func choice<Value: Hashable>(_ label: String, _ value: Binding<Value>, _ options: [(Value, String)]) -> some View {
+        Picker(label, selection: value) {
+            ForEach(options, id: \.0) { option in
+                Text(option.1).tag(option.0)
+            }
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+    }
+
+    private func slider(_ label: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
+        HStack {
+            Text(label).frame(width: 110, alignment: .leading)
+            Slider(value: value, in: range)
+                .controlSize(.small)
+                .accessibilityLabel(label)
+            Text(value.wrappedValue.formatted(.number.precision(.fractionLength(2))))
+                .monospacedDigit()
+                .frame(width: 30, alignment: .trailing)
+        }
+    }
+
     fileprivate var wakeStatus: (text: String, color: Color)? {
         switch wakeWord.status {
         case .off: return nil
@@ -82,16 +146,23 @@ extension SettingsPanel {
 }
 
 private struct PermissionRow: View {
-    let title: String
+    let type: PermissionType
     let state: PermissionState
 
     var body: some View {
         HStack {
-            Text(title)
+            Text(type.displayName)
                 .font(.system(size: 10))
             Spacer()
+            if state == .denied || state == .restricted, let url = type.settingsURL {
+                Button("Open Settings") { NSWorkspace.shared.open(url) }
+                    .font(.system(size: 9))
+                    .buttonStyle(.link)
+                    .accessibilityLabel("Open \(type.displayName) settings")
+            }
             badge
         }
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -162,6 +233,10 @@ private struct CredentialRow: View {
                 .font(.system(size: 10))
         case .missing:
             Label("Not set", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                .font(.system(size: 10))
+        case .keychainInaccessible:
+            Label("Keychain access denied. Paste the key again to fix", systemImage: "lock.trianglebadge.exclamationmark")
+                .foregroundStyle(.red)
                 .font(.system(size: 10))
         }
     }

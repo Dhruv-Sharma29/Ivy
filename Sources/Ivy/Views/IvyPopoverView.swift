@@ -7,21 +7,28 @@ public struct IvyPopoverView: View {
     @ObservedObject public var liveVoiceCoordinator: GeminiLiveVoiceCoordinator
     @ObservedObject public var settings: SettingsModel
     @ObservedObject public var wakeWord: WakeWordController
+    @ObservedObject public var library: ConversationLibrary
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
+    @State private var showConversations: Bool = false
+    /// A search hit to bring into view once its conversation is on screen.
+    @State private var scrollTarget: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
         brain: IvyBrain,
         voiceManager: VoicePlaybackManager,
         liveVoiceCoordinator: GeminiLiveVoiceCoordinator,
         settings: SettingsModel,
-        wakeWord: WakeWordController
+        wakeWord: WakeWordController,
+        library: ConversationLibrary
     ) {
         self.brain = brain
         self.voiceManager = voiceManager
         self.liveVoiceCoordinator = liveVoiceCoordinator
         self.settings = settings
         self.wakeWord = wakeWord
+        self.library = library
     }
 
     public var body: some View {
@@ -44,7 +51,25 @@ public struct IvyPopoverView: View {
                 Divider()
             }
 
-            messageArea
+            if let quota = brain.quotaStatus {
+                quotaBanner(quota)
+                Divider()
+            }
+
+            if let notice = brain.storageNotice {
+                storageBanner(notice)
+                Divider()
+            }
+
+            if showConversations {
+                ConversationsPanel(library: library) { messageID in
+                    voiceManager.stop()
+                    scrollTarget = messageID
+                    showConversations = false
+                }
+            } else {
+                messageArea
+            }
             Divider()
 
             if liveVoiceCoordinator.state.isLive {
@@ -104,6 +129,18 @@ public struct IvyPopoverView: View {
             Spacer()
 
             Button {
+                showConversations.toggle()
+            } label: {
+                Image(systemName: showConversations ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Conversations")
+            .accessibilityLabel(showConversations ? "Hide conversations" : "Show conversations")
+            .keyboardShortcut("f", modifiers: [.command])
+
+            Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showSettings.toggle()
                 }
@@ -114,6 +151,8 @@ public struct IvyPopoverView: View {
             }
             .buttonStyle(.plain)
             .help("Configure API Keys")
+            .accessibilityLabel(showSettings ? "Hide settings" : "Show settings")
+            .keyboardShortcut(",", modifiers: [.command])
 
             Button {
                 voiceManager.stop()
@@ -127,7 +166,8 @@ public struct IvyPopoverView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Clear Conversation")
+            .help("Delete This Conversation")
+            .accessibilityLabel("Delete this conversation")
             .disabled(brain.messages.isEmpty && !liveVoiceCoordinator.state.isLive)
         }
         .padding(.horizontal, 14)
@@ -210,6 +250,8 @@ public struct IvyPopoverView: View {
             return "Speaking"
         case .interrupting:
             return "Interrupting"
+        case .reconnecting:
+            return "Reconnecting..."
         case .idle, .error:
             return ""
         }
@@ -218,8 +260,10 @@ public struct IvyPopoverView: View {
     // MARK: - Live Voice Bar
     private var liveVoiceBar: some View {
         HStack(spacing: 10) {
-            liveStateIndicator
-                .frame(width: 18, height: 18)
+            LiveLevelIndicator(meter: liveVoiceCoordinator.levelMeter, state: liveVoiceCoordinator.state, color: liveStateColor) {
+                liveStateIndicator
+            }
+            .frame(width: 22, height: 22)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(liveVoiceDescription)
@@ -262,7 +306,8 @@ public struct IvyPopoverView: View {
         case .connecting:
             return "Connecting to Ivy Live..."
         case .listening:
-            return "Listening — just talk"
+            if liveVoiceCoordinator.isMuted { return "Muted — say \"Hey Ivy\" to unmute" }
+            return liveVoiceCoordinator.isHearingUser ? "Hearing you…" : "Listening — just talk"
         case .thinking:
             return "Ivy is thinking..."
         case .toolConfirmation:
@@ -278,6 +323,8 @@ public struct IvyPopoverView: View {
                 : "Ivy is speaking (\"Hey Ivy\" needs Ivy.app: scripts/run-ivy-app.sh)"
         case .interrupting:
             return "Stopping Ivy..."
+        case .reconnecting(let attempt):
+            return "Connection lost. Reconnecting (attempt \(attempt))..."
         case .idle, .error:
             return "Ivy Live disconnected"
         }
@@ -289,7 +336,7 @@ public struct IvyPopoverView: View {
         case .listening: return .green
         case .speaking: return .accentColor
         case .thinking, .toolExecution: return .purple
-        case .toolConfirmation, .interrupting: return .orange
+        case .toolConfirmation, .interrupting, .reconnecting: return .orange
         case .connecting, .idle: return .secondary
         case .error: return .red
         }
@@ -298,7 +345,7 @@ public struct IvyPopoverView: View {
     @ViewBuilder
     private var liveStateIndicator: some View {
         switch liveVoiceCoordinator.state {
-        case .connecting, .thinking, .toolExecution:
+        case .connecting, .thinking, .toolExecution, .reconnecting:
             ProgressView()
                 .controlSize(.small)
                 .tint(liveStateColor)
@@ -306,14 +353,16 @@ public struct IvyPopoverView: View {
             Image(systemName: liveStateSymbol)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(liveStateColor)
-                .symbolEffect(.variableColor.iterative, isActive: liveVoiceCoordinator.state == .speaking)
-                .symbolEffect(.pulse, isActive: liveVoiceCoordinator.state == .listening)
+                .symbolEffect(.variableColor.iterative, isActive: !reduceMotion && liveVoiceCoordinator.state == .speaking)
+                .symbolEffect(.pulse, isActive: !reduceMotion && liveVoiceCoordinator.state == .listening)
+                .accessibilityLabel(voiceStateBadgeText)
         }
     }
 
     private var liveStateSymbol: String {
         switch liveVoiceCoordinator.state {
         case .speaking: return "waveform"
+        case .listening where liveVoiceCoordinator.isMuted: return "mic.slash.fill"
         case .toolConfirmation: return "exclamationmark.shield.fill"
         case .interrupting: return "hand.raised.fill"
         case .error: return "exclamationmark.triangle.fill"
@@ -384,6 +433,56 @@ public struct IvyPopoverView: View {
             }
             .buttonStyle(.plain)
             .help("Dismiss error")
+            .accessibilityLabel("Dismiss error")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.12))
+    }
+
+    // MARK: - Quota Banner
+    /// Counts down live while Gemini is rate limiting; disappears on the next successful reply.
+    private func quotaBanner(_ quota: QuotaStatus) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 8) {
+                Image(systemName: quota.kind == .perDay ? "calendar.badge.exclamationmark" : "hourglass")
+                    .foregroundStyle(.orange)
+                    .font(.system(size: 12))
+                Text(quota.message(now: context.date))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.orange.opacity(0.12))
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    // MARK: - Storage Banner
+    private func storageBanner(_ notice: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "externaldrive.badge.exclamationmark")
+                .foregroundStyle(.orange)
+                .font(.system(size: 12))
+            Text(notice)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button {
+                brain.dismissStorageNotice()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss storage notice")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -392,9 +491,18 @@ public struct IvyPopoverView: View {
 
     // MARK: - Settings Bar
     private var settingsBar: some View {
-        SettingsPanel(credentials: brain.credentials, settings: settings, wakeWord: wakeWord) {
-            brain.refreshCredentialStatus()
+        // Scrolls: the panel is taller than the room the popover can spare.
+        ScrollView {
+            SettingsPanel(
+                credentials: brain.credentials, settings: settings, wakeWord: wakeWord,
+                onPreviewVoice: {
+                    voiceManager.togglePlayback(for: ChatMessage(role: .model, text: "This is how I sound when I read to you."))
+                }
+            ) {
+                brain.refreshCredentialStatus()
+            }
         }
+        .frame(maxHeight: 340)
     }
 
     // MARK: - Messages Area
@@ -429,6 +537,12 @@ public struct IvyPopoverView: View {
                     .padding(.vertical, 12)
                     .padding(.horizontal, 8)
                 }
+            }
+            .onAppear {
+                // Coming back from a search hit: show that message rather than the end of the chat.
+                guard let target = scrollTarget else { return }
+                scrollTarget = nil
+                DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center) }
             }
             .onChange(of: brain.messages.count) {
                 if let lastMessage = brain.messages.last {
@@ -480,9 +594,13 @@ public struct IvyPopoverView: View {
                 .controlSize(.small)
                 .padding(.top, 4)
             } else {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 36))
-                    .foregroundStyle(Color.accentColor.opacity(0.8))
+                // The same leaf as the menu bar and the app icon.
+                Image(nsImage: IvyLogoImage.template)
+                    .renderingMode(.template)
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                    .foregroundStyle(Color(red: 0.231, green: 0.745, blue: 0.431))
+                    .accessibilityHidden(true)
 
                 Text("Ivy is ready.")
                     .font(.system(size: 15, weight: .semibold))
@@ -515,8 +633,40 @@ public struct IvyPopoverView: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !brain.isThinking, brain.pendingConfirmation == nil else { return }
         inputText = ""
+        showConversations = false
         Task {
             await brain.send(trimmed)
+        }
+    }
+}
+
+/// The Live state icon inside a halo that swells with the voice: the user's while listening, Ivy's while
+/// speaking. Observes the meter itself so 30 Hz level updates redraw only this view, not the whole popover.
+private struct LiveLevelIndicator<Icon: View>: View {
+    @ObservedObject var meter: AudioLevelMeter
+    let state: VoiceSessionState
+    let color: Color
+    @ViewBuilder let icon: () -> Icon
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var level: CGFloat {
+        switch state {
+        case .listening: return CGFloat(meter.inputLevel)
+        case .speaking: return CGFloat(meter.outputLevel)
+        default: return 0
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            if !reduceMotion {
+                Circle()
+                    .fill(color.opacity(0.22))
+                    .scaleEffect(0.55 + level * 0.75)
+                    .animation(.linear(duration: 0.08), value: level)
+                    .accessibilityHidden(true)
+            }
+            icon()
         }
     }
 }
