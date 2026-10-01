@@ -113,3 +113,28 @@ All slices accepted; fixture repos pass the templates; manual checklist passed.
 - [ ] "Prepare a commit" → drafted message → edit → confirm.
 - [ ] "Open a draft PR" (on a test repo) → confirmation → link.
 - [ ] Ask Ivy to force-push → refuses (not available).
+
+## Implementation status (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 16.1 Workspaces + detection + scoping | Done | `Developer/Workspace.swift`: detects SwiftPM, Xcode, Node (from `package.json` scripts), Python, Rust, Go; `workspaces.json` (0600). Folders must pass `file_op` path validation. While one is active, `file_op` **writes and deletes** must stay inside it (reads unchanged). Ivy isn't sandboxed, so plain paths are kept (no security-scoped bookmarks). **Not done:** inferring the workspace from the frontmost editor window |
+| 16.2 `git_read` | Done | status, diff (staged, paths), log, branches, show, blame — safe; fixed argv via `/usr/bin/git`, no shell; refs can't start with `-` or contain `..`; paths validated and confined to the workspace; `GIT_TERMINAL_PROMPT=0` |
+| 16.3 `git_write` + `git_remote` | Done | stage, unstage, commit, create/switch branch, stash, stash pop; fetch, pull `--ff-only`, push (optionally set upstream). Risky; the card shows the exact command (and full commit message). reset, clean, rebase, amend, branch delete and force push don't exist |
+| 16.4 `code_search` | Done | `git grep` (literal or regex, `--exclude-standard` so .gitignore applies) and `git ls-files` for names; ≤ 200 matches. **Not done:** a non-git fallback; the 10k-file speed check |
+| 16.5 `project_run` | Done (no streaming) | The model names build / test / lint / run; the command text comes from the workspace (detected or set in Workspace › Commands…). Confirmed **every time** (no first-time-only or allow-rules). 10-minute limit, output tail ≤ 200 lines, redacted, cancellable. **Not done:** live streaming into the task card |
+| 16.6 Diagnostic parsers | Done | Swift/clang/gcc/Go, Swift Testing, XCTest, TypeScript, cargo, pytest. **Not done:** ESLint stylish output; click-to-open in the editor |
+| 16.7 Fix-failure flow | Done via tools | `log_analyze` + `file_op` reads + `file_op` writes (each a card, confined to the workspace) — the "Fix Failing Tests" template drives it. **Not done:** a dedicated diff-review card before applying |
+| 16.8 Commit drafting | Done via tools | The model reads `git_read diff --staged` and proposes `git_write commit`; the card shows the whole message. **Not done:** an edit-the-message field on the card |
+| 16.9 GitHub | Done (gh CLI) | `github`: list PRs/issues, view PR (safe); create **draft** PR, comment (risky). Uses the user's `gh` login; Ivy never handles a token. No merge/close/delete. **Not done:** the Keychain-token fallback |
+| 16.10 Dev templates | Done | Workspace menu › Tasks: Set Up This Project, Fix Failing Tests, Review My Changes — Phase 15 tasks (plan → approval → per-step cards) |
+
+Project context: the prompt gets one line per request — workspace name, kinds, command names, branch, changed-file
+count — refreshed when the workspace changes. No file contents.
+
+The developer tools are a new `developer` tool group (router keywords: git, commit, branch, diff, build, test, …;
+or `enable_tools`). Live declares them at setup like every other tool.
+
+Tests: `Tests/IvyTests/Phase16DeveloperTests.swift` — detection, containment, the model and its git context, git argv
+for every action, option/path injection, no-workspace errors, destructive operations absent, cards, execution in
+the workspace, code search, project_run (command text never from the model; quoting), log_analyze, GitHub
+classification and the gh-missing path, diagnostic formats, file_op scoping, routing, prompt, wiring.

@@ -4,7 +4,7 @@ import os
 /// Tools are declared to the model in groups: `core` always, the others when the request calls for them,
 /// so a request doesn't carry thirty declarations to open an app.
 public enum ToolGroup: String, CaseIterable, Sendable {
-    case core, system, files, media, productivity
+    case core, system, files, media, productivity, developer
 
     var summary: String {
         switch self {
@@ -13,6 +13,7 @@ public enum ToolGroup: String, CaseIterable, Sendable {
         case .files: return "Finder (reveal, open, selection) and Spotlight file search"
         case .media: return "music playback control"
         case .productivity: return "reminders, notes, contacts, mail drafts"
+        case .developer: return "git, code search, project build/test/lint, build-log analysis, GitHub (active workspace)"
         }
     }
 }
@@ -29,6 +30,8 @@ public enum ToolRouter {
         .media: ["play", "pause", "song", "track", "music", "spotify", "skip", "next song", "previous", "now playing", "playing"],
         .productivity: ["remind", "reminder", "to-do", "todo", "note", "notes", "contact", "phone number", "email", "e-mail",
                         "mail", "draft", "inbox", "address of"],
+        .developer: ["git", "commit", "branch", "diff", "staged", "repo", "repository", "pull request", "merge request",
+                     "workspace", "codebase", "compile", "build", "test", "lint", "stack trace", "build log", "github"],
     ]
 
     public static func groups(for message: String) -> Set<ToolGroup> {
@@ -57,7 +60,7 @@ public enum EnableToolsTool {
         description: "Makes another group of tools available for this conversation. Call it when the user's request needs a tool you don't currently have. Groups: "
             + ToolGroup.allCases.filter { $0 != .core }.map { "\($0.rawValue) (\($0.summary))" }.joined(separator: "; ") + ".",
         parameters: ToolParameters(
-            properties: ["group": ToolProperty(type: "STRING", description: "One of: system, files, media, productivity.")],
+            properties: ["group": ToolProperty(type: "STRING", description: "One of: system, files, media, productivity, developer.")],
             required: ["group"]
         )
     )

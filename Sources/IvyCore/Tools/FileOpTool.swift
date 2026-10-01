@@ -37,21 +37,33 @@ public final class FileOpTool: IvyTool, Sendable {
 
     private let executor: FileExecutorProtocol
     public let allowedRoot: URL?
+    /// Phase 16: while a workspace is active, writes and deletes must stay inside it (reads are unchanged).
+    private let workspace: WorkspaceScope?
 
     public init(
         executor: FileExecutorProtocol = SystemFileExecutor(),
-        allowedRoot: URL? = nil
+        allowedRoot: URL? = nil,
+        workspace: WorkspaceScope? = nil
     ) {
         self.executor = executor
         self.allowedRoot = allowedRoot
+        self.workspace = workspace
+    }
+
+    private func checked(_ arguments: [String: AnyCodable]) throws -> (action: FileAction, path: String, content: String?) {
+        let request = try ToolValidation.validateFileOpArguments(arguments, allowedRoot: allowedRoot)
+        if request.action != .read, let active = workspace?.current, !active.contains(request.path) {
+            throw ToolError.invalidArgument("Writes are limited to the active workspace (\(active.root)). Switch workspace first, or pick none.")
+        }
+        return request
     }
 
     public func validate(arguments: [String: AnyCodable]) throws {
-        _ = try ToolValidation.validateFileOpArguments(arguments, allowedRoot: allowedRoot)
+        _ = try checked(arguments)
     }
 
     public func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
-        let (action, validatedPath, content) = try ToolValidation.validateFileOpArguments(arguments, allowedRoot: allowedRoot)
+        let (action, validatedPath, content) = try checked(arguments)
 
         do {
             let result: FileOpResult
