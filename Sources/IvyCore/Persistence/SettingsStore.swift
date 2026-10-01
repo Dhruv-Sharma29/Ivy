@@ -48,6 +48,21 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var headsUpMinutes: Int
     public var headsUpCalendars: [String]
     public var launchAtLogin: Bool
+    /// Vision (Phase 14): send recognised text only, never pixels.
+    public var visionTextOnly: Bool
+    /// Black out key/token-looking text in images before they are sent.
+    public var visionMaskSecrets: Bool
+    /// Let saved history keep the text recognised in an image (never the image).
+    public var visionKeepTextFromImages: Bool
+    /// Screen capture refuses while one of these apps is frontmost.
+    public var visionExcludedApps: [String]
+    /// Register the "What am I looking at?" hotkey (⌃⌥⌘S) at launch.
+    public var screenHelpHotkeyEnabled: Bool
+
+    public var visionPolicy: VisionPolicy {
+        VisionPolicy(textOnly: visionTextOnly, maskSecrets: visionMaskSecrets,
+                     keepTextInHistory: visionKeepTextFromImages, excludedApps: visionExcludedApps)
+    }
 
     public var ttsVoiceSettings: ElevenLabsVoiceSettings {
         ElevenLabsVoiceSettings(speed: ttsSpeed, stability: ttsStability, style: ttsStyle)
@@ -91,7 +106,12 @@ public struct IvySettings: Codable, Equatable, Sendable {
         briefingMinutes: Int = 8 * 60 + 30,
         headsUpMinutes: Int = 10,
         headsUpCalendars: [String] = [],
-        launchAtLogin: Bool = false
+        launchAtLogin: Bool = false,
+        visionTextOnly: Bool = false,
+        visionMaskSecrets: Bool = true,
+        visionKeepTextFromImages: Bool = false,
+        visionExcludedApps: [String] = VisionPolicy.defaultExcludedApps,
+        screenHelpHotkeyEnabled: Bool = true
     ) {
         self.persistConversationHistory = persistConversationHistory
         self.restoreLastConversation = restoreLastConversation
@@ -120,6 +140,11 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.headsUpMinutes = headsUpMinutes
         self.headsUpCalendars = headsUpCalendars
         self.launchAtLogin = launchAtLogin
+        self.visionTextOnly = visionTextOnly
+        self.visionMaskSecrets = visionMaskSecrets
+        self.visionKeepTextFromImages = visionKeepTextFromImages
+        self.visionExcludedApps = visionExcludedApps
+        self.screenHelpHotkeyEnabled = screenHelpHotkeyEnabled
     }
 
     /// Missing or wrongly-typed fields fall back to their defaults individually, so an older or
@@ -164,6 +189,11 @@ public struct IvySettings: Codable, Equatable, Sendable {
         headsUpMinutes = min(120, max(1, other(.headsUpMinutes, d.headsUpMinutes)))
         headsUpCalendars = other(.headsUpCalendars, d.headsUpCalendars)
         launchAtLogin = value(.launchAtLogin, d.launchAtLogin)
+        visionTextOnly = value(.visionTextOnly, d.visionTextOnly)
+        visionMaskSecrets = value(.visionMaskSecrets, d.visionMaskSecrets)
+        visionKeepTextFromImages = value(.visionKeepTextFromImages, d.visionKeepTextFromImages)
+        visionExcludedApps = other(.visionExcludedApps, d.visionExcludedApps)
+        screenHelpHotkeyEnabled = value(.screenHelpHotkeyEnabled, d.screenHelpHotkeyEnabled)
     }
 }
 

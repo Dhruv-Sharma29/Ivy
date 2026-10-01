@@ -66,3 +66,9 @@ Every permission below is requested only after the user has approved the specifi
 Not used: Location (so the Wi-Fi network name may be unavailable), Bluetooth (status comes from
 `system_profiler`), Full Disk Access. When a permission is refused the tool returns a structured
 `permissionDenied` result with the Settings deep link; Ivy never retries the prompt on its own.
+
+## Phase 14: screen help
+
+Screen Recording (prompted by macOS on first capture) is also used by "What am I looking at?" (⌃⌥⌘S), the 📎
+capture menu and the region selector. Every capture follows a user action; none runs on a timer. Text recognition
+is on-device (Vision). No new usage string or entitlement is needed.

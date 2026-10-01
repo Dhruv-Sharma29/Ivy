@@ -199,6 +199,20 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
             if let functionResponse = msg.functionResponse {
                 return Content(role: "user", parts: [Part(functionResponse: functionResponse)])
             }
+            if !msg.attachments.isEmpty {
+                // Images inline (JPEG, no metadata) plus their on-device text, which helps accuracy.
+                var parts: [Part] = []
+                if !msg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(Part(text: msg.text)) }
+                for attachment in msg.attachments {
+                    for jpeg in attachment.jpeg { parts.append(Part(inlineData: InlineData(mimeType: "image/jpeg", data: jpeg))) }
+                    if let text = attachment.text, !text.isEmpty {
+                        parts.append(Part(text: "Text recognised in the \(attachment.label):\n\(text)"))
+                    } else if attachment.jpeg.isEmpty {
+                        parts.append(Part(text: "[\(attachment.label): nothing readable]"))
+                    }
+                }
+                return Content(role: "user", parts: parts)
+            }
             guard !msg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return nil
             }

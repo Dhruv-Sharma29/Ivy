@@ -105,3 +105,24 @@ All slices accepted; "no pixels on disk" test; exclusion list honoured; manual c
 - [ ] Open 1Password (excluded) and press ⌘⇧S → refused with message.
 - [ ] Put a fake API key on screen → blurred in the preview of what's sent.
 - [ ] "Where's the export button?" → Ivy highlights it on screen.
+
+## Implementation status (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 14.1 Capture (display / window / region) + permission | Done | `Vision/ScreenContextService.swift`: ScreenCaptureKit, Ivy's own windows excluded; "front window" = frontmost on-screen window not owned by Ivy. Excluded apps (1Password, Bitwarden, KeePassXC, Keychain Access, Passwords by default) block a capture before it happens, and a picked window of an excluded app is dropped |
+| 14.2 Region selector overlay | Deviation | Uses the system selector (`screencapture -i`: drag for a region, Space for a window, Esc cancels). **It writes one PNG to a private 0700 temp folder, deleted as soon as it's read** — the only place pixels touch disk. An in-process overlay would remove that |
+| 14.3 On-device OCR + secret masking | Done | `VisionPipeline` + `SystemTextRecognizer` (Vision, on-device). Lines matching `SecretRedactor` or `SensitiveDataDetector` are blacked out in the image and redacted in the text |
+| 14.4 REST image parts + OCR text | Done | `Part.inlineData` (JPEG ≤ 2048 px, quality 0.8, ≤ 4 MB) plus "Text recognised in …". Only the newest user message carries pixels; older turns send their placeholder |
+| 14.5 "What am I looking at?" hotkey | Done (different chord) | **⌃⌥⌘S**, not ⌘⇧S: a global ⌘⇧S would take Save As from every app. Captures the front window, attaches it, pre-fills the question and opens the main window; nothing is sent until Return. `SystemGlobalHotkeyManager` now filters by hotkey id, so several Ivy hotkeys coexist |
+| 14.6 Drag / drop / paste + EXIF strip | Done | Main window: drop files or images, ⌘V images, 📎 menu; re-encoding drops all metadata (tested with a GPS fixture) |
+| 14.7 PDF analysis | Done | PDFKit: ≤ 50 pages, ≤ 200 KB text; pages with almost no text are rendered as images (≤ 10, never in text-only mode) |
+| 14.8 Live image frame | Partly done | ⌃⌥⌘S during a voice session sends one JPEG frame (`realtimeInput.video`). **Not done:** the spoken "Hey Ivy, look at this" trigger |
+| 14.9 `point_at` + annotation overlay | Done in 17b | See phase-17 status (17b.4) |
+| 14.10 Privacy settings + placeholders | Done | Settings › Screen & images: text only, hide key-like text (on), keep text from images (off), excluded apps. History stores "[screenshot of Xcode — not saved]" (plus the text only if allowed) |
+
+Not done: the screen flash / "Ivy saw your screen" menu-bar badge (macOS's own screen-recording indicator still
+shows), and analysis of model-initiated `screenshot` tool captures (the tool still keeps its capture in memory only).
+
+Tests: `Tests/IvyTests/Phase14VisionTests.swift` — downscaling, EXIF/GPS stripping, masking pixels, the pipeline
+with scripted OCR (secret boxes blacked out, text-only mode), placeholders, PDFs built in memory, files, the tray
+and exclusion list, screen help (chat and Live), wire format, pixels-sent-once and never-saved, Live frame schema.

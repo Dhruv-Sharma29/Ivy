@@ -110,16 +110,17 @@ public final class IvyBrain: ObservableObject {
         continuation.resume(returning: approved)
     }
 
-    public func send(_ text: String) async {
+    /// `attachments` (screenshots, images, PDFs) go with this message only; later turns see placeholders.
+    public func send(_ text: String, attachments: [ImageAttachment] = []) async {
         // A typed shortcut ("/standup") becomes its prompt; it is an ordinary message from here on.
         let trimmed = personalization.expandShortcut(text).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
         guard !isThinking, pendingConfirmation == nil else { return }
 
         errorMessage = nil
         // If the user switches conversation mid-turn, whatever this turn still produces is dropped.
         let turnConversation = conversationID
-        let userMessage = ChatMessage(role: .user, text: trimmed)
+        let userMessage = ChatMessage(role: .user, text: trimmed, attachments: attachments)
         messages.append(userMessage)
         enabledToolGroups.formUnion(ToolRouter.groups(for: trimmed))
         // Saved after every turn (success or failure) so an abrupt quit loses nothing.
@@ -257,7 +258,9 @@ public final class IvyBrain: ObservableObject {
     /// What one request carries: the turns not yet folded into the summary, and the system prompt extended
     /// with this conversation's instructions, its summary, and condensed notes of tools already run.
     func requestContext() -> (history: [ChatMessage], systemPrompt: String) {
-        var history = messages.filter { !$0.isError }
+        // Pixels travel once: only the newest user message keeps its attachments; older ones become placeholders.
+        let newestUser = messages.last { $0.role == .user }?.id
+        var history = messages.filter { !$0.isError }.map { $0.id == newestUser ? $0 : $0.withAttachmentPlaceholders }
         var prompt = SystemPromptBuilder.build(base: systemPrompt, profile: personalization)
         if let instructions = conversation.systemContext, !instructions.isEmpty {
             // Layer 5 (Phase 13): data like the other user layers, ranked below the tool and confirmation rules.

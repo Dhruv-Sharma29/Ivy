@@ -37,6 +37,13 @@ public struct HotkeyShortcut: Sendable, Equatable, Hashable {
         modifiers: [.command, .shift]
     )
 
+    /// "What am I looking at?": Control + Option + Command + S. Not ⌘⇧S, which is Save As in most apps and a
+    /// global hotkey would take it from all of them.
+    public static let defaultScreenHelp = HotkeyShortcut(
+        keyCode: 1, // kVK_ANSI_S
+        modifiers: [.control, .option, .command]
+    )
+
     /// Modifier-only Push-to-Talk chord: Option + Control (requires Accessibility permission)
     public static let optionControlChord = HotkeyShortcut(
         keyCode: nil,

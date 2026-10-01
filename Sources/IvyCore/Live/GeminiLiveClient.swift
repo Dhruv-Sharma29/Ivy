@@ -223,6 +223,19 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
     }
 
+    public func sendImage(_ jpeg: Data) async throws {
+        let ws = try await getConnectedWebSocket()
+        let message = BidiClientMessage(realtimeInput: BidiRealtimeInput(jpegFrame: jpeg))
+        do {
+            let jsonData = try JSONEncoder().encode(message)
+            guard let jsonString = String(data: jsonData, encoding: .utf8) else { throw LiveError.audioEncodingFailed }
+            print("[LIVE] image frame sent bytes=\(jpeg.count)")
+            try await ws.send(.string(jsonString))
+        } catch {
+            throw LiveError.serverError("Failed to send image: \(error.localizedDescription)")
+        }
+    }
+
     public func sendToolResponses(_ responses: [FunctionResponse]) async throws {
         let ws = try await getConnectedWebSocket()
 

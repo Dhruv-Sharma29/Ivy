@@ -17,6 +17,9 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public let functionResponse: FunctionResponse?
     public let functionCallPart: Part?
     public let thoughtSignature: String?
+    /// Images/PDFs shown with this message. Memory only: never encoded, never persisted (history keeps
+    /// `ImageAttachment.placeholder`), and only the newest user message sends them (see `IvyBrain.requestContext`).
+    public let attachments: [ImageAttachment]
 
     public init(
         id: UUID = UUID(),
@@ -27,9 +30,11 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         functionCall: FunctionCall? = nil,
         functionResponse: FunctionResponse? = nil,
         functionCallPart: Part? = nil,
-        thoughtSignature: String? = nil
+        thoughtSignature: String? = nil,
+        attachments: [ImageAttachment] = []
     ) {
         self.id = id
+        self.attachments = attachments
         self.role = role
         self.text = text
         self.timestamp = timestamp
@@ -55,6 +60,7 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.attachments = []
         self.id = try container.decode(UUID.self, forKey: .id)
         self.role = try container.decode(MessageRole.self, forKey: .role)
         self.text = try container.decode(String.self, forKey: .text)
@@ -91,5 +97,14 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(functionResponse, forKey: .functionResponse)
         try container.encodeIfPresent(functionCallPart, forKey: .functionCallPart)
         try container.encodeIfPresent(thoughtSignature, forKey: .thoughtSignature)
+    }
+}
+
+extension ChatMessage {
+    /// The same message with its attachments replaced by their placeholders (for older turns in a request).
+    public var withAttachmentPlaceholders: ChatMessage {
+        guard !attachments.isEmpty else { return self }
+        let lines = [text] + attachments.map(\.placeholder)
+        return ChatMessage(id: id, role: role, text: lines.filter { !$0.isEmpty }.joined(separator: "\n"), timestamp: timestamp, isError: isError)
     }
 }

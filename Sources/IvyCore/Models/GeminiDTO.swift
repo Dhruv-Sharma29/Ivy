@@ -201,8 +201,20 @@ public struct Content: Codable, Sendable, Equatable {
     }
 }
 
+/// Bytes sent inline with a request (an image), base64 on the wire.
+public struct InlineData: Codable, Sendable, Equatable {
+    public let mimeType: String
+    public let data: String
+
+    public init(mimeType: String, data: Data) {
+        self.mimeType = mimeType
+        self.data = data.base64EncodedString()
+    }
+}
+
 public struct Part: Codable, Sendable, Equatable {
     public let text: String?
+    public let inlineData: InlineData?
     public let thought: Bool?
     public let functionCall: FunctionCall?
     public let functionResponse: FunctionResponse?
@@ -213,9 +225,11 @@ public struct Part: Codable, Sendable, Equatable {
         thought: Bool? = nil,
         functionCall: FunctionCall? = nil,
         functionResponse: FunctionResponse? = nil,
-        thoughtSignature: String? = nil
+        thoughtSignature: String? = nil,
+        inlineData: InlineData? = nil
     ) {
         self.text = text
+        self.inlineData = inlineData
         self.thought = thought
         let resolvedSig = thoughtSignature ?? functionCall?.thoughtSignature
         if let call = functionCall, call.thoughtSignature == nil, let resolvedSig {
@@ -229,6 +243,7 @@ public struct Part: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case text
+        case inlineData
         case thought
         case functionCall
         case functionResponse
@@ -239,6 +254,7 @@ public struct Part: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.text = try container.decodeIfPresent(String.self, forKey: .text)
+        self.inlineData = try container.decodeIfPresent(InlineData.self, forKey: .inlineData)
         self.thought = try container.decodeIfPresent(Bool.self, forKey: .thought)
         var call = try container.decodeIfPresent(FunctionCall.self, forKey: .functionCall)
         self.functionResponse = try container.decodeIfPresent(FunctionResponse.self, forKey: .functionResponse)
@@ -257,6 +273,7 @@ public struct Part: Codable, Sendable, Equatable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(inlineData, forKey: .inlineData)
         try container.encodeIfPresent(thought, forKey: .thought)
         try container.encodeIfPresent(functionCall, forKey: .functionCall)
         try container.encodeIfPresent(functionResponse, forKey: .functionResponse)

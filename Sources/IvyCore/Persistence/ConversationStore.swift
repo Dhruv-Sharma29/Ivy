@@ -159,7 +159,9 @@ public struct Conversation: Codable, Equatable, Identifiable, Sendable {
 
 extension StoredMessage {
     /// Nil for anything that must not be persisted: tool-call turns, tool results, empty lines.
-    init?(chatMessage m: ChatMessage, kind: Kind? = nil) {
+    init?(chatMessage original: ChatMessage, kind: Kind? = nil) {
+        // Attachments are never stored: their placeholders ("[screenshot of Xcode — not saved]") are.
+        let m = original.withAttachmentPlaceholders
         guard m.role == .user || m.role == .model,
               m.functionCall == nil, m.functionResponse == nil,
               !m.text.isEmpty else { return nil }

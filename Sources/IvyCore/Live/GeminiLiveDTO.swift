@@ -240,15 +240,25 @@ public struct BidiTextPart: Codable, Sendable, Equatable {
 public struct BidiRealtimeInput: Codable, Sendable, Equatable {
     public let mediaChunks: [BidiBlob]?
     public let audio: BidiBlob?
+    /// One still frame (JPEG) — Phase 14: "what am I looking at?" during a voice session.
+    public let video: BidiBlob?
 
     public init(audio: BidiBlob) {
         self.audio = audio
         self.mediaChunks = nil
+        self.video = nil
     }
 
     public init(mediaChunks: [BidiBlob]) {
         self.mediaChunks = mediaChunks
         self.audio = nil
+        self.video = nil
+    }
+
+    public init(jpegFrame: Data) {
+        self.video = BidiBlob(mimeType: "image/jpeg", data: jpegFrame.base64EncodedString())
+        self.audio = nil
+        self.mediaChunks = nil
     }
 
     public init(pcmData: Data, sampleRate: Int = 16000) {

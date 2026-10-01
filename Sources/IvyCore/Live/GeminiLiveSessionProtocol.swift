@@ -12,6 +12,9 @@ public protocol GeminiLiveSession: Sendable {
     /// Sends tool execution results back to Gemini Live.
     func sendToolResponses(_ responses: [FunctionResponse]) async throws
 
+    /// Sends one JPEG frame (Phase 14). Has a default that throws, for sessions that can't.
+    func sendImage(_ jpeg: Data) async throws
+
     /// Yields streaming events from the Gemini Live session.
     func receiveEvents() -> AsyncThrowingStream<LiveEvent, Error>
 
@@ -20,6 +23,11 @@ public protocol GeminiLiveSession: Sendable {
 }
 
 extension GeminiLiveSession {
+    /// Sends one JPEG frame. Sessions that can't (test doubles) report it instead of failing silently.
+    public func sendImage(_ jpeg: Data) async throws {
+        throw LiveError.serverError("This session can't receive images.")
+    }
+
     /// Convenience helper for sending a single tool response.
     public func sendToolResponse(_ response: FunctionResponse) async throws {
         try await sendToolResponses([response])
@@ -32,6 +40,7 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
         var isConnected: Bool = false
         var sentAudioChunks: [Data] = []
         var sentToolResponses: [FunctionResponse] = []
+        var sentImages: [Data] = []
         var connectError: Error? = nil
         var sendAudioError: Error? = nil
         var sendToolResponsesError: Error? = nil
@@ -59,6 +68,19 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
 
     public var sentToolResponses: [FunctionResponse] {
         state.withLock { $0.sentToolResponses }
+    }
+
+    public var sentImages: [Data] {
+        state.withLock { $0.sentImages }
+    }
+
+    public func sendImage(_ jpeg: Data) async throws {
+        let error = state.withLock { s -> Error? in
+            guard s.isConnected else { return LiveError.sessionClosed }
+            s.sentImages.append(jpeg)
+            return nil
+        }
+        if let error { throw error }
     }
 
     public func setConnectError(_ error: Error?) {
