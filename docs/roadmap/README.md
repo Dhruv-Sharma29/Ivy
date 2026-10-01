@@ -67,3 +67,19 @@ AGY     → code-review-and-quality
 
 Every plan follows the same shape: goal, baseline, scope, design, work breakdown (slices with acceptance
 criteria), safety/privacy, testing, risks, exit criteria, manual checklist.
+
+## Hardening follow-ups after Phase 12 (2026-10-01)
+
+Found in a full code review; tests in `Tests/IvyTests/HardeningFollowUpTests.swift`.
+
+| Fix | Where |
+|---|---|
+| Tools are **risky unless they declare otherwise** (the protocol default used to be safe) | `Tools/IvyTool.swift` |
+| `file_op` refuses credential files (`.netrc`, `.git-credentials`, `.npmrc`, `.docker`, `.kube`, `.config/gh`, `.env`, …), shell history and private app data (cookies, Safari, Messages, Mail, browser profiles, Ivy's own data). Contents are not redacted on read, so a read-edit-write never destroys a real secret | `ToolValidation.prohibitedPathSegments` |
+| Live: several tool calls in one turn are **queued**, each with its own card (the first used to be denied silently); the server's `toolCallCancellation` denies a waiting card and skips queued calls | `GeminiLiveVoiceCoordinator`, `LiveEvent.toolCallCancelled` |
+| `run_shell`: output is collected asynchronously; a timeout kills the **whole process tree** (libproc); a background child holding the pipes no longer hangs the call | `SystemShellExecutor` |
+| REST Gemini key is sent in the `x-goog-api-key` header only, never in the URL | `URLSessionGeminiClient` |
+| Deleting the conversation from the header asks first | `IvyPopoverView` |
+
+Not changed (known): any HTTP 400 still maps to `invalidAPIKey` (many tests use 400 as their generic failure);
+AppleScript still runs on the main actor (`NSAppleScript` isn't thread-safe; moving it means an `osascript` process).

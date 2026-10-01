@@ -414,6 +414,15 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             }
         }
 
+        if let cancellation = serverMessage.toolCallCancellation, !cancellation.ids.isEmpty {
+            print("[LIVE] receive message id=\(id) type=toolCallCancellation count=\(cancellation.ids.count)")
+            let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in
+                guard s.currentConnectionId == connectionId else { return nil }
+                return s.continuation
+            }
+            continuation?.yield(.toolCallCancelled(cancellation.ids))
+        }
+
         if let content = serverMessage.serverContent {
             print("[LIVE] receive message id=\(id) type=serverContent")
             let continuation = state.withLock { s -> AsyncThrowingStream<LiveEvent, Error>.Continuation? in

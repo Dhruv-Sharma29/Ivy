@@ -174,7 +174,7 @@ manual checklist passed.
 | 8.6 Resources | Done (tests) | `activeTaskCount` invariant over 30 sessions, abnormal ends, and a retain-cycle test. Instruments Leaks runs still to do by hand. |
 | 8.7 Performance | Measured, partly met | See table below. |
 | 8.8 Accessibility | Partly done | VoiceOver labels on icon buttons, Reduce Motion honoured, ⌘, toggles settings, confirmation approval moved from Return to **⌘Return** (a stray Return can no longer approve a risky action). A full VoiceOver walkthrough is still a manual item. |
-| 8.9 Diagnostics | Done | `DiagnosticsReport` (versions, settings, permission states, credential *sources*, redacted log tail), "Export Diagnostics…" in settings, MetricKit crash payloads kept locally (last 5). |
+| 8.9 Diagnostics | Done | `DiagnosticsReport` (versions, settings, permission states, credential *sources*, redacted log tail), MetricKit crash payloads kept locally (last 5). The "Export Diagnostics…" button was not actually wired up until Phase 17c (Settings › Privacy & Data). |
 | 8.10 Tests / warnings | Partly done | Zero compiler warnings; shared `waitUntil` helper (`Tests/IvyTests/Support/`); all new tests poll. The ~260 older fixed sleeps are not yet converted; timer durations are injectable but there is no virtual clock. |
 
 ### Measured on a MacBook Air (Ivy.app, debug build)

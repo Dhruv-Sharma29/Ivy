@@ -5,6 +5,7 @@ import Foundation
 private struct MockEchoTool: IvyTool, Sendable {
     let name: String = "echo_test"
     let description: String = "Echoes the message"
+    var safetyClassification: ToolSafetyClassification { .safe }
     let declaration: FunctionDeclaration = FunctionDeclaration(
         name: "echo_test",
         description: "Echoes the message",

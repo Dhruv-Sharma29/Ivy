@@ -11,6 +11,7 @@ public struct IvyPopoverView: View {
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
     @State private var showConversations: Bool = false
+    @State private var confirmingDelete: Bool = false
     /// A search hit to bring into view once its conversation is on screen.
     @State private var scrollTarget: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -155,11 +156,7 @@ public struct IvyPopoverView: View {
             .keyboardShortcut(",", modifiers: [.command])
 
             Button {
-                voiceManager.stop()
-                Task {
-                    await liveVoiceCoordinator.stopSession()
-                }
-                brain.clearHistory()
+                confirmingDelete = true
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 13))
@@ -169,6 +166,18 @@ public struct IvyPopoverView: View {
             .help("Delete This Conversation")
             .accessibilityLabel("Delete this conversation")
             .disabled(brain.messages.isEmpty && !liveVoiceCoordinator.state.isLive)
+            .confirmationDialog("Delete this conversation?", isPresented: $confirmingDelete) {
+                Button("Delete", role: .destructive) {
+                    voiceManager.stop()
+                    Task {
+                        await liveVoiceCoordinator.stopSession()
+                    }
+                    brain.clearHistory()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently removes it. Use the conversations list to archive it instead, or start a new one.")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

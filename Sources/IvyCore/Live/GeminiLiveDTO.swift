@@ -466,6 +466,8 @@ public enum LiveEvent: Sendable, Equatable {
     case interrupted
     case disconnected
     case toolCall(FunctionCall)
+    /// The server withdrew these tool calls (by id), e.g. because the user interrupted the turn.
+    case toolCallCancelled([String])
     /// A fragment of what the user said (server-side transcription of the mic audio).
     case inputTranscript(String)
     /// A fragment of what Ivy is saying.

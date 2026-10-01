@@ -139,6 +139,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     private var confirmationContinuation: CheckedContinuation<Bool, Never>? = nil
     private var executedToolCallIds: Set<String> = []
+    /// Calls the server withdrew (`toolCallCancellation`); cleared with the session.
+    private var cancelledToolCallIds: Set<String> = []
     private var toolExecutionTask: Task<Void, Never>? = nil
     private var pendingToolCalls = 0
 
@@ -579,6 +581,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         cancelPendingConfirmation()
         executingToolName = nil
         executedToolCallIds.removeAll()
+        cancelledToolCallIds.removeAll()
         pendingToolCalls = 0
         isModelTurnOpen = false
         isDiscardingInterruptedTurn = false
@@ -731,14 +734,33 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             }
             executedToolCallIds.insert(callKey)
 
+            // A call queued behind one that is still running (or awaiting its card) leaves the state alone until
+            // its own turn comes, so an open approval card is never shown as "thinking".
+            if pendingToolCalls == 0 {
+                transition(to: .thinking)
+                executingToolName = call.name
+            }
             pendingToolCalls += 1
-            transition(to: .thinking)
-            executingToolName = call.name
 
-            toolExecutionTask?.cancel()
+            // Several calls in one turn run one after another, each with its own card. Starting a new call must
+            // not cancel the previous one: that used to deny its pending card without the user ever seeing it.
+            // Cancelling the newest task (interruption, reconnect, teardown) cancels everything queued before it.
+            let previousTool = toolExecutionTask
             let toolEpoch = connectionEpoch
             toolExecutionTask = Task { [weak self, session] in
+                await withTaskCancellationHandler {
+                    await previousTool?.value
+                } onCancel: {
+                    previousTool?.cancel()
+                }
+                guard !Task.isCancelled else { return }
                 guard let self, self.currentSessionToken == token else { return }
+                if let id = call.id, self.cancelledToolCallIds.contains(id) {
+                    // The server withdrew this call before its turn came: it is never run or shown.
+                    self.pendingToolCalls = max(0, self.pendingToolCalls - 1)
+                    return
+                }
+                self.executingToolName = call.name
 
                 // Check if tool is classified as safe; if safe, transition directly to .toolExecution
                 if let tool = self.toolDispatcher.registry.tool(named: call.name) {
@@ -878,6 +900,15 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             await wakeWordDetector.reset()
             guard currentSessionToken == token else { return }
             transition(to: .listening)
+
+        case .toolCallCancelled(let ids):
+            // The server withdrew these calls (usually because the user spoke over Ivy). A card still waiting for
+            // one of them is denied; one not started yet is skipped. A tool already running is not undone.
+            cancelledToolCallIds.formUnion(ids)
+            if let callId = pendingConfirmation?.callId, ids.contains(callId) {
+                cancelPendingConfirmation()
+                if state == .toolConfirmation { transition(to: .thinking) }
+            }
 
         case .disconnected:
             // Our own stopSession() clears the token first, so reaching here means the socket dropped under us.

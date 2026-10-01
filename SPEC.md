@@ -250,7 +250,7 @@ public protocol GeminiClientProtocol: Sendable {
 ```
 
 ### URLSession Implementation
-- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={API_KEY}`
+- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent` (key in the `x-goog-api-key` header only)
 - **HTTP Method**: `POST`
 - **Headers**: `Content-Type: application/json`
 - **Timeout**: 30 seconds request timeout

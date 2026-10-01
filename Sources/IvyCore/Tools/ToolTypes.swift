@@ -254,7 +254,30 @@ public enum ToolValidation {
         ".zshrc",
         ".bashrc",
         ".bash_profile",
-        ".profile"
+        ".profile",
+        // Credentials other tools keep in the home folder. `file_op read` runs without a card and its result goes
+        // to Gemini, so these are refused outright rather than confirmed.
+        ".netrc",
+        ".git-credentials",
+        ".npmrc",
+        ".pypirc",
+        ".docker",
+        ".kube",
+        ".config/gh",
+        ".config/gcloud",
+        ".azure",
+        ".env",
+        // Shell history routinely holds pasted tokens.
+        ".zsh_history",
+        ".bash_history",
+        // Private app data: browser profiles and cookies, Messages, Mail, Ivy's own conversations.
+        "Library/Cookies",
+        "Library/Safari",
+        "Library/Messages",
+        "Library/Mail",
+        "Library/Application Support/Google/Chrome",
+        "Library/Application Support/Firefox",
+        "Library/Application Support/Ivy"
     ]
 
     /// Prohibited root system directories.

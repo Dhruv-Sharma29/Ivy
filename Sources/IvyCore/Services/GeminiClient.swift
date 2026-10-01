@@ -168,14 +168,8 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
             throw GeminiClientError.missingAPIKey
         }
 
-        var urlComponents = URLComponents(string: baseURLString)
-        if urlComponents?.queryItems?.contains(where: { $0.name == "key" }) != true {
-            var items = urlComponents?.queryItems ?? []
-            items.append(URLQueryItem(name: "key", value: trimmedKey))
-            urlComponents?.queryItems = items
-        }
-
-        guard let url = urlComponents?.url else {
+        // The key travels only in the `x-goog-api-key` header: a URL ends up in logs, proxies and error text.
+        guard let url = URLComponents(string: baseURLString)?.url else {
             throw GeminiClientError.invalidURL
         }
 

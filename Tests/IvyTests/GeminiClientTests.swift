@@ -75,7 +75,8 @@ struct GeminiClientTests {
         MockURLProtocol.requestHandler = { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.absoluteString.contains("gemini-3.8-flash:generateContent") == true)
-            #expect(request.url?.query?.contains("key=test_api_key_123") == true)
+            // The key is sent in the header only, never in the URL.
+            #expect(request.url?.absoluteString.contains("test_api_key_123") == false)
             #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
             #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "test_api_key_123")
 

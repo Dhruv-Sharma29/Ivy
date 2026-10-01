@@ -35,8 +35,9 @@ public protocol IvyTool: Sendable {
 }
 
 public extension IvyTool {
+    /// Fail closed: a tool that doesn't say it is safe gets a confirmation card. Safe tools opt in explicitly.
     var safetyClassification: ToolSafetyClassification {
-        .safe
+        .risky
     }
 
     func classification(for arguments: [String: AnyCodable]) -> ToolSafetyClassification {
