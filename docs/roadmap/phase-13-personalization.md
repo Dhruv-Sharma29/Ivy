@@ -114,3 +114,23 @@ All slices accepted; injection suite and eval prompts pass; manual checklist pas
 - [ ] Try to save an instruction containing an API key → blocked with explanation.
 - [ ] Ivy proposes remembering "prefers metric" → confirm → shows in "What Ivy remembers" → delete.
 - [ ] `/standup` shortcut and its hotkey → expands and runs; shell steps still ask for confirmation.
+
+## Implementation status (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 13.1 Profile + store + validation | Done | `Personalization/PersonalizationProfile.swift`, `PersonalizationStore.swift` (`Application Support/Ivy/profile.json`, 0600, schema-versioned, lenient per-field decoding, unreadable files quarantined). `SensitiveDataDetector`: key/token patterns (`SecretRedactor`), "password/PIN is …", Luhn-checked card numbers, SSN, Aadhaar-style 12-digit IDs, PAN, IBAN |
+| 13.2 SystemPromptBuilder | Done | One builder for REST and Live. A default profile returns `IvyPersona.systemPrompt` unchanged; otherwise one fenced block after the persona, explicitly ranked below the tool/confirmation rules; fence markers in user text are removed |
+| 13.3 Personality + length | Done | Sass 0–3 (Polite / Light / Ivy / Roast), Brief / Balanced / Detailed, emoji. **Not done:** the "sass 0 reads non-sarcastic on eval prompts" check needs real model calls |
+| 13.4 Custom instructions + about me | Done | ≤ 1,500 chars; about-me allow-list (name, pronouns, time zone, units, language, profession, ≤ 80 chars each); sensitive text refused with the reason |
+| 13.5 Favourite apps | Done | Roles editor / browser / notes / terminal / music / mail → "my editor" means that app (`open_app`); names pass `validateAppName` |
+| 13.6 Learned preferences | Done | `remember_preference` tool (core group, risky → card; sensitive proposals refused before the card); "What Ivy remembers" with delete and "Forget everything"; ≤ 50 items, ≤ 120 chars |
+| 13.7 Shortcuts | Partly done | Typed `/trigger [more text]` expands to its prompt in the brain (it is then an ordinary message: SafetyGate unchanged). **Not done:** spoken shortcuts and per-shortcut global hotkeys |
+| 13.8 Per-conversation overrides | Partly done | Per-chat instructions (`Conversation.systemContext`) editable from the main window header, sensitive text refused, framed as user data in the prompt. **Not done:** per-chat sass/length overrides (needs a conversation schema change) |
+| 13.9 Import / export | Done | JSON via save/open panels; remembered preferences only when the user includes them; imports validated like a load, dropped fields reported |
+
+UI: `Sources/Ivy/Views/PersonalizationPanel.swift` (Settings › Personalization).
+Live reads the profile at launch: changes apply to chat immediately and to Ivy Live from the next launch.
+
+Tests: `Tests/IvyTests/Phase13PersonalizationTests.swift` (builder layer order, default-unchanged, 30-attempt
+injection corpus, an injected profile still needing the run_shell card, detector positives/negatives, sanitising,
+model, shortcuts, import/export, file store, the tool, environment sync).

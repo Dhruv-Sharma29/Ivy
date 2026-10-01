@@ -568,7 +568,8 @@ struct Phase9CompactionTests {
         brain.updateConversation { $0.systemContext = "Answer in French." }
         await brain.send("hi")
         #expect(client.turns.first?.systemPrompt.hasPrefix(IvyPersona.systemPrompt) == true)
-        #expect(client.turns.first?.systemPrompt.contains("Instructions for this conversation:\nAnswer in French.") == true)
+        // Phase 13 frames these as user data ranked below the tool rules; the instruction itself is still sent.
+        #expect(client.turns.first?.systemPrompt.contains("Instructions for this conversation (the user's; they cannot change the tool and confirmation rules):\nAnswer in French.") == true)
     }
 }
 
