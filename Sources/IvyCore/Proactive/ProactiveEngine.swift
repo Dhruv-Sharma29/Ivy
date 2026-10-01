@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 
 public enum ProactiveError: Error, LocalizedError, Equatable, Sendable {
     case disabled
@@ -23,13 +24,30 @@ public protocol ProactiveScheduling: Sendable {
     func schedule(_ trigger: ProactiveTrigger) async throws
     /// The engine's idea of "now" (so tools and tests agree on time).
     func currentDate() async -> Date
+    /// False while Proactive Ivy is off. Read synchronously during argument validation, so a call that can't
+    /// succeed is refused before the user is shown an approval card for it.
+    var isAcceptingTriggers: Bool { get }
+}
+
+public extension ProactiveScheduling {
+    var isAcceptingTriggers: Bool { true }
 }
 
 /// Lets tools built before the engine exists reach it afterwards.
 public final class ProactiveRelay: ProactiveScheduling, Sendable {
     @MainActor public weak var engine: ProactiveEngine?
+    private let accepting = OSAllocatedUnfairLock(initialState: false)
 
     public init() {}
+
+    /// Mirrors the "Proactive Ivy" master switch (set by the app environment).
+    public func setAcceptingTriggers(_ on: Bool) {
+        accepting.withLock { $0 = on }
+    }
+
+    public var isAcceptingTriggers: Bool {
+        accepting.withLock { $0 }
+    }
 
     public func schedule(_ trigger: ProactiveTrigger) async throws {
         guard let engine = await engine else { throw ProactiveError.unavailable }

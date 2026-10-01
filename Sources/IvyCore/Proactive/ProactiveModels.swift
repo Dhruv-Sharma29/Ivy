@@ -142,6 +142,22 @@ public struct ProactiveState: Codable, Equatable, Sendable {
     public var announcedEvents: [String] = []
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, triggers, log, deferred, lastBriefingDay, announcedEvents
+    }
+
+    /// Missing fields take their defaults, so a file written before a field existed migrates instead of being
+    /// set aside. Unknown or malformed values still fail (and the store quarantines the file).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        triggers = try c.decodeIfPresent([ProactiveTrigger].self, forKey: .triggers) ?? []
+        log = try c.decodeIfPresent([ProactiveActivity].self, forKey: .log) ?? []
+        deferred = try c.decodeIfPresent([String].self, forKey: .deferred) ?? []
+        lastBriefingDay = try c.decodeIfPresent(String.self, forKey: .lastBriefingDay)
+        announcedEvents = try c.decodeIfPresent([String].self, forKey: .announcedEvents) ?? []
+    }
 }
 
 public protocol ProactiveStore: Sendable {

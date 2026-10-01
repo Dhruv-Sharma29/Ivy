@@ -68,6 +68,19 @@ Quit (`IvyAppDelegate.applicationShouldTerminate` → `environment.shutdown()`):
 (never executed), history is saved, TTS stops, Live is torn down (mic tap, socket, audio queue, PTT state) and
 the hotkey is unregistered. Nothing about a Live session is persisted, so no stale session survives a restart.
 
+## Proactive Ivy (Phase 12)
+
+- Off by default; nothing proactive runs, schedules or asks for notification permission until the user turns on
+  Settings › Proactive Ivy. `schedule_followup` is refused before its approval card while it is off.
+- Stored in `Application Support/Ivy/Proactive/state.json` (directory 0700, file 0600): triggers, the last 200
+  activity entries, held messages, the last briefing day and announced event ids. Messages and suggested prompts
+  pass `SecretRedactor` and are capped at 500 characters.
+- A trigger can only show a notification or pre-fill the input field. The engine holds no tool dispatcher; a
+  suggested prompt goes through the normal chat path and SafetyGate only after the user sends it.
+- Local signals only: running app names, battery level, the item names of a folder the user picked, and events
+  of calendars the user named (title and start time). The daily briefing is the only proactive data that leaves
+  the Mac, as one redacted Gemini request, and only when the briefing is turned on.
+
 ## Security boundaries
 
 - Idle "Hey Ivy" wake-up (`wakeWordEnabled`, **off by default**) is the only feature that opens the microphone

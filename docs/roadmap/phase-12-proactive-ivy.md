@@ -117,3 +117,24 @@ section added to `docs/PERSISTENCE_AND_SECURITY.md`.
 - [ ] "Tell me when the build finishes" (Phase 15/16 task) → completion notification.
 - [ ] Morning briefing at a chosen time; "Read to me" speaks it.
 - [ ] Activity log lists every fire with its reason.
+
+## Implementation status (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 12.1 TriggerStore | Done | `FileProactiveStore` (`Application Support/Ivy/Proactive/state.json`, 0600, `schemaVersion`); unreadable or newer files are quarantined and reported once; files missing newer fields migrate with defaults |
+| 12.2 Scheduler | Done | `ProactiveEngine.tick()` every 30 s plus on wake / clock / time-zone change; due times are compared with the wall clock on every check, so sleep, DST and zone changes can't drift a timer (`ProactiveTrigger.nextFire`) |
+| 12.3 Deliverer + actions | Done | `SystemProactiveDeliverer`: Open in Ivy / Snooze 10 min / Done / Stop these; briefing adds "Read to me". Permission is asked when the master switch is turned on, never at launch |
+| 12.4 Gatekeeper | Partly done | Master switch (off by default) and per-kind toggles, quiet hours (22:00–08:00), ≤ 6 per hour, 1-hour dedupe, one catch-up digest. **Not done:** macOS Focus (`INFocusStatusCenter` needs the Focus-status entitlement and its own permission) |
+| 12.5 `schedule_followup` + UI | Done | Risky → approval card with exact timing and text; refused *before* the card while Proactive Ivy is off (`ProactiveRelay.isAcceptingTriggers`) |
+| 12.6 Calendar heads-up | Done | Only calendars named in settings; title and start time only |
+| 12.7 Conditions | Done (app, battery, folder) | App launched/quit, battery below, new item in a folder chosen with `NSOpenPanel` ("Watch a folder…"). Task finished/failed/stopped notifications arrived with Phase 15 (`ProactiveEngine.notifyTaskFinished`, kind `taskUpdate`, same gatekeeper) |
+| 12.8 Daily briefing | Done | Local data only; one Gemini call (redacted), plain list when there is no key or quota; added to the conversation |
+| 12.9 Activity log + login item | Done | Settings › Proactive Ivy: triggers with remove, last 10 activity entries with reason and outcome; `SMAppService` login item |
+
+UI: `Sources/Ivy/Views/ProactivePanel.swift` (inside the settings panel). Opening a notification with a suggested
+prompt puts it in the input field (only if the field is empty); it is never sent automatically.
+
+Tests: `Tests/IvyTests/Phase12ProactiveTests.swift` — virtual clock, recording deliverer, scripted signals.
+
+Needs a hands-on pass: the whole manual checklist above, notification permission prompt, notification buttons,
+login item, and the settings layout (the popover settings panel scrolls).

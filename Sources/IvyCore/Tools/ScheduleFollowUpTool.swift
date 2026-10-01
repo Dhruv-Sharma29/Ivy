@@ -82,7 +82,13 @@ public final class ScheduleFollowUpTool: IvyTool, Sendable {
         }
     }
 
-    public func validate(arguments: [String: AnyCodable]) throws { _ = try parse(arguments) }
+    public func validate(arguments: [String: AnyCodable]) throws {
+        // Checked before the approval card: approving something that is bound to fail wastes the user's attention.
+        guard scheduler.isAcceptingTriggers else {
+            throw ToolError.invalidArgument(ProactiveError.disabled.localizedDescription)
+        }
+        _ = try parse(arguments)
+    }
 
     private func describe(_ timing: Timing) -> String {
         switch timing {
