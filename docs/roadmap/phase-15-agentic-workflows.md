@@ -124,3 +124,26 @@ Eval goals meet targets; executor tests cover every status transition; manual ch
 - [ ] Force a failing step → retry → re-plan → asks you.
 - [ ] Stop mid-task → shell process terminated, remaining steps cancelled.
 - [ ] Task history shows the run; re-run asks for approval again.
+
+## Implementation status (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 15.1 Plan model + validator | Done | `Agent/TaskPlan.swift`: steps must name a registered tool and pass that tool's own `validate`; ids unique, dependencies known and acyclic, ≤ 20 steps; `fileExists` checks must be paths `file_op` could use. Tasks may not call `enable_tools`, `remember_preference` or `schedule_followup` |
+| 15.2 Planner + fallback | Done | `GeminiTaskPlanner` (one REST call, JSON in the reply; fences/prose tolerated). An invalid plan is re-asked once with the reason; then the task ends with a message. **Not done:** the 30-goal eval (needs real model calls) |
+| 15.3 Executor | Done | `TaskEngine` (@MainActor), sequential, one step at a time |
+| 15.4 Per-step SafetyGate + plan approval | Done | Steps go through the brain's own `ToolDispatcher`, so every risky step shows its normal card with its exact arguments; approving the plan approves the order only. Declining a card pauses the task (never retried by itself) |
+| 15.5 Verification / retry / re-plan | Done | Checks: tool success, `fileExists`, `outputContains`. `retry` (once), `ask` (skip / retry / stop), `replan` (≤ 2, remainder shown for approval again; the failed step is marked replaced), `abort` |
+| 15.6 Cancellation | Done | Stop (⌘.) cancels the running tool — `run_shell` now kills the command's process tree on cancellation — denies a waiting card, marks the rest cancelled; completed steps aren't undone (the report says so) |
+| 15.7 Progress UI | Done (window) | `TaskCardView` above the composer: plan, live step status, output tail, pause choices. **Not done:** spoken milestones; a compact popover card |
+| 15.8 History + re-run | Done | `FileTaskStore` (`Application Support/Ivy/Tasks/<id>.json`, 0600); outputs redacted and ≤ 4 KB per step; "Run again" plans afresh and needs approval again |
+| 15.9 Scoped allow-rules | Not built (on purpose) | They relax confirmation; left for an explicit decision |
+| 15.10 Voice-spawned tasks | Not done | Tasks start from chat with `/agent <goal>` |
+
+Budgets: 20 steps, 40 tool calls, 15 minutes of running time, 2 re-plans; a budget pause offers Continue (one more
+budget's worth) or Stop. While a task is active, chat sends wait (one approval surface at a time).
+Finished tasks add their report to the conversation and, if Proactive Ivy is on, send a "Task update" notification.
+
+Tests: `Tests/IvyTests/Phase15AgentTests.swift` — validation, ordering, parsing, clipping, approval-first, re-ask,
+in-order runs, one card per risky step (titles can't approve), decline/skip/dependents, retry/ask, re-plan,
+abort and checks, budget pause/continue, stop during a card and during a tool, re-run, history, wiring, and a real
+cancelled `sleep 30`.

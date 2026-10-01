@@ -6,6 +6,8 @@ import os
 public struct ProactiveTrigger: Codable, Identifiable, Equatable, Sendable {
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case reminder, followUp, calendarHeadsUp, briefing, watch
+        /// An agent task finished, failed or was stopped (Phase 15).
+        case taskUpdate
     }
 
     public enum Schedule: Codable, Equatable, Sendable {

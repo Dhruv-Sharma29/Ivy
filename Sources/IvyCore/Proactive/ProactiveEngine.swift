@@ -310,7 +310,7 @@ public final class ProactiveEngine: ObservableObject {
 
     private func isKindEnabled(_ kind: ProactiveTrigger.Kind, _ settings: IvySettings) -> Bool {
         switch kind {
-        case .reminder, .followUp, .watch: return settings.proactiveReminders
+        case .reminder, .followUp, .watch, .taskUpdate: return settings.proactiveReminders
         case .calendarHeadsUp: return settings.proactiveCalendar
         case .briefing: return settings.proactiveBriefing
         }
@@ -399,7 +399,18 @@ public final class ProactiveEngine: ObservableObject {
         case .watch: return "You asked me to tell you"
         case .calendarHeadsUp: return "Coming up"
         case .briefing: return "Your day"
+        case .taskUpdate: return "Task update"
         }
+    }
+
+    /// A task finished while the user may be elsewhere. Same gatekeeper as everything else: off unless
+    /// Proactive Ivy and reminders are on, quiet hours and the hourly limit apply.
+    public func notifyTaskFinished(goal: String, summary: String) async {
+        let settings = settings()
+        guard settings.proactiveEnabled else { return }
+        await announce("\(goal): \(summary)", title: title(for: .taskUpdate), reason: "You started this task in Ivy.",
+                       kind: .taskUpdate, triggerID: nil, digestOnly: false, settings: settings)
+        persist()
     }
 
     private func markFired(_ id: UUID, at date: Date, disable: Bool) {
