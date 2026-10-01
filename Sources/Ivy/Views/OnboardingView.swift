@@ -163,8 +163,8 @@ struct OnboardingView: View {
         }
     }
 
-    private func superpower(_ title: String, detail: String, isOn: Bool, set: @escaping (Bool) -> Void) -> some View {
-        Toggle(isOn: Binding(get: { isOn }, set: set)) {
+    private func superpower(_ title: String, detail: String, isOn: Bool, set: @escaping @MainActor (Bool) -> Void) -> some View {
+        Toggle(isOn: Binding(get: { isOn }, set: { @MainActor v in set(v) })) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 13, weight: .medium))
                 Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

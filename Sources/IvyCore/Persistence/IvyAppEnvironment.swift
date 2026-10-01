@@ -223,7 +223,7 @@ public final class IvyAppEnvironment {
         }
 
         var previous = settings.settings
-        settingsSubscription = settings.$settings.sink { [weak self, weak brain, weak wakeWord, weak liveCoordinator] new in
+        settingsSubscription = settings.$settings.sink { [weak self, weak brain, weak wakeWord, weak liveCoordinator, weak proactive] new in
             defer { previous = new }
             proactiveRelay.setAcceptingTriggers(new.proactiveEnabled)
             if new.proactiveEnabled, !previous.proactiveEnabled {
