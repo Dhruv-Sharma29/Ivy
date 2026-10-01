@@ -216,3 +216,52 @@ manual checklist passed.
 - [ ] ⌘K → quick question → continue in window.
 - [ ] VoiceOver and keyboard-only: complete a chat with a confirmation.
 - [ ] Reduce Motion on: no animated faces/rings, everything still understandable.
+
+## Implementation status — 17a (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 17a.1 Design tokens + base components | Partly done | `Sources/Ivy/DesignSystem/IvyTheme.swift` (leaf / moss / sprout light+dark, radii, fonts). **Not done:** `ImageRenderer` snapshot tests — the test target only links `IvyCore`, so view tests need a new target |
+| 17a.2 Main window + router | Done | `MainWindowController` (AppKit window, opens only on request: popover ⌘O / window button, or a proactive notification with a suggestion). `AppRouter` (IvyCore) is the single owner of the Dock decision: Dock icon while the window is open, or always with Settings › "Always show Ivy in the Dock". `ivy://conversation/<id>` and `ivy://new` are parsed but no URL scheme is registered yet |
+| 17a.3 Sidebar | Done | `SidebarView`: search, Pinned / Today / Yesterday / Previous 7 Days / Earlier (`ConversationGroup`), archived toggle, rename, pin, archive, export, delete (confirmed), ⌘N |
+| 17a.4 Chat pane + message blocks | Done | `MessageBlock` parser (IvyCore): prose as inline Markdown, fenced code with language label and Copy, diffs coloured per line. Confirmation cards as in the popover (⌘Return approves, Esc cancels). **Not done:** tool cards, collapsible tool output, "Apply…" on diffs |
+| 17a.5 Composer | Done (no attachments) | Reuses `MessageInputBar`; the mic starts Live in the active conversation; suggestions from notifications pre-fill it |
+| 17a.6 Slim popover | Not done on purpose | The popover keeps all its features and gains "Open Ivy window"; slimming it waits until the window has had a hands-on pass |
+
+Tests: `Tests/IvyTests/Phase17aAppShellTests.swift` (router/Dock presence, deep links, setting, message blocks, diff
+lines, sidebar grouping).
+
+Needs a hands-on pass: open/close the window (Dock icon appears/disappears), "Always show in Dock", sidebar
+operations, Markdown/code/diff rendering, approving from the window, window frame restored after relaunch.
+
+## Implementation status — 17b (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 17b.1 Companion panel | Done | `Companion/CompanionController.swift`: borderless, non-activating `NSPanel` (clicking it never takes focus from the user's app), all Spaces, floating; snaps to the nearest corner after a drag and remembers it (`companionCorner`). **Not done:** per-display corners; trailing the cursor |
+| 17b.2 Leaf face + orb | Done | `CompanionView`/`LeafFace`: the logo's leaf with eyes and mouth per mood (vector shapes); ring per mood — level-reactive while listening/speaking, progress arc while working, amber pulse for approval, spinner while thinking, red on error. Reduce Motion → static. Mood logic: `CompanionMood.resolve` (IvyCore) — approval always wins |
+| 17b.3 Captions | Done | `GeminiLiveVoiceCoordinator.caption` (end of the current reply, memory only) in a bubble while speaking |
+| 17b.4 Annotation overlay (`point_at`) | Done | `point_at` tool (core, **safe**: draws only). Captures now carry their screen frame (`CaptureGeometry`), recorded when the image is actually shown to Ivy; `screenRect(forImageRect:)` maps image pixels → AppKit screen points (scale, offset, flipped Y, other displays). `AnnotationOverlay`: click-through panel, vine-green highlight + label, 6 s, VoiceOver announcement. **Not done:** the hand-drawn arrow from the companion; anchoring by OCR text; region captures (no frame) can't be pointed into |
+| 17b.5 Command bar | Done (different chord) | **⌃⌥⌘K** (a global ⌘K would take ⌘K from every app): Spotlight-style key panel; Return asks (reply shown in place), ⌘Return continues in the window, Esc closes, five recent conversations; `/agent` hands off to the window. Blocked (with a pointer to the window) while an approval or a task is pending. **Not done:** "⌘⇧S to attach the current window" inside the bar |
+| 17b.6 Task progress on companion | Done | Progress arc from step statuses; plan approval and task pauses show the approval face; right-click: Open Ivy, End Voice Session, Stop Task, Hide for Now |
+
+Settings: show the companion (on — it only appears while active), keep it when idle (off), command-bar shortcut.
+
+Tests: `Tests/IvyTests/Phase17bCompanionTests.swift` — mood priorities, corners and snapping (incl. a negative-origin
+display), pixel → screen mapping (Retina, other display, clamping), `point_at` (needs a shown screenshot, safe,
+bounded), geometry recorded only on send, captions, settings, distinct shortcuts, wiring.
+
+Needs a hands-on pass: the whole 17b manual list — panel behaviour across Spaces/full screen, multi-display pointing,
+command-bar focus, Reduce Motion.
+
+## Implementation status — 17c (2026-10-01)
+| Slice | Status | Where |
+|---|---|---|
+| 17c.1 Onboarding | Done | `OnboardingModel` (IvyCore) + `OnboardingView`: name tag → sass with sample lines → keys (straight to the Keychain) → voice (the microphone is explained, then requested only on a button press) → optional superpowers (wake word, screen help, proactive; nothing turned on unless switched on) → done. Every step skippable; closing early counts as done. Shown by itself only on a fresh install (no key, no conversations); existing installs are marked done at launch; re-run from Settings › General |
+| 17c.2 Settings window | Done | `SettingsWindowView` (SwiftUI `Settings` scene, ⌘, / "All Settings…"): General, Voice, Personalization, Screen, Proactive, Privacy & Data, Keys, Permissions (all of them, with deep links), About. The popover and the window share one implementation per section (`SettingsPanel.swift`). Privacy & Data adds **Export Diagnostics…** (redacted report via save panel) and Show Ivy's Data Folder |
+| 17c.3 Empty / error / loading states | Partly done | "Try again" under a failed reply (`IvyBrain.retryLastFailed`); empty states point to the next action (key missing, `/agent`). **Not done:** a copy review of every error string |
+| 17c.4 Animations | Done (as built) | Companion, annotations, Live halo and status symbols all respect Reduce Motion; no new animation work |
+| 17c.5 Keyboard map + accessibility | Partly done | `docs/KEYBOARD.md`; ⌃⌘S toggles the sidebar; labels on the new controls (companion orb, annotation announcement, onboarding progress, sidebar toggle). **Not done:** the hands-on VoiceOver walkthrough and contrast measurement |
+| 17c.6 Compact / expanded | Done | The window narrows to 420 pt; ⌃⌘S (or the header button) hides/shows the conversation sidebar; the popover is unchanged |
+
+Tests: `Tests/IvyTests/Phase17cOnboardingTests.swift` — who sees onboarding, name/sass/keys steps (sensitive name
+refused, Continue needs a key, Skip doesn't), microphone asked only on request, skipping through changes nothing but
+"done", early close, environment marking existing installs, Try again.

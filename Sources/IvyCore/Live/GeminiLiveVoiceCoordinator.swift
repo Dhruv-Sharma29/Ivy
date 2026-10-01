@@ -72,6 +72,9 @@ public struct LiveLatencyMetrics: Equatable, Sendable {
 public final class GeminiLiveVoiceCoordinator: ObservableObject {
     @Published public private(set) var state: VoiceSessionState = .idle
     @Published public private(set) var latestTranscript: String = ""
+    /// What Ivy is saying right now (the end of the current reply), for the companion's caption bubble.
+    /// Cleared when the reply ends or is interrupted. Memory only.
+    @Published public private(set) var caption: String = ""
     @Published public private(set) var pendingConfirmation: ConfirmationRequest? = nil
     @Published public private(set) var executingToolName: String? = nil
     /// False when speech recognition is unavailable (e.g. `swift run` without an .app bundle), so "Hey Ivy" can't interrupt.
@@ -356,6 +359,20 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         continuation.resume(returning: approved)
     }
 
+    /// Shows Ivy one still image during a live session (the screen-help hotkey while talking). Returns false
+    /// when there is no session to send it to; the caller then attaches it to the chat instead.
+    @discardableResult
+    public func sendImage(_ jpeg: Data) async -> Bool {
+        guard state.isLive, !isReconnecting, let token = currentSessionToken else { return false }
+        do {
+            try await session.sendImage(jpeg)
+            return currentSessionToken == token
+        } catch {
+            print("[LIVE] image not sent: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Ends push-to-talk listening (idempotent key-up event).
     public func endPushToTalk() async {
         guard isPushToTalkActive else {
@@ -543,6 +560,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Releases mic, playback, tasks, and socket, then settles in `finalState` (no IDLE flicker on the way to ERROR).
     /// Hands the buffered transcripts to `onTranscript`: the user's words first, then Ivy's.
     private func flushTranscripts(interrupted: Bool) {
+        if !caption.isEmpty { caption = "" }
         flushHeard()
         let spoken = spokenText.trimmingCharacters(in: .whitespacesAndNewlines)
         spokenText = ""
@@ -845,6 +863,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             // Ivy has started answering, so the user's utterance is complete.
             if spokenText.isEmpty { flushHeard() }
             spokenText += text
+            caption = String(spokenText.suffix(160))
 
         case .turnComplete:
             if isDiscardingInterruptedTurn {

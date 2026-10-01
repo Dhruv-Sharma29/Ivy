@@ -26,8 +26,17 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
     private struct Box<T>: @unchecked Sendable { let value: T }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
+    /// Distinguishes this manager's hotkey from other Ivy hotkeys (push-to-talk, screen help): every manager's
+    /// handler sees every Ivy hotkey event, and must act only on its own.
+    private let hotKeyNumber: UInt32
+    private static let nextNumber = OSAllocatedUnfairLock(initialState: UInt32(1))
 
-    public init() {}
+    public init() {
+        hotKeyNumber = Self.nextNumber.withLock { n in
+            defer { n += 1 }
+            return n
+        }
+    }
 
     deinit {
         unregister()
@@ -110,8 +119,15 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
         ]
 
         let handler: EventHandlerUPP = { _, eventRef, userData in
-            guard let eventRef, let userData else { return noErr }
+            guard let eventRef, let userData else { return OSStatus(eventNotHandledErr) }
             let manager = Unmanaged<SystemGlobalHotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+            var pressed = EventHotKeyID()
+            let status = GetEventParameter(eventRef, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                           nil, MemoryLayout<EventHotKeyID>.size, nil, &pressed)
+            // Another manager's hotkey: let its own handler have the event.
+            guard status == noErr, pressed.signature == OSType(0x49565921), pressed.id == manager.hotKeyNumber else {
+                return OSStatus(eventNotHandledErr)
+            }
             manager.dispatchCarbonEvent(kind: GetEventKind(eventRef))
             return noErr
         }
@@ -123,7 +139,7 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
             throw HotkeyError.eventHandlerInstallationFailed(installStatus)
         }
 
-        let hotKeyID = EventHotKeyID(signature: OSType(0x49565921), id: 1) // 'IVY!'
+        let hotKeyID = EventHotKeyID(signature: OSType(0x49565921), id: hotKeyNumber) // 'IVY!'
         var hotKeyRef: EventHotKeyRef? = nil
         let regStatus = RegisterEventHotKey(keyCode, modifiers.rawValue, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         guard regStatus == noErr else {

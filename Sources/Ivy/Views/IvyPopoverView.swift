@@ -8,6 +8,8 @@ public struct IvyPopoverView: View {
     @ObservedObject public var settings: SettingsModel
     @ObservedObject public var wakeWord: WakeWordController
     @ObservedObject public var library: ConversationLibrary
+    @ObservedObject public var proactive: ProactiveEngine
+    public let personalization: PersonalizationModel
     @State private var inputText: String = ""
     @State private var showSettings: Bool = false
     @State private var showConversations: Bool = false
@@ -22,7 +24,9 @@ public struct IvyPopoverView: View {
         liveVoiceCoordinator: GeminiLiveVoiceCoordinator,
         settings: SettingsModel,
         wakeWord: WakeWordController,
-        library: ConversationLibrary
+        library: ConversationLibrary,
+        proactive: ProactiveEngine,
+        personalization: PersonalizationModel
     ) {
         self.brain = brain
         self.voiceManager = voiceManager
@@ -30,6 +34,8 @@ public struct IvyPopoverView: View {
         self.settings = settings
         self.wakeWord = wakeWord
         self.library = library
+        self.proactive = proactive
+        self.personalization = personalization
     }
 
     public var body: some View {
@@ -58,7 +64,12 @@ public struct IvyPopoverView: View {
             }
 
             if let notice = brain.storageNotice {
-                storageBanner(notice)
+                storageBanner(notice) { brain.dismissStorageNotice() }
+                Divider()
+            }
+
+            if let notice = proactive.notice {
+                storageBanner(notice) { proactive.dismissNotice() }
                 Divider()
             }
 
@@ -109,7 +120,21 @@ public struct IvyPopoverView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         // A menu-bar-only (LSUIElement) app isn't activated when its status item opens this window,
         // so the window never becomes key and AppKit drops clicks on its buttons (gear, trash, close).
-        .onAppear { NSApp.activate() }
+        .onAppear {
+            NSApp.activate()
+            takeSuggestedPrompt()
+        }
+        // Opening a proactive notification pre-fills its suggestion. It is never sent for the user.
+        .onChange(of: proactive.pendingPrompt) { takeSuggestedPrompt() }
+    }
+
+    private func takeSuggestedPrompt() {
+        guard let prompt = proactive.pendingPrompt else { return }
+        proactive.pendingPrompt = nil
+        showConversations = false
+        if inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            inputText = prompt
+        }
     }
 
     // MARK: - Header
@@ -128,6 +153,18 @@ public struct IvyPopoverView: View {
             statusBadge
 
             Spacer()
+
+            Button {
+                MainWindowController.shared?.show()
+            } label: {
+                Image(systemName: "macwindow")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open Ivy window (⌘O)")
+            .accessibilityLabel("Open Ivy window")
+            .keyboardShortcut("o", modifiers: [.command])
 
             Button {
                 showConversations.toggle()
@@ -471,7 +508,7 @@ public struct IvyPopoverView: View {
     }
 
     // MARK: - Storage Banner
-    private func storageBanner(_ notice: String) -> some View {
+    private func storageBanner(_ notice: String, dismiss: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "externaldrive.badge.exclamationmark")
                 .foregroundStyle(.orange)
@@ -483,7 +520,7 @@ public struct IvyPopoverView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
             Button {
-                brain.dismissStorageNotice()
+                dismiss()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
@@ -503,7 +540,8 @@ public struct IvyPopoverView: View {
         // Scrolls: the panel is taller than the room the popover can spare.
         ScrollView {
             SettingsPanel(
-                credentials: brain.credentials, settings: settings, wakeWord: wakeWord,
+                credentials: brain.credentials, settings: settings, wakeWord: wakeWord, proactive: proactive,
+                personalization: personalization,
                 onPreviewVoice: {
                     voiceManager.togglePlayback(for: ChatMessage(role: .model, text: "This is how I sound when I read to you."))
                 }

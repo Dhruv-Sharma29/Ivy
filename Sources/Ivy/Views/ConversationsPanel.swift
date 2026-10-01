@@ -159,16 +159,6 @@ struct ConversationsPanel: View {
 
     /// The user picks where the file goes; the export itself is already redacted.
     private func export(_ entry: ConversationSummary, _ format: ConversationExporter.Format) {
-        guard let data = library.export(entry.id, format: format) else { return }
-        let panel = NSSavePanel()
-        let safeName = entry.title.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        panel.nameFieldStringValue = "\(safeName.prefix(60)).\(format.fileExtension)"
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try data.write(to: url, options: .atomic)
-        } catch {
-            NSAlert(error: error).runModal()
-        }
+        ConversationFileExport.run(library, id: entry.id, title: entry.title, format: format)
     }
 }

@@ -48,6 +48,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var headsUpMinutes: Int
     public var headsUpCalendars: [String]
     public var launchAtLogin: Bool
+    /// Keep the Dock icon even when no Ivy window is open (otherwise Ivy is menu-bar only until a window opens).
+    public var alwaysShowInDock: Bool
     /// Vision (Phase 14): send recognised text only, never pixels.
     public var visionTextOnly: Bool
     /// Black out key/token-looking text in images before they are sent.
@@ -58,6 +60,15 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var visionExcludedApps: [String]
     /// Register the "What am I looking at?" hotkey (⌃⌥⌘S) at launch.
     public var screenHelpHotkeyEnabled: Bool
+    /// The on-screen companion (Phase 17b): appears while Ivy is listening, speaking, working or needs approval.
+    public var companionEnabled: Bool
+    /// Keep the companion on screen when nothing is happening.
+    public var companionShowWhileIdle: Bool
+    public var companionCorner: CompanionCorner
+    /// Register the command bar hotkey (⌃⌥⌘K) at launch.
+    public var commandBarHotkeyEnabled: Bool
+    /// The first-run introduction has been finished or skipped (Phase 17c). Existing users are marked done.
+    public var onboardingCompleted: Bool
 
     public var visionPolicy: VisionPolicy {
         VisionPolicy(textOnly: visionTextOnly, maskSecrets: visionMaskSecrets,
@@ -107,11 +118,17 @@ public struct IvySettings: Codable, Equatable, Sendable {
         headsUpMinutes: Int = 10,
         headsUpCalendars: [String] = [],
         launchAtLogin: Bool = false,
+        alwaysShowInDock: Bool = false,
         visionTextOnly: Bool = false,
         visionMaskSecrets: Bool = true,
         visionKeepTextFromImages: Bool = false,
         visionExcludedApps: [String] = VisionPolicy.defaultExcludedApps,
-        screenHelpHotkeyEnabled: Bool = true
+        screenHelpHotkeyEnabled: Bool = true,
+        companionEnabled: Bool = true,
+        companionShowWhileIdle: Bool = false,
+        companionCorner: CompanionCorner = .bottomRight,
+        commandBarHotkeyEnabled: Bool = true,
+        onboardingCompleted: Bool = false
     ) {
         self.persistConversationHistory = persistConversationHistory
         self.restoreLastConversation = restoreLastConversation
@@ -140,11 +157,17 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.headsUpMinutes = headsUpMinutes
         self.headsUpCalendars = headsUpCalendars
         self.launchAtLogin = launchAtLogin
+        self.alwaysShowInDock = alwaysShowInDock
         self.visionTextOnly = visionTextOnly
         self.visionMaskSecrets = visionMaskSecrets
         self.visionKeepTextFromImages = visionKeepTextFromImages
         self.visionExcludedApps = visionExcludedApps
         self.screenHelpHotkeyEnabled = screenHelpHotkeyEnabled
+        self.companionEnabled = companionEnabled
+        self.companionShowWhileIdle = companionShowWhileIdle
+        self.companionCorner = companionCorner
+        self.commandBarHotkeyEnabled = commandBarHotkeyEnabled
+        self.onboardingCompleted = onboardingCompleted
     }
 
     /// Missing or wrongly-typed fields fall back to their defaults individually, so an older or
@@ -189,11 +212,17 @@ public struct IvySettings: Codable, Equatable, Sendable {
         headsUpMinutes = min(120, max(1, other(.headsUpMinutes, d.headsUpMinutes)))
         headsUpCalendars = other(.headsUpCalendars, d.headsUpCalendars)
         launchAtLogin = value(.launchAtLogin, d.launchAtLogin)
+        alwaysShowInDock = value(.alwaysShowInDock, d.alwaysShowInDock)
         visionTextOnly = value(.visionTextOnly, d.visionTextOnly)
         visionMaskSecrets = value(.visionMaskSecrets, d.visionMaskSecrets)
         visionKeepTextFromImages = value(.visionKeepTextFromImages, d.visionKeepTextFromImages)
         visionExcludedApps = other(.visionExcludedApps, d.visionExcludedApps)
         screenHelpHotkeyEnabled = value(.screenHelpHotkeyEnabled, d.screenHelpHotkeyEnabled)
+        companionEnabled = value(.companionEnabled, d.companionEnabled)
+        companionShowWhileIdle = value(.companionShowWhileIdle, d.companionShowWhileIdle)
+        companionCorner = other(.companionCorner, d.companionCorner)
+        commandBarHotkeyEnabled = value(.commandBarHotkeyEnabled, d.commandBarHotkeyEnabled)
+        onboardingCompleted = value(.onboardingCompleted, d.onboardingCompleted)
     }
 }
 

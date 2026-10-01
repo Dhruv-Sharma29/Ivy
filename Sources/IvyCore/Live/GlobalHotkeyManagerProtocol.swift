@@ -44,6 +44,12 @@ public struct HotkeyShortcut: Sendable, Equatable, Hashable {
         modifiers: [.control, .option, .command]
     )
 
+    /// Command bar: Control + Option + Command + K (a global ⌘K would take ⌘K from every app).
+    public static let defaultCommandBar = HotkeyShortcut(
+        keyCode: 40, // kVK_ANSI_K
+        modifiers: [.control, .option, .command]
+    )
+
     /// Modifier-only Push-to-Talk chord: Option + Control (requires Accessibility permission)
     public static let optionControlChord = HotkeyShortcut(
         keyCode: nil,

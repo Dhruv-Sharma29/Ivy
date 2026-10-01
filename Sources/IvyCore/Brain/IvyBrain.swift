@@ -470,6 +470,25 @@ public final class IvyBrain: ObservableObject {
         storageNotice = notices.joined(separator: " ")
     }
 
+    /// The last user message whose reply failed, if the conversation ends in an error (for "Try again").
+    public var retryableMessage: ChatMessage? {
+        guard let last = messages.last, last.isError, !isThinking, pendingConfirmation == nil else { return nil }
+        return messages.last { $0.role == .user }
+    }
+
+    /// Sends the failed message again: the error line and the original question are replaced by a fresh turn.
+    /// Its attachments go again too: the request that carried them never got an answer.
+    public func retryLastFailed() async {
+        guard let failed = retryableMessage, let index = messages.lastIndex(where: { $0.id == failed.id }) else { return }
+        messages.removeSubrange(index...)
+        await send(failed.text, attachments: failed.attachments)
+    }
+
+    /// Denies the card currently waiting (Stop on an agent task). Nothing runs.
+    public func denyPendingConfirmation() {
+        cancelPendingConfirmation()
+    }
+
     /// Quit path: a pending approval is denied (never executed) and the conversation is saved.
     public func prepareForTermination() {
         cancelPendingConfirmation()
