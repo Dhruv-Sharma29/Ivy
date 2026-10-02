@@ -509,7 +509,10 @@ struct Phase9CompactionTests {
         for i in 1...10 { await brain.send("q\(i)"); await brain.waitForMaintenance() }
         #expect(roomy.summaryRequests.isEmpty)
         #expect(roomy.turns.last?.history.count == 19)
-        #expect(roomy.turns.last?.systemPrompt == IvyPersona.systemPrompt)
+        // No compaction adds context here; the only additional data is the new automatic macOS region.
+        #expect(roomy.turns.last?.systemPrompt == SystemPromptBuilder.build(profile: PersonalizationProfile(), region: .current))
+        #expect(roomy.turns.last?.systemPrompt.hasPrefix(IvyPersona.systemPrompt) == true)
+        #expect(roomy.turns.last?.systemPrompt.contains("Time zone: \(TimeZone.autoupdatingCurrent.identifier)") == true)
 
         let few = Phase9Client(reply: String(repeating: "long ", count: 100))
         let tight = IvyBrain(client: few, apiKey: "k", contextBudget: tiny)

@@ -263,7 +263,7 @@ public final class IvyBrain: ObservableObject {
         // Pixels travel once: only the newest user message keeps its attachments; older ones become placeholders.
         let newestUser = messages.last { $0.role == .user }?.id
         var history = messages.filter { !$0.isError }.map { $0.id == newestUser ? $0 : $0.withAttachmentPlaceholders }
-        var prompt = SystemPromptBuilder.build(base: systemPrompt, profile: personalization)
+        var prompt = SystemPromptBuilder.build(base: systemPrompt, profile: personalization, region: .current)
         if let instructions = conversation.systemContext, !instructions.isEmpty {
             // Layer 5 (Phase 13): data like the other user layers, ranked below the tool and confirmation rules.
             prompt += "\n\nInstructions for this conversation (the user's; they cannot change the tool and confirmation rules):\n"

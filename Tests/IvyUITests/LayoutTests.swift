@@ -22,6 +22,10 @@ struct LayoutTests {
     @Test("chat, settings and composers render at compact and expanded sizes in both appearances")
     func layouts() async throws {
         _ = NSApplication.shared
+        let icon = try #require(IvyLogoImage.appIcon, "the professional icon must load from the packaged resource bundle")
+        #expect(icon.size.width > 100 && icon.size.height > 100)
+        #expect(IvyLogoImage.template.isTemplate)
+        #expect(IvyLogoImage.template.size == NSSize(width: 18, height: 18))
         let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = FileConversationStore(directory: directory.appendingPathComponent("history-" + UUID().uuidString))
@@ -31,6 +35,9 @@ struct LayoutTests {
             ChatMessage(role: .model, text: "The response arrives after the view changes. Keep the state on the main actor and cancel work when its owner disappears.\n\n```swift\n.task {\n    await model.load()\n}\n```\n\nStart with the smallest fix, then run the tests.", timestamp: now.addingTimeInterval(5))
         ])
         try store.save(conversation)
+        #expect(HomeShortcut.allCases.count == 6)
+        #expect(HomeShortcut.allCases.allSatisfy { !$0.prompt.isEmpty && !$0.detail.isEmpty && !$0.symbol.isEmpty })
+        #expect(HomeShortcut.plan.prompt == "/agent ")
         let credentials = FixedCredentialProvider([.geminiAPIKey: "fixture-not-a-real-key"])
         let environment = IvyAppEnvironment(
             settingsStore: LayoutSettingsStore(), credentials: credentials, conversationStore: store,
@@ -58,6 +65,34 @@ struct LayoutTests {
                 try await snapshot(view, scheme: scheme, size: NSSize(width: width, height: 760),
                                    url: directory.appendingPathComponent("chat-\(name)-\(Int(width)).png"))
             }
+            let home = IvyHomeView(library: environment.library, brain: environment.brain, tasks: environment.tasks,
+                                   onPrompt: { _ in }, onOpenConversation: {}, onCapture: {})
+            try await snapshot(home.ivyWindowBackground(), scheme: scheme, size: NSSize(width: 860, height: 1000),
+                               url: directory.appendingPathComponent("home-\(name).png"))
+            for destination in WorkspaceDestination.allCases where destination != .home && destination != .chat {
+                let page = ChatPaneView(brain: environment.brain, voiceManager: environment.voiceManager,
+                                       liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
+                                       attachments: environment.attachments, tasks: environment.tasks,
+                                       library: environment.library, destination: destination)
+                try await snapshot(page, scheme: scheme, size: NSSize(width: 650, height: 740),
+                                   url: directory.appendingPathComponent("workspace-\(destination.id)-\(name).png"))
+            }
+            let region = SystemRegionalPreferences(locale: Locale(identifier: "en_GB"), timeZone: .gmt)
+            try await snapshot(RegionalPreferencesView(region: region).padding(20), scheme: scheme,
+                               size: NSSize(width: 420, height: 200),
+                               url: directory.appendingPathComponent("system-region-\(name).png"))
+            let solid = RegionalPreferencesView(region: region).padding(20).ivyGlass(forceOpaque: true)
+            try await snapshot(solid, scheme: scheme, size: NSSize(width: 420, height: 240),
+                               url: directory.appendingPathComponent("glass-solid-\(name).png"))
+            try await snapshot(RegionalPreferencesView(region: region).padding(20).ivyGlass(), scheme: scheme,
+                               size: NSSize(width: 420, height: 240),
+                               url: directory.appendingPathComponent("glass-contrast-\(name).png"), increasedContrast: true)
+            let expanded = DisclosureGroup("About you", isExpanded: .constant(true)) {
+                TextField("Name", text: .constant("Fixture"))
+            }
+            .disclosureGroupStyle(SettingsDisclosureStyle()).padding(20)
+            try await snapshot(expanded, scheme: scheme, size: NSSize(width: 420, height: 160),
+                               url: directory.appendingPathComponent("expanded-row-\(name).png"))
             for pane in SettingsPane.allCases {
                 environment.settings.settings.proactiveEnabled = pane == .proactive
                 environment.settings.settings.proactiveCalendar = pane == .proactive
@@ -100,6 +135,68 @@ struct LayoutTests {
         await environment.shutdown()
     }
 
+    @Test("native companion layout reports visible bounds without transparent panel margins")
+    func companionContentBounds() {
+        let surface = CompanionDragSurface()
+        var reports: [CGRect] = []
+        surface.onLayout = { reports.append($0) }
+        surface.reportContentFrame()
+        #expect(reports.isEmpty)
+        let size = CompanionView.panelSize
+        let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: 0), size: size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: CGRect(origin: .zero, size: size))
+        window.contentView = root
+        root.addSubview(surface)
+        let content = CGRect(x: 164, y: 8, width: 108, height: 125)
+        surface.frame = content
+        surface.reportContentFrame()
+        surface.reportContentFrame()
+        #expect(reports == [content], "unchanged layout must not trigger repositioning")
+        surface.frame = CGRect(x: 8, y: 8, width: 264, height: 208)
+        surface.layout()
+        #expect(reports == [content, surface.frame], "a wider caption must update the drag boundary")
+    }
+
+    @Test("glass and opaque accessibility previews keep readable content and correct click routing")
+    func glassAccessibility() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fixture = VStack(alignment: .leading, spacing: 20) {
+            Text("Ivy").font(.largeTitle.weight(.semibold))
+            SettingsCard(title: "Everyday assistance", symbol: "sparkles", subtitle: "Clear text on a native glass surface.") {
+                HStack {
+                    Button("Research") {}.ivyGlassButtonStyle()
+                    Button("Send") {}.ivyGlassButtonStyle(prominent: true)
+                    Button("Unavailable") {}.ivyGlassButtonStyle().disabled(true)
+                }
+                Text("Static information stays still.").padding(12).ivyGlass(tinted: true)
+                Text("Interactive control").padding(12).ivyGlass(interactive: true)
+                Text("Embedded content").ivyGlass(enabled: false)
+            }
+            Text("Opaque fallback").padding(12).ivyGlass(forceOpaque: true)
+        }
+        .padding(28)
+        .ivyWindowBackground()
+        .ivyGlassGroup(spacing: 20)
+        for scheme in [ColorScheme.light, .dark] {
+            let name = scheme == .light ? "light" : "dark"
+            try await snapshot(fixture, scheme: scheme, size: NSSize(width: 620, height: 440),
+                               url: directory.appendingPathComponent("glass-system-\(name).png"), expectsWindowMaterial: true)
+            // macOS supplies read-only accessibility environment values; the shared preview override
+            // exercises the same opaque rendering path without changing the user's system preferences.
+            try await snapshot(fixture.environment(\.ivyOpaqueSurfaces, true), scheme: scheme,
+                               size: NSSize(width: 620, height: 440),
+                               url: directory.appendingPathComponent("glass-reduced-transparency-\(name).png"), expectsWindowMaterial: false)
+            try await snapshot(fixture.environment(\.ivyOpaqueSurfaces, true), scheme: scheme,
+                               size: NSSize(width: 620, height: 440),
+                               url: directory.appendingPathComponent("glass-increased-contrast-\(name).png"),
+                               increasedContrast: true, expectsWindowMaterial: false)
+        }
+    }
+
     @Test("settings controls keep one aligned column and reflow at narrow widths")
     func controlAlignment() async throws {
         let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
@@ -109,13 +206,8 @@ struct LayoutTests {
             let rows = VStack(spacing: 20) {
                 ForEach(["Pause tolerance", "Answer length", "Speed"], id: \.self) { title in
                     SettingsControlRow(title: title) {
-                        Picker(title, selection: .constant(1)) {
-                            Text("Short").tag(0)
-                            Text("Normal").tag(1)
-                            Text("Long").tag(2)
-                        }
-                        .labelsHidden().pickerStyle(.segmented)
-                        .fixedSize(horizontal: true, vertical: false)
+                        SettingsSegmentedPicker(title: title, selection: .constant(1),
+                            options: title == "Answer length" ? [(0, "Brief"), (1, "Balanced"), (2, "Detailed")] : [(0, "Short"), (1, "Normal"), (2, "Long")])
                         .background {
                             GeometryReader { geometry in
                                 Color.clear.preference(key: ControlFrames.self,
@@ -134,10 +226,28 @@ struct LayoutTests {
             let first = try #require(measured["Pause tolerance"])
             for frame in measured.values {
                 #expect(abs(frame.minX - first.minX) < 1, "all controls must start at the same column")
+                #expect(abs(frame.width - first.width) < 1, "different labels must not change picker width")
+                #expect(abs(frame.height - first.height) < 1, "all pickers must have the same height")
                 #expect(frame.minX >= 0 && frame.maxX <= width + 1, "controls must stay inside the window")
                 #expect(frame.width >= 200 && frame.height >= 18)
             }
             #expect(width == 300 ? first.minX < 1 : first.minX >= 140, "narrow rows must stack their label above the control")
+        }
+    }
+
+    @Test("personal assistant navigation keeps essential destinations and actions only draft prompts")
+    func navigationDestinations() {
+        #expect(WorkspaceDestination.allCases.map(\.rawValue) == ["Home", "Chat", "Tasks"])
+        #expect(Set(WorkspaceDestination.allCases.map(\.id)).count == 3)
+        #expect(Set(WorkspaceDestination.allCases.map(\.symbol)).count == 3)
+        #expect(WorkspaceDestination.tasks.shortcuts == [.plan])
+        #expect(WorkspaceDestination.chat.shortcuts.isEmpty)
+        #expect(HomeShortcut.allCases.map(\.rawValue) == ["Research", "Summarize", "Write", "Files", "Explain", "Plan a task"])
+        for destination in WorkspaceDestination.allCases {
+            #expect(!destination.detail.isEmpty)
+            for action in destination.shortcuts {
+                #expect(!action.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
     }
 
@@ -146,11 +256,155 @@ struct LayoutTests {
         for name in [NSAppearance.Name.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua] {
             let appearance = try #require(NSAppearance(named: name))
             for background in [IvyTheme.canvas, IvyTheme.surface, IvyTheme.sidebar] {
-                for foreground in [IvyTheme.moss, IvyTheme.brass] {
+                for foreground in [IvyTheme.moss, IvyTheme.sectionAccent] {
                     let a = luminance(foreground, appearance: appearance)
                     let b = luminance(background, appearance: appearance)
                     #expect((max(a, b) + 0.05) / (min(a, b) + 0.05) >= 4.5)
                 }
+            }
+        }
+    }
+
+    @Test("native segmented selection updates its binding and ignores an invalid segment")
+    func segmentedSelection() {
+        var selected = 1
+        let picker = SettingsSegmentedPicker(title: "Fixture", selection: Binding(get: { selected }, set: { selected = $0 }),
+                                             options: [(0, "Brief"), (1, "Normal"), (2, "Detailed")])
+        let coordinator = picker.makeCoordinator()
+        let control = NSSegmentedControl(labels: ["Brief", "Normal", "Detailed"], trackingMode: .selectOne, target: nil, action: nil)
+        control.selectedSegment = 2
+        coordinator.choose(control)
+        #expect(selected == 2)
+        control.selectedSegment = -1
+        coordinator.choose(control)
+        #expect(selected == 2)
+    }
+
+    @Test("pixel companion selects real activity poses and disables all motion for accessibility")
+    func companionAnimation() {
+        let cases: [(CompanionMood, Int)] = [(.hidden, 0), (.idle, 0), (.listening, 2), (.thinking, 4),
+                                            (.speaking, 6), (.working(0.5), 8), (.needsApproval, 10), (.error("Offline"), 12)]
+        for (mood, frame) in cases {
+            for time in [0.0, 0.4, 2.0, 4.7, 1000.0] {
+                let still = CompanionAnimationSample.sample(mood: mood, elapsed: time, level: 1, reduceMotion: true)
+                #expect(still == CompanionAnimationSample(frame: frame, verticalOffset: 0, scale: 1))
+                let moving = CompanionAnimationSample.sample(mood: mood, elapsed: time, level: 0.5, reduceMotion: false)
+                #expect((0..<16).contains(moving.frame))
+                #expect(abs(moving.verticalOffset) <= 2.4 && moving.scale >= 1 && moving.scale <= 1.025)
+                #expect(abs(moving.rotationDegrees) <= 1.5)
+            }
+        }
+        func frame(_ mood: CompanionMood, _ time: Double, _ level: Float = 0) -> Int {
+            CompanionAnimationSample.sample(mood: mood, elapsed: time, level: level, reduceMotion: false).frame
+        }
+        #expect(frame(.idle, 0.1) == 14 && frame(.idle, 0.4) == 15, "a short greeting appears once on arrival")
+        #expect(frame(.idle, 2) == 0 && frame(.idle, 4.7) == 1, "idle is calm with occasional blinking")
+        #expect(frame(.needsApproval, 4.7) == 11)
+        #expect(frame(.speaking, 2, 0) == 6 && frame(.speaking, 2, 0.5) == 7, "mouth movement follows playback")
+        #expect(frame(.working(0.5), 0.1) == 8 && frame(.working(0.5), 0.6) == 9)
+        #expect(frame(.listening, 1.3) == 3 && frame(.thinking, 1.3) == 5 && frame(.error("x"), 1.3) == 13)
+        let invalid = CompanionAnimationSample.sample(mood: .speaking, elapsed: .infinity, level: .nan, reduceMotion: false)
+        #expect(invalid == CompanionAnimationSample(frame: 6, verticalOffset: 0, scale: 1))
+        #expect(CompanionPose.allCases.count == 8)
+    }
+
+    @Test("drag tracking moves in desktop coordinates and does not open Ivy when released")
+    func companionDragging() {
+        let view = CompanionDragSurface()
+        var opens = 0
+        var drops = 0
+        var moving: [Bool] = []
+        view.onOpen = { opens += 1 }
+        view.onDrop = { drops += 1 }
+        view.onMoving = { moving.append($0) }
+        #expect(view.acceptsFirstMouse(for: nil) && !view.mouseDownCanMoveWindow)
+        view.begin(pointer: CGPoint(x: 100, y: 100), origin: CGPoint(x: 50, y: 70))
+        #expect(view.move(pointer: CGPoint(x: CGFloat.nan, y: 100)) == nil)
+        #expect(view.move(pointer: CGPoint(x: 102, y: 101)) == nil)
+        view.finish()
+        #expect(opens == 1 && drops == 0 && moving.isEmpty, "small pointer jitter must stay a click")
+        view.begin(pointer: CGPoint(x: 100, y: 100), origin: CGPoint(x: 50, y: 70))
+        #expect(view.move(pointer: CGPoint(x: 104, y: 100)) == CGPoint(x: 54, y: 70))
+        #expect(view.move(pointer: CGPoint(x: -100, y: 250)) == CGPoint(x: -150, y: 220))
+        #expect(view.move(pointer: CGPoint(x: 100, y: 100)) == CGPoint(x: 50, y: 70))
+        view.finish()
+        view.finish()
+        #expect(opens == 1 && drops == 1 && moving == [true, false], "drag completion never opens the app, even when it ends at its start")
+        var actions: [String] = []
+        view.onOpen = { actions.append("open") }
+        view.onEndVoice = { actions.append("end") }
+        view.onStopTask = { actions.append("stop") }
+        view.onHide = { actions.append("hide") }
+        view.installMenu()
+        #expect(view.menu?.items.count == 4)
+        view.openIvy(); view.endVoice(); view.stopTask(); view.hideIvy()
+        #expect(actions == ["open", "end", "stop", "hide"])
+    }
+
+    @Test("drag animation visibly moves the sprite, keeps real activity poses, and is static with Reduce Motion")
+    func companionMovingAnimation() {
+        for mood in [CompanionMood.idle, .listening, .speaking, .working(0.5), .needsApproval, .error("Offline"), .hidden] {
+            for time in [0.0, 0.14, 0.35, 0.7] {
+                let still = CompanionAnimationSample.sample(mood: mood, elapsed: time, level: 0.5, reduceMotion: true, isMoving: true)
+                #expect(still == CompanionAnimationSample(frame: CompanionPose(mood: mood).firstFrame, verticalOffset: 0, scale: 1))
+                let sample = CompanionAnimationSample.sample(mood: mood, elapsed: time, level: 0.5, reduceMotion: false, isMoving: true)
+                #expect(abs(sample.verticalOffset) <= 4 && abs(sample.rotationDegrees) <= 4)
+                #expect((0..<16).contains(sample.frame))
+                if mood == .needsApproval { #expect([10, 11].contains(sample.frame)) }
+                if mood == .speaking { #expect(sample.frame == 7) }
+            }
+        }
+        let moving = CompanionAnimationSample.sample(mood: .idle, elapsed: 0.14, level: 0, reduceMotion: false, isMoving: true)
+        #expect(moving.verticalOffset < -3.9 && moving.rotationDegrees > 3.9 && moving.scale == 1.025)
+        let quiet = CompanionAnimationSample.sample(mood: .speaking, elapsed: 0.14, level: 0, reduceMotion: false, isMoving: true)
+        #expect(quiet.frame == 6, "moving must not invent speaking during silence")
+    }
+
+    @Test("all companion frames load and activity captions render in both appearances and motion settings")
+    func companionLayouts() async throws {
+        _ = NSApplication.shared
+        #expect(CompanionSpriteSheet.frames.count == 16)
+        for frame in CompanionSpriteSheet.frames {
+            let cg = try #require(frame.cgImage(forProposedRect: nil, context: nil, hints: nil))
+            #expect(cg.width >= 300 && cg.height >= 300)
+            let bitmap = NSBitmapImageRep(cgImage: cg)
+            #expect(bitmap.hasAlpha)
+            #expect((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.1, "frame edges stay transparent")
+            #expect((bitmap.colorAt(x: cg.width / 2, y: cg.height / 2)?.alphaComponent ?? 0) > 0.5)
+        }
+        let named: [(String, CompanionMood)] = [("Hidden (paused)", .hidden), ("Idle", .idle), ("Listening", .listening),
+                                                ("Thinking", .thinking), ("Speaking", .speaking), ("Working", .working(0.6)),
+                                                ("Approval", .needsApproval), ("Error", .error("Connection unavailable. Try again."))]
+        let fixtures = named.map { name, mood in
+            let presentation = CompanionPresentation()
+            presentation.mood = mood
+            presentation.caption = "The change is ready. Review it before applying."
+            return CompanionFixture(id: name, presentation: presentation)
+        }
+        let movingPresentation = CompanionPresentation()
+        movingPresentation.mood = .idle
+        movingPresentation.isMoving = true
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for scheme in [ColorScheme.light, .dark] {
+            for reduced in [false, true] {
+                let movingCompanion = CompanionView(presentation: movingPresentation, meter: AudioLevelMeter(),
+                                                    onOpen: {}, onEndVoice: {}, onStopTask: {}, onHide: {}, motionDisabled: reduced)
+                try await snapshot(movingCompanion.background(IvyTheme.canvas), scheme: scheme,
+                                   size: CompanionView.panelSize,
+                                   url: directory.appendingPathComponent("companion-drag-\(scheme == .light ? "light" : "dark")-\(reduced).png"))
+                let gallery = LazyVGrid(columns: [GridItem(.fixed(280)), GridItem(.fixed(280))], spacing: 12) {
+                    ForEach(fixtures) { fixture in
+                        VStack(spacing: 4) {
+                            Text(fixture.id).font(.caption).foregroundStyle(.secondary)
+                            CompanionView(presentation: fixture.presentation, meter: AudioLevelMeter(),
+                                          onOpen: {}, onEndVoice: {}, onStopTask: {}, onHide: {}, motionDisabled: reduced)
+                        }
+                    }
+                }
+                .padding(20).background(IvyTheme.canvas)
+                try await snapshot(gallery, scheme: scheme, size: NSSize(width: 620, height: 1080),
+                                   url: directory.appendingPathComponent("companion-\(scheme == .light ? "light" : "dark")-\(reduced ? "static" : "animated").png"))
             }
         }
     }
@@ -167,11 +421,16 @@ struct LayoutTests {
         return 0.2126 * linear(rgb.redComponent) + 0.7152 * linear(rgb.greenComponent) + 0.0722 * linear(rgb.blueComponent)
     }
 
-    private func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, url: URL) async throws {
-        let host = NSHostingView(rootView: view.preferredColorScheme(scheme))
+    private func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, url: URL,
+                                   increasedContrast: Bool = false, expectsWindowMaterial: Bool? = nil) async throws {
+        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height).preferredColorScheme(scheme))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .light ? .aqua : .darkAqua)
+        let appearance: NSAppearance.Name = increasedContrast
+            ? (scheme == .light ? .accessibilityHighContrastAqua : .accessibilityHighContrastDarkAqua)
+            : (scheme == .light ? .aqua : .darkAqua)
+        window.appearance = NSAppearance(named: appearance)
+        host.appearance = window.appearance
         window.contentView = host
         window.setFrameOrigin(NSPoint(x: -10000, y: 0))
         window.orderFront(nil)
@@ -179,6 +438,36 @@ struct LayoutTests {
         host.frame = NSRect(origin: .zero, size: size)
         try await Task.sleep(for: .milliseconds(150))
         host.layoutSubtreeIfNeeded()
+        if let expectsWindowMaterial {
+            func materials(_ view: NSView) -> [NSVisualEffectView] {
+                let own = (view as? NSVisualEffectView).map { [$0] } ?? []
+                return own + view.subviews.flatMap(materials)
+            }
+            let backdrops = materials(host).filter { $0.material == .underWindowBackground && $0.blendingMode == .behindWindow }
+            #expect(!backdrops.isEmpty == expectsWindowMaterial, "accessibility preferences must remove wallpaper blending")
+            for backdrop in backdrops {
+                #expect(backdrop.hitTest(.zero) == nil, "the backdrop must never intercept clicks")
+            }
+        }
+        // The native drag surface must cover both the character and pill, rather than collapsing to zero size.
+        func verifyDragSurfaces(_ view: NSView) {
+            if let surface = view as? CompanionDragSurface {
+                #expect(surface.bounds.width >= 96 && surface.bounds.height >= 120)
+                let center = CGPoint(x: surface.bounds.midX, y: surface.bounds.midY)
+                // AppKit hitTest expects the point in the receiver's superview coordinates.
+                let point = surface.convert(center, to: host.superview)
+                #expect(host.hitTest(point) === surface, "the drag surface must receive pointer events")
+                let visible = surface.convert(surface.bounds, to: nil)
+                let screen = CGRect(x: 0, y: 25, width: 1440, height: 900)
+                let placement = CompanionPlacement(origin: CGPoint(x: -5000, y: -5000), panelSize: size,
+                                                    visibleFrame: screen, displayID: 0, contentFrame: visible)
+                let edge = placement.origin(panelSize: size, visibleFrame: screen, contentFrame: visible)
+                #expect(abs(edge.x + visible.minX - screen.minX) < 0.001)
+                #expect(abs(edge.y + visible.minY - screen.minY) < 0.001)
+            }
+            for child in view.subviews { verifyDragSurfaces(child) }
+        }
+        verifyDragSurfaces(host)
         window.displayIfNeeded()
         CATransaction.flush()
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -189,6 +478,11 @@ struct LayoutTests {
         #expect(png.count > 5_000, "a rendered screen must contain real interface content")
         try png.write(to: url)
     }
+}
+
+private struct CompanionFixture: Identifiable {
+    let id: String
+    let presentation: CompanionPresentation
 }
 
 private struct ControlFrames: PreferenceKey {

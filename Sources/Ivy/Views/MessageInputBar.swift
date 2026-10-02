@@ -58,7 +58,7 @@ public struct MessageInputBar: View {
                     Button(action: onToggleVoice) {
                         Label(isVoiceActive ? "End Voice" : "Voice", systemImage: isVoiceActive ? "stop.circle" : "waveform")
                     }
-                    .buttonStyle(.bordered)
+                    .ivyGlassButtonStyle()
                     .controlSize(.regular)
                     .disabled(!canToggleVoice)
                     .help(isVoiceActive ? "End the live voice session" : "Start a live voice conversation")
@@ -74,7 +74,7 @@ public struct MessageInputBar: View {
                         .font(.body.weight(.semibold))
                         .frame(width: 20, height: 20)
                 }
-                .buttonStyle(.borderedProminent)
+                .ivyGlassButtonStyle(prominent: true)
                 .controlSize(.regular)
                 .disabled(!canSend)
                 .help("Send message (Return)")
@@ -84,7 +84,7 @@ public struct MessageInputBar: View {
         }
         .tint(IvyTheme.leaf)
         .padding(14)
-        .background(IvyTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+        .ivyGlass(cornerRadius: 16)
         .overlay {
             RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(isFocused ? IvyTheme.leaf : Color(nsColor: .separatorColor), lineWidth: 1)

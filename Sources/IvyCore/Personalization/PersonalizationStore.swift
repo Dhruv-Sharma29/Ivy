@@ -113,7 +113,7 @@ public final class PersonalizationModel: ObservableObject {
 
     /// The prompt the brain and Live use with this profile.
     public var systemPrompt: String {
-        SystemPromptBuilder.build(profile: profile)
+        SystemPromptBuilder.build(profile: profile, region: .current)
     }
 
     /// Applies an edit. Text fields that look sensitive are refused with the reason; nothing is saved then.

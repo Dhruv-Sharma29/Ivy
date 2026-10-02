@@ -12,26 +12,21 @@ struct MainWindowView: View {
     @ObservedObject var tasks: TaskEngine
     @ObservedObject var workspaces: WorkspaceModel
     @State private var columns = NavigationSplitViewVisibility.all
+    @State private var destination = WorkspaceDestination.home
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
-            SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks)
+            SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks, destination: $destination)
                 .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
         } detail: {
             ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator,
-                         proactive: proactive, attachments: attachments, tasks: tasks)
+                         proactive: proactive, attachments: attachments, tasks: tasks,
+                         library: library, destination: destination, onShowChat: { destination = .chat })
         }
         .navigationSplitViewStyle(.balanced)
         .tint(IvyTheme.leaf)
         .frame(minWidth: 560, minHeight: 480)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { library.newConversation() } label: {
-                    Label("New Conversation", systemImage: "square.and.pencil")
-                }
-                .help("New conversation (⌘N)")
-            }
-        }
+        .toolbar(.hidden, for: .windowToolbar)
         .accessibilityIdentifier("ivy.mainWindow")
     }
 }
@@ -43,6 +38,10 @@ struct ChatPaneView: View {
     @ObservedObject var proactive: ProactiveEngine
     @ObservedObject var attachments: AttachmentTray
     @ObservedObject var tasks: TaskEngine
+    var library: ConversationLibrary? = nil
+    var showsHome = false
+    var destination: WorkspaceDestination? = nil
+    var onShowChat: (() -> Void)? = nil
     @State private var inputText = ""
     @State private var drafts: [UUID: String] = [:]
     @State private var editingInstructions = false
@@ -55,9 +54,20 @@ struct ChatPaneView: View {
             || tasks.run?.isActive == true || attachments.isWorking
     }
 
+    private var currentDestination: WorkspaceDestination { destination ?? (showsHome ? .home : .chat) }
+
     var body: some View {
         VStack(spacing: 0) {
-            messages
+            if currentDestination == .home, let library {
+                IvyHomeView(library: library, brain: brain, tasks: tasks,
+                            onPrompt: { inputText = $0; onShowChat?() }, onOpenConversation: { onShowChat?() },
+                            onCapture: { Task { await attachments.capture(.frontWindow) } })
+            } else if currentDestination != .chat && currentDestination != .home {
+                WorkspacePage(destination: currentDestination, tasks: tasks,
+                              blocked: isBlocked, onPrompt: { inputText = $0; onShowChat?() })
+            } else {
+                messages
+            }
             VStack(spacing: 0) {
                 if let request = liveVoiceCoordinator.pendingConfirmation {
                     ConfirmationCardView(request: request) { approved in
@@ -72,7 +82,7 @@ struct ChatPaneView: View {
                     .id(request.id)
                     .padding(.horizontal, 16)
                 }
-                if tasks.run != nil {
+                if tasks.run != nil && currentDestination != .tasks {
                     ScrollView { TaskCardView(engine: tasks) }
                         .frame(maxHeight: 200)
                 }
@@ -97,25 +107,10 @@ struct ChatPaneView: View {
             .frame(maxWidth: 800)
             .frame(maxWidth: .infinity)
         }
-        .background(IvyTheme.canvas)
-        .navigationTitle(brain.messages.isEmpty ? "New conversation" : brain.currentConversation.displayTitle)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 6) {
-                    if brain.isThinking { ProgressView().controlSize(.small) }
-                    Text(liveVoiceCoordinator.state.isLive ? "Voice session active" : (brain.isThinking ? "Thinking…" : "Ivy"))
-                        .font(.headline)
-                }
-            }
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    editingInstructions = true
-                } label: { Label("Chat Instructions", systemImage: "slider.horizontal.3") }
-                .help("Instructions for this conversation")
-                SettingsLink { Label("Settings", systemImage: "gearshape") }
-                    .help("Settings (⌘,)")
-            }
-        }
+        .ivyWindowBackground()
+        .navigationTitle(currentDestination == .chat
+                         ? (brain.messages.isEmpty ? "New conversation" : brain.currentConversation.displayTitle)
+                         : currentDestination.rawValue)
         .sheet(isPresented: $editingInstructions) { instructionsSheet }
         .focusedSceneValue(\.ivyChatInstructions, $editingInstructions)
         .onChange(of: editingInstructions) {
@@ -135,6 +130,7 @@ struct ChatPaneView: View {
         .onChange(of: brain.conversationID) { old, new in
             drafts[old] = inputText
             inputText = drafts[new] ?? ""
+            onShowChat?()
         }
     }
 
@@ -162,6 +158,8 @@ struct ChatPaneView: View {
         }
         .padding(24)
         .frame(width: 480)
+        .ivyWindowBackground()
+        .ivyGlassButtonStyle()
     }
 
     private func saveInstructions() {
@@ -187,7 +185,7 @@ struct ChatPaneView: View {
                         }
                         .font(.callout)
                         .padding(12)
-                        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                        .ivyGlass(cornerRadius: 10)
                     }
                     if brain.messages.isEmpty {
                         emptyState
@@ -217,6 +215,7 @@ struct ChatPaneView: View {
                 .padding(28)
                 .frame(maxWidth: 800)
                 .frame(maxWidth: .infinity)
+                .ivyGlassGroup()
             }
             .onChange(of: brain.messages.last?.id) {
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("latest", anchor: .bottom) }
@@ -227,14 +226,7 @@ struct ChatPaneView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Image(nsImage: IvyLogoImage.template)
-                .renderingMode(.template)
-                .resizable()
-                .frame(width: 48, height: 48)
-                .foregroundStyle(IvyTheme.moss)
-                .padding(18)
-                .background(IvyTheme.sprout, in: RoundedRectangle(cornerRadius: 22))
-                .accessibilityHidden(true)
+            IvyAppIconView().frame(width: 72, height: 72)
             VStack(alignment: .leading, spacing: 10) {
                 Text(brain.isGeminiKeyConfigured ? "What are we working on?" : "Make yourself at home.")
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
@@ -279,6 +271,8 @@ struct ChatPaneView: View {
     private func send() {
         guard !isBlocked else { return }
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !attachments.attachments.isEmpty else { return }
+        onShowChat?()
         // "/agent <goal>" plans a multi-step task; nothing runs until the plan is approved.
         if trimmed.lowercased().hasPrefix("/agent ") {
             let goal = String(trimmed.dropFirst("/agent ".count))
@@ -358,7 +352,7 @@ struct MessageRowView: View {
                     .font(.body)
                     .textSelection(.enabled)
                     .padding(14)
-                    .background(IvyTheme.sprout, in: RoundedRectangle(cornerRadius: 16))
+                    .ivyGlass(cornerRadius: 16, tinted: true)
                 }
                 if !message.attachments.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -381,7 +375,7 @@ struct MessageRowView: View {
                         }
                     }
                 }
-                .buttonStyle(.borderless)
+                .ivyGlassButtonStyle()
                 .controlSize(.regular)
                 .font(.caption)
                 .foregroundStyle(.secondary)

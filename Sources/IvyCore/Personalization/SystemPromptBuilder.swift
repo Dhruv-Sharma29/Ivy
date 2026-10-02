@@ -14,15 +14,18 @@ public enum SystemPromptBuilder {
     static let fenceOpen = "<<<USER_PREFERENCES"
     static let fenceClose = "USER_PREFERENCES>>>"
 
-    public static func build(base: String = IvyPersona.systemPrompt, profile: PersonalizationProfile) -> String {
+    public static func build(base: String = IvyPersona.systemPrompt, profile: PersonalizationProfile,
+                             region: SystemRegionalPreferences? = nil) -> String {
         let p = profile.sanitized().profile
         var sections: [String] = []
 
         if let personality = personality(p) { sections.append(personality) }
 
         var facts: [String] = []
+        // System values supersede legacy manual region fields without rewriting saved profiles.
+        let about = p.aboutMe.merging(region?.aboutFields ?? [:]) { _, system in system }
         for field in PersonalizationProfile.AboutField.allCases {
-            if let value = p.aboutMe[field.rawValue] { facts.append("- \(field.label): \(value)") }
+            if let value = about[field.rawValue] { facts.append("- \(field.label): \(value)") }
         }
         switch p.responseLength {
         case .brief: facts.append("- Keep answers short: a few sentences unless asked for more.")

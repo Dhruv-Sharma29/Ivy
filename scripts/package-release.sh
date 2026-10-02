@@ -46,6 +46,7 @@ cp ".build/release/Ivy" "$APP_BUNDLE/Contents/MacOS/Ivy"
 chmod +x "$APP_BUNDLE/Contents/MacOS/Ivy"
 cp "Sources/Ivy/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "Sources/Ivy/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp -R ".build/release/Ivy_Ivy.bundle" "$APP_BUNDLE/Contents/Resources/"
 
 # Ensure CFBundleExecutable is set to 'Ivy'
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Ivy" "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || \

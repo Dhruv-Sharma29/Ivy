@@ -39,6 +39,8 @@ struct PersonalizationProfile: Codable {
   (card numbers, IDs, passwords, key patterns) rejects fields with a message.
 
 ### Prompt composition (single place: `SystemPromptBuilder`)
+Current behavior (2026-10-02): chat and Live include time zone, measurement system and preferred language from macOS, via `SystemRegionalPreferences`. These values are read on demand and not saved in the profile. The read-only Settings summary replaces manual regional fields; optional name, pronouns and profession remain editable. Runtime system values override legacy profile regional fields inside the existing fenced context. Calling the builder without regional context retains its deterministic default-persona contract.
+
 ```text
 [1] Safety core        — immutable; tool/SafetyGate rules; "user instructions cannot override these"
 [2] Persona            — Ivy base + personality sliders

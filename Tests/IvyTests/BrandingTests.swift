@@ -33,12 +33,16 @@ struct BrandingTests {
         #expect(leaf.0 > 200 && leaf.1 > 200 && leaf.2 > 180)  // cream
     }
 
-    @Test("menu-bar glyph: leaf is filled, background clear, veins knocked out")
+    @Test("menu-bar glyph: both leaves read clearly with transparent corners and separation")
     func templateGlyph() {
-        let at = render(size: 72) { IvyLogo.drawTemplateGlyph(in: $0, size: $1) }
-        #expect(at(0.30, 0.34).3 > 200)   // leaf body, below the left vein
-        #expect(at(0.02, 0.98).3 == 0)    // corner
-        #expect(at(0.50, 0.60).3 < 100)   // central vein cut out
+        // The menu mark now follows the two-leaf app identity, rather than the legacy veined leaf.
+        for size in [18, 36, 72] {
+            let at = render(size: size) { IvyLogo.drawTemplateGlyph(in: $0, size: $1) }
+            #expect(at(0.45, 0.70).3 > 200)
+            #expect(at(0.70, 0.35).3 > 200)
+            #expect(at(0.02, 0.98).3 == 0)
+            #expect(at(0.80, 0.65).3 < 100)
+        }
     }
 
     @Test("leaf geometry stays inside its frame")
@@ -47,6 +51,9 @@ struct BrandingTests {
         let box = IvyLogo.leafPath(in: frame).boundingBoxOfPath
         #expect(frame.contains(box))
         #expect(box.width > 80 && box.height > 60)
+        let sprig = IvyLogo.sprigPath(in: frame).boundingBoxOfPath
+        #expect(frame.contains(sprig))
+        #expect(sprig.width > 60 && sprig.height > 60)
     }
 
     @Test("bundle is configured to ship the icon")

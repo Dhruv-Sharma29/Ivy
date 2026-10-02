@@ -14,6 +14,7 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp ".build/$config/Ivy" "$app/Contents/MacOS/Ivy"
 cp Sources/Ivy/Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+cp -R ".build/$config/Ivy_Ivy.bundle" "$app/Contents/Resources/"
 cp Sources/Ivy/Resources/Info.plist "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string Ivy" "$app/Contents/Info.plist" 2>/dev/null || true
 entitlements="Sources/Ivy/Resources/Ivy.entitlements"

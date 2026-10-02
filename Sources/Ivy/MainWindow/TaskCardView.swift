@@ -5,6 +5,7 @@ import IvyCore
 /// plan approves the order; each risky step still shows its own confirmation card below.
 struct TaskCardView: View {
     @ObservedObject var engine: TaskEngine
+    var showsSurface = true
 
     var body: some View {
         if let run = engine.run {
@@ -47,9 +48,7 @@ struct TaskCardView: View {
                 controls(run)
             }
             .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: IvyTheme.cardRadius))
-            .overlay(RoundedRectangle(cornerRadius: IvyTheme.cardRadius).stroke(IvyTheme.leaf.opacity(0.35)))
+            .ivyGlass(cornerRadius: IvyTheme.cardRadius, enabled: showsSurface)
             .padding(.horizontal, 12)
             .padding(.top, 8)
         }
@@ -64,18 +63,18 @@ struct TaskCardView: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { engine.cancel() }
                 Button("Run this plan") { engine.approvePlan() }
-                    .buttonStyle(.borderedProminent)
+                    .ivyGlassButtonStyle(prominent: true)
                     .tint(IvyTheme.leaf)
             case .paused(.stepFailed):
                 Spacer()
                 Button("Stop") { engine.resolvePause(.stop) }
                 Button("Skip step") { engine.resolvePause(.skip) }
-                Button("Retry") { engine.resolvePause(.retry) }.buttonStyle(.borderedProminent)
+                Button("Retry") { engine.resolvePause(.retry) }.ivyGlassButtonStyle(prominent: true)
             case .paused(.budget(let why)):
                 Text("Budget reached: \(why)").font(.system(size: 10)).foregroundStyle(.orange)
                 Spacer()
                 Button("Stop") { engine.resolvePause(.stop) }
-                Button("Continue") { engine.resolvePause(.continue) }.buttonStyle(.borderedProminent)
+                Button("Continue") { engine.resolvePause(.continue) }.ivyGlassButtonStyle(prominent: true)
             case .planning, .running:
                 Spacer()
                 Button("Stop", role: .destructive) { engine.cancel() }
@@ -88,6 +87,7 @@ struct TaskCardView: View {
             }
         }
         .controlSize(.small)
+        .ivyGlassButtonStyle()
     }
 
     private func phaseText(_ phase: TaskPhase) -> String {

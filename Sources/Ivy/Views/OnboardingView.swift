@@ -63,6 +63,9 @@ struct OnboardingView: View {
         }
         .padding(28)
         .frame(width: 520, height: 460)
+        .ivyWindowBackground()
+        .ivyGlassGroup()
+        .ivyGlassButtonStyle()
     }
 
     @ViewBuilder
@@ -87,7 +90,7 @@ struct OnboardingView: View {
                 .font(.system(size: 15, design: .rounded))
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: IvyTheme.cardRadius).fill(IvyTheme.sprout))
+                .ivyGlass(cornerRadius: IvyTheme.cardRadius, tinted: true)
             Text("Change it any time in Settings › Personalization. It changes how I talk, never what I'm allowed to do.")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
         case .keys:
@@ -185,13 +188,13 @@ struct OnboardingView: View {
                     onClose()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .ivyGlassButtonStyle(prominent: true)
                 .tint(IvyTheme.leaf)
             } else {
                 Button("Skip", action: model.skip)
                 Button("Continue", action: model.next)
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .ivyGlassButtonStyle(prominent: true)
                     .tint(IvyTheme.leaf)
             }
         }

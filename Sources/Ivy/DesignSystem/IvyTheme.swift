@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Neutral macOS surfaces and one system accent keep title bars, selection and content consistent.
+/// Neutral workspace surfaces with a restrained indigo accent.
 enum IvyTheme {
-    static let leaf = Color.accentColor
-    static let moss = adaptive(light: (0.12, 0.28, 0.53), dark: (0.60, 0.73, 0.95))
-    static let sprout = adaptive(light: (0.91, 0.94, 0.98), dark: (0.18, 0.21, 0.27))
-    static let canvas = Color(nsColor: .windowBackgroundColor)
-    static let surface = Color(nsColor: .controlBackgroundColor)
-    static let sidebar = Color(nsColor: .windowBackgroundColor)
+    static let leaf = adaptive(light: (0.22, 0.33, 0.66), dark: (0.55, 0.67, 0.96))
+    static let moss = adaptive(light: (0.22, 0.31, 0.54), dark: (0.72, 0.78, 0.90))
+    static let sprout = adaptive(light: (0.90, 0.93, 0.97), dark: (0.19, 0.23, 0.32))
+    static let canvas = adaptive(light: (0.97, 0.97, 0.98), dark: (0.105, 0.115, 0.13))
+    static let surface = adaptive(light: (1.0, 1.0, 1.0), dark: (0.15, 0.16, 0.18))
+    static let sidebar = adaptive(light: (0.94, 0.95, 0.96), dark: (0.13, 0.14, 0.16))
     static let sectionAccent = moss
     static let riskAmber = Color.orange
     static let dangerRed = Color.red
@@ -19,7 +19,7 @@ enum IvyTheme {
     static let codeFont = Font.system(size: 12, design: .monospaced)
     static let bodyFont = Font.system(size: 13)
     /// Ivy's own voice: empty states, onboarding, the companion.
-    static let voiceFont = Font.system(size: 15, weight: .semibold, design: .rounded)
+    static let voiceFont = Font.system(size: 15, weight: .semibold)
 
     private static func adaptive(light: (Double, Double, Double), dark: (Double, Double, Double)) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

@@ -306,7 +306,7 @@ public final class IvyAppEnvironment {
                 echoCancellation: settings.echoCancellation,
                 // Live gets the same composed prompt as chat (read at launch; profile changes apply next launch).
                 systemInstruction: LiveVoiceStyle.instruction(
-                    base: SystemPromptBuilder.build(profile: profileStore.load()),
+                    base: SystemPromptBuilder.build(profile: profileStore.load(), region: .current),
                     length: settings.voiceResponseLength, pace: settings.voiceSpeakingPace),
                 hotkeyManager: SystemGlobalHotkeyManager(),
                 // Always on: spoken commands ("Hey Ivy, goodbye") are read from the transcript. Whether

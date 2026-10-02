@@ -22,6 +22,9 @@ public struct PersonalizationProfile: Codable, Equatable, Sendable {
     public enum AboutField: String, CaseIterable, Sendable {
         case name, pronouns, timezone, units, language, profession
 
+        /// Regional fields remain decodable for older profiles; Settings follows macOS automatically.
+        public static var editableCases: [Self] { [.name, .pronouns, .profession] }
+
         public var label: String {
             switch self {
             case .name: return "What Ivy calls you"

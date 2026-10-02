@@ -29,6 +29,8 @@ struct AttachmentBar: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .frame(minHeight: 28)
+                .padding(.horizontal, 10)
+                .ivyGlass(cornerRadius: 14, interactive: true)
                 .help("Show Ivy your screen, an image or a PDF")
                 .accessibilityLabel("Attach")
 
@@ -92,8 +94,7 @@ struct AttachmentChip: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
-        .background(Color.secondary.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .ivyGlass(cornerRadius: 8)
         .help(attachment.text.map { "Text found: " + String($0.prefix(300)) } ?? "No text found")
     }
 

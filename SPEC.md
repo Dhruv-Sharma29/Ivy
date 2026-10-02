@@ -268,15 +268,18 @@ public protocol GeminiClientProtocol: Sendable {
 ### Desktop app shell (revised 2026-10-02)
 - Ivy launches into a native SwiftUI `Window("Ivy", id: "main")`, with Dock and Command-Tab presence.
 - Closing the main window leaves the app in the Dock; clicking the Dock icon or choosing Open Ivy reopens the same window.
-- Initial size: 1080 × 760 points; minimum content size: 560 × 480 points. Native title bar, window controls, unified toolbar, resizing and full-screen support.
+- Initial size: 1080 × 760 points; minimum content size: 560 × 480 points. Hidden title bar and toolbar remove the large top strip, while native window controls, resizing and full-screen support remain. New Conversation is in the sidebar header and File menu; Chat Instructions stays in the Conversation menu; Settings remains in the sidebar and Command-comma.
 - `NavigationSplitView`: conversation sidebar and chat detail. The native sidebar toggle supports a compact chat layout.
 - Menu bar extra: a small shortcut menu for opening Ivy, starting a conversation, ending voice, Settings and Quit.
+- Branding uses the professional paired-leaf app icon in the Dock, sidebar, empty state and Settings, with a simplified two-leaf monochrome template for the menu bar. Icon packaging reads the same PNG master used by the app.
 - Standard File commands: New Conversation (Command-N) and Open Ivy (Command-O). Settings uses the native Settings scene (Command-comma).
 
 ### Conversation interface
-- Neutral macOS surfaces keep the toolbar, sidebar and content consistent. Primary controls and selection use the system accent (blue by default); section symbols use a contrasting blue. Colors adapt to light, dark and increased-contrast appearances.
+- Neutral graphite and white surfaces use a muted indigo accent. The sidebar selection, controls, composer and Settings share this palette. Colors adapt to light, dark and increased-contrast appearances.
+- Home is a compact workspace with a text introduction, six everyday prompt-drafting shortcuts (Research, Summarize, Write, Files, Explain and Plan a task), real current task state and recent conversations. Character artwork, neon gradients and playful slogans are excluded from the workspace. The professional leaf icon appears only as compact app branding. Navigation contains Home, Chat, Tasks and a native Settings link. All rows have aligned symbols, equal heights and full-row click targets; navigation and history share a scrollable sidebar. Tasks uses the real task engine. File attachments, pasted text, browsing and coding remain available through Chat without separate sidebar destinations. Drafting an action opens Chat without sending. Home never simulates progress or executes a shortcut immediately.
+- On macOS 26+, native Liquid Glass is shared across navigation selections, Home action cards, Settings cards and disclosure controls, task and confirmation surfaces, user message bubbles, attachment chips, composer controls, the command bar and companion labels. Related surfaces use GlassEffectContainer, static content never receives interactive hover behavior, and task cards embedded in another card omit their own glass surface. Workspace and Settings backgrounds use native behind-window vibrancy so wallpaper subtly influences the interface. Buttons use native glass styles while retaining their keyboard, disabled and confirmation behavior. Older systems use regular material and bordered buttons. Reduce Transparency and increased contrast replace glass and window vibrancy with opaque surfaces. Long replies, code blocks and text editors retain readable text treatments.
 - Conversation sidebar: search, pinned/date groups, visible conversation action menus, archive access, workspace selection and Settings.
-- Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. User messages use a subtle blue-gray bubble.
+- Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. User messages use a subtle indigo-tinted bubble.
 - Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
 - Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
@@ -285,11 +288,21 @@ public protocol GeminiClientProtocol: Sendable {
 - Storage notices and voice failures are visible. Confirmation state is shared with the existing safety gate; the UI never auto-approves an action.
 
 ### Settings
+
+- Settings hides the navigation toolbar to remove its empty header space. The selected page heading sits inside the content, with search and section navigation in the sidebar and compact native window controls above.
 - Native searchable sidebar with General, Voice, Personalization, Screen, Proactive, Privacy & Data, API Keys, Permissions and About.
 - Related controls sit in clearly titled cards with consistent spacing, readable descriptions and native switches. Voice preferences are separated into Live Conversation, Hey Ivy and Read Aloud.
+- Personalization disclosure rows are buttons across their full width, including their text and whitespace; clicking the chevron is optional.
+- Time zone, measurement system and preferred language come from macOS. Settings shows a read-only “From macOS” summary and only asks for optional name, pronouns and profession. Chat reads regional context for each request, and Live reads it at session configuration. System context overrides legacy manual regional fields in prompts without changing saved profiles or safety-layer precedence.
 - Pickers and sliders share one label column, with aligned numeric values; segmented pickers fill the same width and use equal segment widths and a consistent 28-point height. Narrow containers stack the label above the control. Speaking preferences that require a restart say so in their group.
 - Existing secure credential storage and on-demand permission behavior remain intact.
 - The old `alwaysShowInDock` preference is decoded for compatibility; it no longer controls desktop app presence.
+
+### On-screen companion (revised 2026-10-02)
+- The optional floating companion is a transparent, chunky pixel-art Ivy with dark hair, an ivy-leaf clip and a charcoal outfit. Character artwork stays in the companion; the main workspace retains its professional design.
+- Real idle, listening, thinking, speaking, working, approval and error states choose distinct poses. Idle includes occasional blinking and a brief greeting on appearance; thinking has a skeptical side-eye, working uses a tablet, and approval folds her arms. Speaking reacts to output audio without inventing speech or progress.
+- Cached sprite frames animate at a modest update rate, with visible idle breathing, blinking and gentle sway. Dragging adds a small lift, bob and tilt; non-idle activity poses remain recognizable and speaking still follows actual audio. Reduce Motion pauses the timeline and uses a static pose even during dragging; status text, captions and real task progress remain available.
+- Drag the character or status pill freely; a four-point threshold distinguishes dragging from clicking. A drag never opens the app. Dropped positions are remembered relative to their display and clamped by visible content bounds, allowing the character and status pill to reach the screen edges despite the panel's transparent margins. Bounds adapt when captions change size; a main-display fallback handles a saved display disappearing. There is no automatic corner snap. The panel is non-activating; a normal click opens Ivy and right-click provides Open Ivy, end voice, stop task and hide actions. Animation stops while hidden. All approvals remain in the existing confirmation flow.
 
 ---
 

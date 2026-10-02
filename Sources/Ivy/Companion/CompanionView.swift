@@ -1,15 +1,15 @@
 import SwiftUI
 import IvyCore
 
-/// The companion: Ivy's leaf with a face that changes with what it's doing, a ring that follows the voice or a
-/// task's progress, and a caption bubble while it speaks. Reduce Motion → static face and ring.
-/// What the companion panel shows; updated in place so the view (and its animations) isn't rebuilt.
+/// Updated in place, so real state changes preserve the companion's view and animation lifetime.
 @MainActor
 final class CompanionPresentation: ObservableObject {
     @Published var mood: CompanionMood = .hidden
     @Published var caption = ""
+    @Published var isMoving = false
 }
 
+/// A small pixel-art character with explicit status. Appearance never changes the approval flow.
 struct CompanionView: View {
     @ObservedObject var presentation: CompanionPresentation
     @ObservedObject var meter: AudioLevelMeter
@@ -17,177 +17,104 @@ struct CompanionView: View {
     let onEndVoice: () -> Void
     let onStopTask: () -> Void
     let onHide: () -> Void
+    /// Embedders can request a still preview; the system's Reduce Motion always remains authoritative.
+    var motionDisabled = false
+    var onDrop: () -> Void = {}
+    var onContentLayout: (CGRect) -> Void = { _ in }
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-    @State private var spin = false
-
-    static let orbSize: CGFloat = 56
-
+    static let panelSize = CGSize(width: 280, height: 224)
     private var mood: CompanionMood { presentation.mood }
-    private var caption: String { presentation.caption }
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            if !caption.isEmpty, mood == .speaking {
-                Text(caption)
-                    .font(.system(size: 12, design: .rounded))
-                    .lineLimit(3)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.regularMaterial))
-                    .frame(maxWidth: 260, alignment: .trailing)
-                    .transition(.opacity)
+        VStack(alignment: .trailing, spacing: 8) {
+            if !presentation.caption.isEmpty, mood == .speaking {
+                bubble(presentation.caption, lines: 3)
             }
-            if case .error(let message) = mood {
-                Text(message)
-                    .font(.system(size: 11, design: .rounded))
-                    .lineLimit(2)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.regularMaterial))
-                    .frame(maxWidth: 260, alignment: .trailing)
+            if case .error(let message) = mood { bubble(message, lines: 2) }
+            Button(action: onOpen) {
+                VStack(spacing: 5) {
+                    CompanionSpriteView(mood: mood, meter: meter, motionDisabled: motionDisabled, isMoving: presentation.isMoving)
+                    VStack(spacing: 4) {
+                        Label(status, systemImage: symbol)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(statusColor)
+                        if case .working(let progress) = mood {
+                            ProgressView(value: max(0, min(1, progress)))
+                                .progressViewStyle(.linear).frame(width: 82)
+                                .tint(IvyTheme.leaf).accessibilityHidden(true)
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .ivyGlass(cornerRadius: 100, interactive: true)
+                }
+                .contentShape(Rectangle())
             }
-            orb
+            .buttonStyle(CompanionButtonStyle())
+            .contextMenu {
+                Button("Open Ivy", action: onOpen)
+                Button("End Voice Session", action: onEndVoice)
+                Button("Stop Task", action: onStopTask)
+                Divider()
+                Button("Hide for Now", action: onHide)
+            }
+            .help("Drag Ivy to move. Click to open. Right-click for actions.")
+            .accessibilityLabel(mood.accessibilityDescription)
+            .accessibilityHint("Click to open Ivy. Drag to move.")
+            .accessibilityIdentifier("ivy.companion")
         }
-        .padding(6)
-        .frame(width: 280, height: 150, alignment: .bottomTrailing)
+        // Track the visible stack before padding and the fixed transparent panel frame.
+        .overlay {
+            CompanionDragHandle(onOpen: onOpen, onEndVoice: onEndVoice, onStopTask: onStopTask, onHide: onHide,
+                                onMoving: { presentation.isMoving = $0 }, onDrop: onDrop, onLayout: onContentLayout)
+                .accessibilityHidden(true)
+        }
+        .padding(8)
+        .frame(width: Self.panelSize.width, height: Self.panelSize.height, alignment: .bottomTrailing)
+        .ivyGlassGroup(spacing: 8)
     }
 
-    private var orb: some View {
-        ZStack {
-            Circle().fill(.regularMaterial)
-            ring
-            LeafFace(mood: mood)
-                .frame(width: Self.orbSize * 0.62, height: Self.orbSize * 0.62)
-        }
-        .frame(width: Self.orbSize, height: Self.orbSize)
-        .scaleEffect(reduceMotion ? 1 : 1 + CGFloat(level) * 0.12)
-        .animation(reduceMotion ? nil : .linear(duration: 0.08), value: level)
-        .contentShape(Circle())
-        .onTapGesture(perform: onOpen)
-        .contextMenu {
-            Button("Open Ivy", action: onOpen)
-            Button("End Voice Session", action: onEndVoice)
-            Button("Stop Task", action: onStopTask)
-            Divider()
-            Button("Hide for Now", action: onHide)
-        }
-        .help(mood.accessibilityDescription)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(mood.accessibilityDescription)
-        .accessibilityHint("Click to open Ivy")
-        .accessibilityAddTraits(.isButton)
-        .onAppear(perform: startAnimations)
-        .onChange(of: mood) { startAnimations() }
+    private func bubble(_ text: String, lines: Int) -> some View {
+        Text(text).font(.system(size: 12)).lineLimit(lines)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .ivyGlass(cornerRadius: 12)
+            .frame(maxWidth: 260, alignment: .trailing)
     }
 
-    private var level: Float {
+    private var status: String {
         switch mood {
-        case .listening: return meter.inputLevel
-        case .speaking: return meter.outputLevel
-        default: return 0
+        case .hidden, .idle: "Ivy · Ready"
+        case .listening: "Listening"
+        case .thinking: "Thinking"
+        case .speaking: "Speaking"
+        case .working(let progress): "Working · \(Int(max(0, min(1, progress)) * 100))%"
+        case .needsApproval: "Needs approval"
+        case .error: "Needs attention"
         }
     }
 
-    @ViewBuilder
-    private var ring: some View {
+    private var symbol: String {
         switch mood {
-        case .working(let progress):
-            Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 4)
-            Circle().trim(from: 0, to: max(0.03, progress))
-                .stroke(IvyTheme.leaf, style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        case .needsApproval:
-            Circle().stroke(IvyTheme.riskAmber, lineWidth: 4)
-                .opacity(reduceMotion ? 1 : (pulse ? 1 : 0.35))
-        case .error:
-            Circle().stroke(IvyTheme.dangerRed, lineWidth: 4)
-        case .thinking:
-            Circle().trim(from: 0, to: 0.7)
-                .stroke(IvyTheme.leaf.opacity(0.7), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(reduceMotion ? 0 : (spin ? 360 : 0)))
-        case .listening, .speaking:
-            Circle().stroke(IvyTheme.leaf, lineWidth: 3)
-        case .idle, .hidden:
-            Circle().stroke(Color.secondary.opacity(0.3), lineWidth: 2)
+        case .hidden, .idle: "leaf"
+        case .listening: "mic"
+        case .thinking: "ellipsis"
+        case .speaking: "speaker.wave.2"
+        case .working: "checklist"
+        case .needsApproval: "hand.raised"
+        case .error: "exclamationmark.circle"
         }
     }
 
-    private func startAnimations() {
-        guard !reduceMotion else { return }
-        pulse = false
-        spin = false
-        if mood == .needsApproval {
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
-        }
-        if mood == .thinking {
-            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) { spin = true }
+    private var statusColor: Color {
+        switch mood {
+        case .needsApproval: IvyTheme.riskAmber
+        case .error: IvyTheme.dangerRed
+        default: .primary
         }
     }
 }
 
-/// The leaf from `IvyLogo` with eyes and a mouth that change per mood (vector shapes, not text).
-struct LeafFace: View {
-    let mood: CompanionMood
-
-    var body: some View {
-        Canvas { context, size in
-            let rect = CGRect(origin: .zero, size: size)
-            // IvyLogo draws y-up; SwiftUI is y-down.
-            let flip = CGAffineTransform(translationX: 0, y: size.height).scaledBy(x: 1, y: -1)
-            let leaf = Path(IvyLogo.leafPath(in: rect)).applying(flip)
-            context.fill(leaf, with: .color(IvyTheme.leaf))
-
-            let eyeY = size.height * 0.52
-            let eyeDX = size.width * 0.13
-            let eyeR = size.width * 0.05
-            let ink = GraphicsContext.Shading.color(.white)
-            func eye(_ x: CGFloat, closed: Bool) {
-                if closed {
-                    var p = Path()
-                    p.move(to: CGPoint(x: x - eyeR * 1.3, y: eyeY))
-                    p.addQuadCurve(to: CGPoint(x: x + eyeR * 1.3, y: eyeY), control: CGPoint(x: x, y: eyeY - eyeR * 1.6))
-                    context.stroke(p, with: ink, lineWidth: 1.6)
-                } else {
-                    context.fill(Path(ellipseIn: CGRect(x: x - eyeR, y: eyeY - eyeR, width: eyeR * 2, height: eyeR * 2)), with: ink)
-                }
-            }
-            let cx = size.width / 2
-            switch mood {
-            case .speaking:
-                eye(cx - eyeDX, closed: true)
-                eye(cx + eyeDX, closed: true)
-            case .thinking:
-                // Side-eye: both pupils pushed to one side.
-                eye(cx - eyeDX + eyeR, closed: false)
-                eye(cx + eyeDX + eyeR, closed: false)
-            case .needsApproval:
-                for x in [cx - eyeDX, cx + eyeDX] {
-                    context.stroke(Path(ellipseIn: CGRect(x: x - eyeR * 1.4, y: eyeY - eyeR * 1.4, width: eyeR * 2.8, height: eyeR * 2.8)), with: ink, lineWidth: 1.4)
-                }
-            default:
-                eye(cx - eyeDX, closed: false)
-                eye(cx + eyeDX, closed: false)
-            }
-
-            var mouth = Path()
-            let mouthY = size.height * 0.64
-            let w = size.width * 0.12
-            switch mood {
-            case .error:
-                mouth.move(to: CGPoint(x: cx - w, y: mouthY + 2))
-                mouth.addQuadCurve(to: CGPoint(x: cx + w, y: mouthY + 2), control: CGPoint(x: cx, y: mouthY - 4))
-            case .speaking:
-                mouth = Path(ellipseIn: CGRect(x: cx - w * 0.6, y: mouthY - 2, width: w * 1.2, height: w))
-            case .needsApproval:
-                mouth = Path(ellipseIn: CGRect(x: cx - w * 0.35, y: mouthY - 1, width: w * 0.7, height: w * 0.7))
-            default:
-                mouth.move(to: CGPoint(x: cx - w, y: mouthY))
-                mouth.addQuadCurve(to: CGPoint(x: cx + w, y: mouthY), control: CGPoint(x: cx, y: mouthY + 5))
-            }
-            context.stroke(mouth, with: ink, lineWidth: 1.6)
-        }
-        .accessibilityHidden(true)
+private struct CompanionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.7 : 1)
     }
 }

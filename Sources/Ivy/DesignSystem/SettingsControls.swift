@@ -28,8 +28,34 @@ struct SettingsCard<Content: View>: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(IvyTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(Color(nsColor: .separatorColor).opacity(0.55)) }
+        .ivyGlass(cornerRadius: 16)
+    }
+}
+
+/// A native disclosure whose entire label row is a keyboard-accessible button.
+struct SettingsDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button { configuration.isExpanded.toggle() } label: {
+                HStack(spacing: 10) {
+                    configuration.label.font(.body.weight(.medium))
+                    Spacer()
+                    Image(systemName: configuration.isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .ivyGlass(cornerRadius: 10, interactive: true)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+            if configuration.isExpanded {
+                VStack(alignment: .leading, spacing: 12) { configuration.content }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+        }
     }
 }
 
@@ -58,6 +84,7 @@ struct SettingsSegmentedPicker<Value: Hashable>: NSViewRepresentable {
         for (index, option) in options.enumerated() { control.setLabel(option.1, forSegment: index) }
         control.selectedSegment = options.firstIndex { $0.0 == selection } ?? -1
         control.isEnabled = context.environment.isEnabled
+        control.selectedSegmentBezelColor = NSColor(IvyTheme.leaf)
         control.setAccessibilityLabel(title)
     }
 

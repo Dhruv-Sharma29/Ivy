@@ -7,6 +7,7 @@ struct SidebarView: View {
     @ObservedObject var brain: IvyBrain
     @ObservedObject var workspaces: WorkspaceModel
     @ObservedObject var tasks: TaskEngine
+    @Binding var destination: WorkspaceDestination
 
     @State private var query = ""
     @State private var showArchived = false
@@ -18,34 +19,39 @@ struct SidebarView: View {
         !query.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    /// Selecting a row opens that conversation (a pending approval in the current one is denied).
-    private var selection: Binding<UUID?> {
-        Binding(
-            get: { library.activeConversationID },
-            set: { id in
-                guard let id, id != library.activeConversationID else { return }
-                library.open(id)
-            }
-        )
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(nsImage: IvyLogoImage.template)
-                    .renderingMode(.template)
-                    .resizable()
-                    .frame(width: 24, height: 24)
-                    .foregroundStyle(IvyTheme.moss)
-                    .accessibilityHidden(true)
+                IvyAppIconView().frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Ivy").font(.headline)
                     Text("Your Mac assistant").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button { library.newConversation(); destination = .chat } label: {
+                    Image(systemName: "square.and.pencil").frame(width: 28, height: 28)
+                }
+                .buttonStyle(.borderless)
+                .help("New conversation (⌘N)")
+                .accessibilityLabel("New conversation")
+                .accessibilityIdentifier("ivy.newConversation")
             }
             .padding(16)
-            List(selection: selection) {
+            List {
+                Section {
+                    ForEach(WorkspaceDestination.allCases) { item in
+                        navigationRow(item.rawValue, symbol: item.symbol, selected: destination == item) { destination = item }
+                            .accessibilityIdentifier("ivy.navigation.\(item.id)")
+                    }
+                    SettingsLink {
+                        navigationLabel("Settings", symbol: "gearshape", selected: false)
+                    }
+                    .buttonStyle(IvyNavigationButtonStyle())
+                    .help("Settings (⌘,)")
+                }
+                .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
                 if isSearching {
                     let hits = library.search(query)
                     Section("Results") {
@@ -53,8 +59,12 @@ struct SidebarView: View {
                             Text("No matches.").foregroundStyle(.secondary)
                         }
                         ForEach(hits) { hit in
-                            row(title: hit.title, detail: hit.snippet, date: hit.updatedAt, pinned: false)
-                                .tag(hit.conversationID)
+                            Button {
+                                if library.open(hit.conversationID) { destination = .chat }
+                            } label: {
+                                row(title: hit.title, detail: hit.snippet, date: hit.updatedAt, pinned: false)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 } else {
@@ -99,17 +109,13 @@ struct SidebarView: View {
                 HStack {
                     Toggle(isOn: $showArchived) { Label("Archived", systemImage: "archivebox") }
                         .toggleStyle(.checkbox)
-                    Spacer()
-                    SettingsLink { Image(systemName: "gearshape").frame(width: 28, height: 28) }
-                        .buttonStyle(.borderless)
-                        .help("Settings (⌘,)")
-                        .accessibilityLabel("Settings")
                 }
                 .font(.callout)
             }
             .padding(12)
         }
-        .background(IvyTheme.sidebar)
+        .modifier(IvySidebarBackground())
+        .ivyGlassGroup(spacing: 8)
         .onAppear { library.refresh() }
         // A turn just saved: its title, preview and position in the list may have changed.
         .onChange(of: brain.messages.count) { library.refresh() }
@@ -144,7 +150,13 @@ struct SidebarView: View {
 
     private func conversationRow(_ entry: ConversationSummary) -> some View {
         HStack(alignment: .top, spacing: 4) {
-            row(title: entry.title, detail: entry.preview, date: entry.updatedAt, pinned: entry.isPinned)
+            Button {
+                if library.open(entry.id) { destination = .chat }
+            } label: {
+                row(title: entry.title, detail: entry.preview, date: entry.updatedAt, pinned: entry.isPinned)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Menu { menu(for: entry) } label: {
                 Image(systemName: "ellipsis").frame(width: 28, height: 28)
             }
@@ -153,7 +165,31 @@ struct SidebarView: View {
             .fixedSize()
             .accessibilityLabel("Actions for \(entry.title)")
         }
+        .padding(.horizontal, 8)
+        .ivyGlass(cornerRadius: 10, tinted: true, interactive: true,
+                  enabled: destination == .chat && entry.id == library.activeConversationID)
         .contextMenu { menu(for: entry) }
+    }
+
+    private func navigationRow(_ title: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            navigationLabel(title, symbol: symbol, selected: selected)
+        }
+        .buttonStyle(IvyNavigationButtonStyle())
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func navigationLabel(_ title: String, symbol: String, selected: Bool) -> some View {
+        let label = HStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 17)).frame(width: 22)
+            Text(title).font(.body.weight(selected ? .semibold : .regular))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(selected ? IvyTheme.moss : Color.primary)
+        .padding(.horizontal, 12).frame(minHeight: 40)
+        .contentShape(Rectangle())
+        if selected { label.ivyGlass(tinted: true, interactive: true) } else { label }
     }
 
     private func row(title: String, detail: String, date: Date, pinned: Bool) -> some View {

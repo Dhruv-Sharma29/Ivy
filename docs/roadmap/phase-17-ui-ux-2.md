@@ -3,6 +3,12 @@
 # Phase 17 — Ivy UI/UX 2.0: a real Ivy app
 
 ## Goal
+Current implementation (2026-10-02): native desktop navigation has Home, Chat, Tasks and Settings. Home offers six everyday assistant shortcuts; developer command/code shortcuts and redundant Files, Code, Browser, Clipboard and Tools destinations have been removed. File attachments, explicit paste and research remain available in Chat; shortcuts only draft prompts and open Chat. Native Liquid Glass now spans cards, controls, message bubbles, attachments, the command bar and companion labels on macOS 26+, grouped where appropriate. Main and Settings panes use behind-window vibrancy. Reduce Transparency/increased contrast select opaque surfaces and bordered controls; older systems use regular material. Long replies, code and text editors keep readable text treatments.
+
+The main window uses a hidden title bar and hidden toolbar to remove the large top strip. Native traffic-light controls remain; New Conversation is in the sidebar header and File menu, Settings in the sidebar, and Chat Instructions in the Conversation menu. The professional app icon is shared across in-app surfaces and the Dock, with a matching two-leaf template in the menu bar.
+
+The pixel companion is freely draggable through a native mouse surface on its visible content. Four points of movement distinguishes a drag from a click; only a click opens Ivy. Free placement is persisted relative to the display's usable area, replacing corner snapping. Clamping uses the measured character, status and caption bounds rather than transparent panel margins, so Ivy can reach every edge; caption size changes preserve relative placement. Idle sways and blinks; dragging adds a modest bob and tilt, retaining real activity poses. Reduce Motion keeps all poses still while allowing normal user-controlled dragging.
+
 Turn Ivy from a 380×520 menu-bar popover into a real Mac app people *want* to open: a proper chat window
 with a conversation sidebar, a playful on-screen companion that listens, talks and points at things (in the
 spirit of [heyclicky](https://www.heyclicky.com)), a quick command bar, and an onboarding people remember —
@@ -238,7 +244,7 @@ operations, Markdown/code/diff rendering, approving from the window, window fram
 ## Implementation status — 17b (2026-10-01)
 | Slice | Status | Where |
 |---|---|---|
-| 17b.1 Companion panel | Done | `Companion/CompanionController.swift`: borderless, non-activating `NSPanel` (clicking it never takes focus from the user's app), all Spaces, floating; snaps to the nearest corner after a drag and remembers it (`companionCorner`). **Not done:** per-display corners; trailing the cursor |
+| 17b.1 Companion panel | Done | `Companion/CompanionController.swift`: borderless, non-activating `NSPanel`, all Spaces, floating; drag the character or status pill to place it freely. A drag does not open the app. Normalized placement is saved per display and clamped to the usable screen area; legacy corner placement is used until the first drag. **Not done:** trailing the cursor |
 | 17b.2 Leaf face + orb | Done | `CompanionView`/`LeafFace`: the logo's leaf with eyes and mouth per mood (vector shapes); ring per mood — level-reactive while listening/speaking, progress arc while working, amber pulse for approval, spinner while thinking, red on error. Reduce Motion → static. Mood logic: `CompanionMood.resolve` (IvyCore) — approval always wins |
 | 17b.3 Captions | Done | `GeminiLiveVoiceCoordinator.caption` (end of the current reply, memory only) in a bubble while speaking |
 | 17b.4 Annotation overlay (`point_at`) | Done | `point_at` tool (core, **safe**: draws only). Captures now carry their screen frame (`CaptureGeometry`), recorded when the image is actually shown to Ivy; `screenRect(forImageRect:)` maps image pixels → AppKit screen points (scale, offset, flipped Y, other displays). `AnnotationOverlay`: click-through panel, vine-green highlight + label, 6 s, VoiceOver announcement. **Not done:** the hand-drawn arrow from the companion; anchoring by OCR text; region captures (no frame) can't be pointed into |

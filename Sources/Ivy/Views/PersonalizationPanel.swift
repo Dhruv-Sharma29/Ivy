@@ -21,35 +21,25 @@ struct PersonalizationPanel: View {
         VStack(alignment: .leading, spacing: 18) {
 
             SettingsControlRow(title: "Personality") {
-            Picker("Personality", selection: Binding(get: { model.profile.sass }, set: { model.setSass($0) })) {
-                Text("Polite").tag(0)
-                Text("Light").tag(1)
-                Text("Ivy").tag(2)
-                Text("Roast").tag(3)
+                SettingsSegmentedPicker(title: "Personality", selection: Binding(
+                    get: { model.profile.sass }, set: { model.setSass($0) }),
+                    options: [(0, "Polite"), (1, "Light"), (2, "Ivy"), (3, "Roast")])
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.regular)
-            .fixedSize(horizontal: true, vertical: false)
-            }
-
             SettingsControlRow(title: "Answer length") {
-            Picker("Answer length", selection: Binding(get: { model.profile.responseLength }, set: { model.setResponseLength($0) })) {
-                Text("Brief").tag(PersonalizationProfile.ResponseLength.brief)
-                Text("Balanced").tag(PersonalizationProfile.ResponseLength.balanced)
-                Text("Detailed").tag(PersonalizationProfile.ResponseLength.detailed)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.regular)
-            .fixedSize(horizontal: true, vertical: false)
+                SettingsSegmentedPicker(title: "Answer length", selection: Binding(
+                    get: { model.profile.responseLength }, set: { model.setResponseLength($0) }),
+                    options: [(.brief, "Brief"), (.balanced, "Balanced"), (.detailed, "Detailed")])
             }
 
             SettingsToggle(title: "Occasional emoji", isOn: Binding(get: { model.profile.useEmoji }, set: { model.setUseEmoji($0) }))
             Divider()
 
+            RegionalPreferencesView()
+
+            Divider()
+
             DisclosureGroup("About you") {
-                ForEach(PersonalizationProfile.AboutField.allCases, id: \.self) { field in
+                ForEach(PersonalizationProfile.AboutField.editableCases, id: \.self) { field in
                     TextField(field.label, text: aboutBinding(field.rawValue))
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(saveAbout)
@@ -144,6 +134,7 @@ struct PersonalizationPanel: View {
         }
         }
         .font(.body)
+        .disclosureGroupStyle(SettingsDisclosureStyle())
         .onAppear(perform: loadDrafts)
     }
 

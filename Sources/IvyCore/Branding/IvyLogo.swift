@@ -1,9 +1,8 @@
 import CoreGraphics
 import Foundation
 
-/// Ivy's logo: a three-lobed ivy leaf with a sparkle, drawn from code so the app icon, the menu-bar glyph and any
-/// in-app artwork share one geometry. Self-contained (CoreGraphics only) so `scripts/make-app-icon.sh` can compile
-/// it standalone to render `AppIcon.icns`.
+/// Small monochrome branding uses a paired-leaf sprig. The old colour renderer is retained for compatibility;
+/// the production app icon is generated from Resources/IvyAppIcon.png by scripts/make-app-icon.sh.
 public enum IvyLogo {
     // Brand colours (sRGB).
     static let leafLight = CGColor(srgbRed: 0.231, green: 0.745, blue: 0.431, alpha: 1)   // #3BBE6E
@@ -119,22 +118,42 @@ public enum IvyLogo {
         ctx.fillPath()
     }
 
-    /// Monochrome glyph for the menu bar (template image: black + alpha; macOS tints it for light/dark).
+    /// Two bold pointed leaves reproduce the app icon's sprig at small sizes, without tiny veins or shading.
+    public static func sprigPath(in r: CGRect) -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: p(0.56, 0.49, r))
+        path.addCurve(to: p(0.30, 0.60, r), control1: p(0.44, 0.47, r), control2: p(0.43, 0.56, r))
+        path.addQuadCurve(to: p(0.35, 0.70, r), control: p(0.40, 0.69, r))
+        path.addCurve(to: p(0.27, 0.92, r), control1: p(0.35, 0.76, r), control2: p(0.29, 0.84, r))
+        path.addCurve(to: p(0.58, 0.74, r), control1: p(0.35, 0.82, r), control2: p(0.58, 0.90, r))
+        path.addCurve(to: p(0.56, 0.49, r), control1: p(0.65, 0.64, r), control2: p(0.57, 0.54, r))
+        path.closeSubpath()
+        path.move(to: p(0.48, 0.28, r))
+        path.addCurve(to: p(0.67, 0.49, r), control1: p(0.54, 0.42, r), control2: p(0.54, 0.51, r))
+        path.addCurve(to: p(0.92, 0.48, r), control1: p(0.75, 0.48, r), control2: p(0.81, 0.44, r))
+        path.addQuadCurve(to: p(0.80, 0.35, r), control: p(0.84, 0.39, r))
+        path.addQuadCurve(to: p(0.82, 0.18, r), control: p(0.77, 0.30, r))
+        path.addCurve(to: p(0.48, 0.28, r), control1: p(0.67, 0.29, r), control2: p(0.66, 0.18, r))
+        path.closeSubpath()
+        return path
+    }
+
+    /// Monochrome template glyph: macOS supplies the foreground colour for any menu-bar appearance.
     public static func drawTemplateGlyph(in ctx: CGContext, size: CGFloat) {
-        let art = CGRect(x: 0, y: 0, width: size, height: size).insetBy(dx: size * 0.02, dy: size * 0.02)
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        let art = CGRect(x: 0, y: 0, width: size, height: size)
         ctx.setFillColor(CGColor(gray: 0, alpha: 1))
         ctx.setStrokeColor(CGColor(gray: 0, alpha: 1))
-        ctx.addPath(leafPath(in: art))
+        ctx.addPath(sprigPath(in: art))
         ctx.fillPath()
-        ctx.addPath(stemPath(in: art))
-        ctx.setLineWidth(max(1, size * 0.07))
+        let stem = CGMutablePath()
+        stem.move(to: p(0.18, 0.10, art))
+        stem.addQuadCurve(to: p(0.52, 0.35, art), control: p(0.39, 0.13, art))
+        stem.addCurve(to: p(0.57, 0.61, art), control1: p(0.64, 0.51, art), control2: p(0.62, 0.56, art))
+        ctx.addPath(stem)
+        ctx.setLineWidth(max(1, size * 0.06))
         ctx.setLineCap(.round)
         ctx.strokePath()
-        // Veins knocked out of the silhouette so the leaf reads at 18 pt.
-        ctx.setBlendMode(.clear)
-        ctx.addPath(veinsPath(in: art))
-        ctx.setLineWidth(max(1, size * 0.055))
-        ctx.strokePath()
-        ctx.setBlendMode(.normal)
     }
 }

@@ -65,6 +65,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
     /// Keep the companion on screen when nothing is happening.
     public var companionShowWhileIdle: Bool
     public var companionCorner: CompanionCorner
+    /// Free placement takes precedence over the legacy default corner after the first drag.
+    public var companionPlacement: CompanionPlacement?
     /// Register the command bar hotkey (⌃⌥⌘K) at launch.
     public var commandBarHotkeyEnabled: Bool
     /// The first-run introduction has been finished or skipped (Phase 17c). Existing users are marked done.
@@ -127,6 +129,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionEnabled: Bool = true,
         companionShowWhileIdle: Bool = false,
         companionCorner: CompanionCorner = .bottomRight,
+        companionPlacement: CompanionPlacement? = nil,
         commandBarHotkeyEnabled: Bool = true,
         onboardingCompleted: Bool = false
     ) {
@@ -166,6 +169,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.companionEnabled = companionEnabled
         self.companionShowWhileIdle = companionShowWhileIdle
         self.companionCorner = companionCorner
+        self.companionPlacement = companionPlacement
         self.commandBarHotkeyEnabled = commandBarHotkeyEnabled
         self.onboardingCompleted = onboardingCompleted
     }
@@ -221,6 +225,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionEnabled = value(.companionEnabled, d.companionEnabled)
         companionShowWhileIdle = value(.companionShowWhileIdle, d.companionShowWhileIdle)
         companionCorner = other(.companionCorner, d.companionCorner)
+        companionPlacement = try? c.decodeIfPresent(CompanionPlacement.self, forKey: .companionPlacement)
         commandBarHotkeyEnabled = value(.commandBarHotkeyEnabled, d.commandBarHotkeyEnabled)
         onboardingCompleted = value(.onboardingCompleted, d.onboardingCompleted)
     }

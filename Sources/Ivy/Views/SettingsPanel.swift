@@ -95,7 +95,7 @@ struct GeneralSettingsSection: View {
     var body: some View {
         VStack(spacing: 18) {
             SettingsCard(title: "On-screen companion", symbol: "leaf") {
-                SettingsToggle(title: "Show the Ivy companion", detail: "A small companion appears while Ivy listens, speaks or works.", isOn: $settings.settings.companionEnabled)
+                SettingsToggle(title: "Show the Ivy companion", detail: "An animated pixel-art Ivy appears while listening, speaking or working. Respects Reduce Motion.", isOn: $settings.settings.companionEnabled)
                 Divider()
                 SettingsToggle(title: "Keep visible when idle", isOn: $settings.settings.companionShowWhileIdle)
                     .disabled(!settings.settings.companionEnabled)
@@ -149,7 +149,7 @@ struct VoiceSettingsSection: View {
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let onPreviewVoice {
                     Button(action: onPreviewVoice) { Label("Preview voice", systemImage: "play.fill") }
-                        .buttonStyle(.bordered)
+                        .ivyGlassButtonStyle()
                         .controlSize(.regular)
                 }
             }

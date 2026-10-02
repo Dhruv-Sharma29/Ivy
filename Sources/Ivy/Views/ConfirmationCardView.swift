@@ -65,7 +65,7 @@ public struct ConfirmationCardView: View {
                     Text("Cancel")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .ivyGlassButtonStyle()
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(hasResponded)
                 .accessibilityHint("Refuses this action. Nothing will run.")
@@ -79,7 +79,7 @@ public struct ConfirmationCardView: View {
                         .bold()
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .ivyGlassButtonStyle(prominent: true)
                 .tint(.orange)
                 // Deliberate chord, not plain Return: a stray Return while typing must never approve a risky action.
                 .keyboardShortcut(.return, modifiers: [.command])
@@ -89,8 +89,7 @@ public struct ConfirmationCardView: View {
             }
         }
         .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .ivyGlass(cornerRadius: 12)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.orange.opacity(0.3), lineWidth: 1.5)

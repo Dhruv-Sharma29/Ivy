@@ -21,6 +21,7 @@ struct IvyApp: App {
     /// The same app shell can be verified with isolated credentials and storage.
     init(environment: IvyAppEnvironment) {
         NSApplication.shared.setActivationPolicy(.regular)
+        if let icon = IvyLogoImage.appIcon { NSApplication.shared.applicationIconImage = icon }
         self._brain = ObservedObject(wrappedValue: environment.brain)
         self._liveVoiceCoordinator = ObservedObject(wrappedValue: environment.liveCoordinator)
         self._settings = ObservedObject(wrappedValue: environment.settings)
@@ -54,7 +55,7 @@ struct IvyApp: App {
         .defaultSize(width: 1080, height: 760)
         .defaultPosition(.center)
         .windowResizability(.contentMinSize)
-        .windowToolbarStyle(.unified)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             SidebarCommands()
             IvyConversationCommands()
@@ -97,6 +98,7 @@ struct IvyApp: App {
         Settings {
             SettingsWindowView(environment: environment, settings: settings, wakeWord: wakeWord)
         }
+        .windowStyle(.hiddenTitleBar)
     }
 }
 

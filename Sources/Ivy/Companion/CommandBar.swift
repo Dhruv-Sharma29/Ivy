@@ -141,7 +141,8 @@ private struct CommandBarView: View {
         }
         .padding(16)
         .frame(width: 560, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.regularMaterial))
+        .ivyGlass(cornerRadius: 16)
+        .ivyGlassButtonStyle()
         .onAppear {
             focused = true
             library.refresh()

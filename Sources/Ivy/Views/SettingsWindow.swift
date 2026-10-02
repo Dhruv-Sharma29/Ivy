@@ -24,10 +24,9 @@ struct SettingsWindowView: View {
         NavigationSplitView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 10) {
-                    Image(nsImage: IvyLogoImage.template).renderingMode(.template)
-                        .resizable().frame(width: 24, height: 24).foregroundStyle(IvyTheme.moss)
+                    IvyAppIconView().frame(width: 28, height: 28)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Make Ivy yours").font(.headline)
+                        Text("Ivy").font(.headline)
                         Text("Settings").font(.callout).foregroundStyle(.secondary)
                     }
                 }
@@ -47,7 +46,7 @@ struct SettingsWindowView: View {
             .searchable(text: $query, placement: .sidebar, prompt: "Find a setting")
                 .scrollContentBackground(.hidden)
             }
-            .background(IvyTheme.sidebar)
+            .modifier(IvySidebarBackground())
             .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 250)
         } detail: {
             ScrollView {
@@ -64,11 +63,13 @@ struct SettingsWindowView: View {
                 .padding(28)
                 .frame(maxWidth: 760, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                .ivyGlassGroup()
             }
-            .background(IvyTheme.canvas)
-            .navigationTitle("Ivy Settings")
+            .ivyWindowBackground()
+            .ivyGlassButtonStyle()
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar(.hidden, for: .windowToolbar)
         .frame(minWidth: 780, idealWidth: 900, minHeight: 600, idealHeight: 700)
         .tint(IvyTheme.leaf)
         .onAppear {

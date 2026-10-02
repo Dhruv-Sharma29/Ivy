@@ -4,9 +4,9 @@ import Combine
 import IvyCore
 
 /// Owns the companion panel: borderless, non-activating (clicking it never steals focus from the user's app),
-/// on every Space, snapped to a corner. Shown only while the mood says so.
+/// on every Space, freely draggable with remembered placement. Shown only while the mood says so.
 @MainActor
-final class CompanionController: NSObject, NSWindowDelegate {
+final class CompanionController: NSObject {
     private let environment: IvyAppEnvironment
     private var panel: NSPanel?
     private let presentation = CompanionPresentation()
@@ -14,8 +14,7 @@ final class CompanionController: NSObject, NSWindowDelegate {
     private var mood: CompanionMood = .hidden
     /// "Hide for now": stays hidden until the mood changes to something new.
     private var hiddenMood: CompanionMood?
-    private var snapTask: Task<Void, Never>?
-    private var isPlacing = false
+    private var contentFrame = CGRect(origin: .zero, size: CompanionView.panelSize)
 
     init(environment: IvyAppEnvironment) {
         self.environment = environment
@@ -48,12 +47,14 @@ final class CompanionController: NSObject, NSWindowDelegate {
             showWhileIdle: settings.companionShowWhileIdle) : .hidden
         if let hiddenMood, hiddenMood != next { self.hiddenMood = nil }
         mood = next
+        let displayedMood = hiddenMood == nil ? next : .hidden
+        if presentation.mood != displayedMood { presentation.mood = displayedMood }
         guard mood.isVisible, hiddenMood == nil else {
+            presentation.isMoving = false
             panel?.orderOut(nil)
             return
         }
         let panel = self.panel ?? makePanel()
-        if presentation.mood != mood { presentation.mood = mood }
         if presentation.caption != e.liveCoordinator.caption { presentation.caption = e.liveCoordinator.caption }
         if !panel.isVisible {
             place(panel, corner: settings.companionCorner)
@@ -72,45 +73,62 @@ final class CompanionController: NSObject, NSWindowDelegate {
             onHide: { [weak self] in
                 guard let self else { return }
                 self.hiddenMood = self.mood
+                self.presentation.mood = .hidden
+                self.presentation.isMoving = false
                 self.panel?.orderOut(nil)
-            }))
+            }, onDrop: { [weak self] in self?.rememberPosition() },
+            onContentLayout: { [weak self] in self?.contentDidLayout($0) }))
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 280, height: 150),
+        let panel = NSPanel(contentRect: CGRect(origin: .zero, size: CompanionView.panelSize),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .floating
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false // The native drag handle distinguishes a click from a drag.
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        panel.delegate = self
-        panel.contentView = makeContent()
         self.panel = panel
+        panel.contentView = makeContent()
         return panel
     }
 
     private func place(_ panel: NSPanel, corner: CompanionCorner) {
-        guard let screen = panel.screen ?? NSScreen.main else { return }
-        isPlacing = true
-        panel.setFrameOrigin(corner.origin(for: panel.frame.size, in: screen.visibleFrame))
-        isPlacing = false
-    }
-
-    /// After a drag settles, snap to the nearest corner of that screen and remember it.
-    func windowDidMove(_ notification: Notification) {
-        guard !isPlacing, let panel else { return }
-        snapTask?.cancel()
-        snapTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let self, let screen = panel.screen ?? NSScreen.main else { return }
-            let corner = CompanionCorner.nearest(to: CGPoint(x: panel.frame.midX, y: panel.frame.midY), in: screen.visibleFrame)
-            self.place(panel, corner: corner)
-            if self.environment.settings.settings.companionCorner != corner {
-                self.environment.settings.settings.companionCorner = corner
+        panel.contentView?.layoutSubtreeIfNeeded()
+        if let placement = environment.settings.settings.companionPlacement {
+            let savedScreen = NSScreen.screens.first { Self.displayID($0) == placement.displayID }
+            if let screen = savedScreen ?? NSScreen.main {
+                panel.setFrameOrigin(placement.origin(panelSize: panel.frame.size, visibleFrame: screen.visibleFrame, contentFrame: contentFrame))
+                return
             }
         }
+        guard let screen = panel.screen ?? NSScreen.main else { return }
+        let point = corner.origin(for: contentFrame.size, in: screen.visibleFrame)
+        panel.setFrameOrigin(CGPoint(x: point.x - contentFrame.minX, y: point.y - contentFrame.minY))
+    }
+
+    /// A caption or status can change the visible width. Preserve its relative placement, not its empty margin.
+    private func contentDidLayout(_ frame: CGRect) {
+        guard frame != contentFrame else { return }
+        contentFrame = frame
+        guard let panel, panel.isVisible, !presentation.isMoving else { return }
+        place(panel, corner: environment.settings.settings.companionCorner)
+    }
+
+    /// Keep the dropped location; only clamp to the usable screen area, never snap back to a corner.
+    private func rememberPosition() {
+        guard let panel else { return }
+        let center = CGPoint(x: panel.frame.minX + contentFrame.midX, y: panel.frame.minY + contentFrame.midY)
+        guard let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(center) }) ?? panel.screen ?? NSScreen.main else { return }
+        let placement = CompanionPlacement(origin: panel.frame.origin, panelSize: panel.frame.size,
+                                           visibleFrame: screen.visibleFrame, displayID: Self.displayID(screen), contentFrame: contentFrame)
+        panel.setFrameOrigin(placement.origin(panelSize: panel.frame.size, visibleFrame: screen.visibleFrame, contentFrame: contentFrame))
+        environment.settings.settings.companionPlacement = placement
+    }
+
+    private static func displayID(_ screen: NSScreen) -> UInt32 {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
     }
 }
