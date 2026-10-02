@@ -22,33 +22,55 @@ struct SettingsWindowView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Image(nsImage: IvyLogoImage.template).renderingMode(.template)
+                        .resizable().frame(width: 24, height: 24).foregroundStyle(IvyTheme.moss)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Make Ivy yours").font(.headline)
+                        Text("Settings").font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(18)
+                List(selection: $selection) {
                 ForEach(SettingsPane.allCases.filter { query.isEmpty || $0.searchText.localizedStandardContains(query) }) { pane in
-                    Label(pane.rawValue, systemImage: pane.symbol).tag(pane)
-                        .padding(.vertical, 4)
+                    Label {
+                        Text(pane.rawValue)
+                    } icon: {
+                        Image(systemName: pane.symbol).foregroundStyle(IvyTheme.moss)
+                    }
+                    .tag(pane)
+                    .padding(.vertical, 6)
                 }
             }
             .listStyle(.sidebar)
             .searchable(text: $query, placement: .sidebar, prompt: "Find a setting")
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+                .scrollContentBackground(.hidden)
+            }
+            .background(IvyTheme.sidebar)
+            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 250)
         } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text((selection ?? .general).rawValue).font(.title2.weight(.semibold))
-                        Text((selection ?? .general).detail).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text((selection ?? .general).rawValue).font(.largeTitle.weight(.semibold))
+                        Text((selection ?? .general).detail).font(.body).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .padding(.bottom, 2)
                     settingsContent
                 }
                 .font(.body)
                 .padding(28)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(IvyTheme.canvas)
             .navigationTitle("Ivy Settings")
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(width: 800, height: 600)
+        .frame(minWidth: 780, idealWidth: 900, minHeight: 600, idealHeight: 700)
+        .tint(IvyTheme.leaf)
         .onAppear {
             if !environment.credentials.source(for: .geminiAPIKey).isUsable { selection = .keys }
         }
@@ -60,10 +82,11 @@ struct SettingsWindowView: View {
         switch selection ?? .general {
         case .general:
             GeneralSettingsSection(settings: settings)
-            Divider()
-            Button("Show the Introduction Again") {
-                environment.onboarding.restart()
-                OnboardingWindowController.shared?.show()
+            SettingsCard(title: "Getting started", symbol: "sparkles", subtitle: "Revisit the basics whenever you need a refresher.") {
+                Button("Show introduction") {
+                    environment.onboarding.restart()
+                    OnboardingWindowController.shared?.show()
+                }
             }
         case .voice:
             VoiceSettingsSection(settings: settings, wakeWord: wakeWord) {
@@ -76,24 +99,24 @@ struct SettingsWindowView: View {
         case .proactive:
             ProactivePanel(settings: settings, proactive: environment.proactive)
         case .privacy:
-            SectionHeading(title: "History")
             HistorySettingsSection(settings: settings)
-            Divider()
-            SectionHeading(title: "Diagnostics")
-            Text("Export versions, settings, permission states and a redacted log for a bug report. Keys and conversations are excluded.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 10) {
-                Button("Export Diagnostics…", action: exportDiagnostics)
-                Button("Show Ivy's Data Folder") {
-                    NSWorkspace.shared.open(FileConversationStore.defaultDirectory.deletingLastPathComponent())
+            SettingsCard(title: "Diagnostics & data", symbol: "externaldrive", subtitle: "Export a report to help troubleshoot Ivy. Keys and conversations are excluded.") {
+                HStack(spacing: 12) {
+                    Button("Export diagnostics…", action: exportDiagnostics)
+                    Button("Show data folder") {
+                        NSWorkspace.shared.open(FileConversationStore.defaultDirectory.deletingLastPathComponent())
+                    }
                 }
+                if let exportMessage { Text(exportMessage).font(.callout).foregroundStyle(.secondary) }
             }
-            if let exportMessage { Text(exportMessage).font(.callout).foregroundStyle(.secondary) }
         case .keys:
             KeysSection(credentials: environment.credentials) { environment.brain.refreshCredentialStatus() }
         case .permissions:
-            PermissionsSection(types: PermissionType.allCases)
+            SettingsCard(title: "System access", symbol: "lock.shield", subtitle: "You control access through macOS System Settings.") {
+                PermissionsSection(types: PermissionType.allCases)
+            }
         case .about:
+            SettingsCard(title: "Made for your Mac", symbol: "leaf") {
             HStack(spacing: 16) {
                 Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 8) {
@@ -102,6 +125,7 @@ struct SettingsWindowView: View {
                     Text("Gemini for thinking. ElevenLabs for reading aloud. Built for your Mac.")
                         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+            }
             }
         }
     }

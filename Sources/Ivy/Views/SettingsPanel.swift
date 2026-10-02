@@ -2,7 +2,7 @@ import SwiftUI
 import IvyCore
 
 /// The popover's settings: every section, stacked. The Settings window (`SettingsWindowView`) shows the same
-/// sections in tabs, so there is one implementation of each control.
+/// sections in a sidebar, so there is one implementation of each control.
 struct SettingsPanel: View {
     let credentials: CredentialProvider
     @ObservedObject var settings: SettingsModel
@@ -61,10 +61,14 @@ struct KeysSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            CredentialRow(key: .geminiAPIKey, credentials: credentials, onChange: onChange)
-            CredentialRow(key: .elevenLabsAPIKey, credentials: credentials, onChange: onChange)
+            SettingsCard(title: "Gemini", symbol: "sparkles", subtitle: "Connect chat and live voice conversations.") {
+                CredentialRow(key: .geminiAPIKey, credentials: credentials, onChange: onChange)
+            }
+            SettingsCard(title: "ElevenLabs", symbol: "speaker.wave.2", subtitle: "Optional. Connect a voice for reading replies aloud.") {
+                CredentialRow(key: .elevenLabsAPIKey, credentials: credentials, onChange: onChange)
+            }
             Text("Keys go straight to the macOS Keychain. Ivy never shows them again.")
-                .font(.caption).foregroundStyle(.tertiary)
+                .font(.callout).foregroundStyle(.secondary)
         }
     }
 }
@@ -73,14 +77,15 @@ struct HistorySettingsSection: View {
     @ObservedObject var settings: SettingsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Save conversation history", isOn: $settings.settings.persistConversationHistory)
-            Toggle("Reopen last conversation on launch", isOn: $settings.settings.restoreLastConversation)
-            Toggle("Name new conversations automatically (1 extra request each)", isOn: $settings.settings.autoTitleConversations)
-            Toggle("Add voice sessions to the conversation as text", isOn: $settings.settings.saveVoiceTranscripts)
+        SettingsCard(title: "Conversation history", symbol: "clock.arrow.circlepath") {
+            SettingsToggle(title: "Save conversations", detail: "Keep your chats on this Mac.", isOn: $settings.settings.persistConversationHistory)
+            Divider()
+            SettingsToggle(title: "Continue where you left off", detail: "Open your last conversation when Ivy starts.", isOn: $settings.settings.restoreLastConversation)
+            Divider()
+            SettingsToggle(title: "Automatic conversation titles", detail: "Uses one extra Gemini request per conversation.", isOn: $settings.settings.autoTitleConversations)
+            Divider()
+            SettingsToggle(title: "Save voice transcripts", detail: "Add voice conversations to your chat history.", isOn: $settings.settings.saveVoiceTranscripts)
         }
-        .toggleStyle(.checkbox)
-        .font(.body)
     }
 }
 
@@ -88,87 +93,93 @@ struct GeneralSettingsSection: View {
     @ObservedObject var settings: SettingsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show Ivy on screen while it listens, talks or works", isOn: $settings.settings.companionEnabled)
-            Toggle("Keep Ivy on screen when idle", isOn: $settings.settings.companionShowWhileIdle)
-                .disabled(!settings.settings.companionEnabled)
-            Toggle("Push-to-talk shortcut \u{2318}\u{21E7}Space (next launch)", isOn: $settings.settings.pushToTalkEnabled)
-            Toggle("Command bar shortcut \u{2303}\u{2325}\u{2318}K (next launch)", isOn: $settings.settings.commandBarHotkeyEnabled)
+        VStack(spacing: 18) {
+            SettingsCard(title: "On-screen companion", symbol: "leaf") {
+                SettingsToggle(title: "Show the Ivy companion", detail: "A small companion appears while Ivy listens, speaks or works.", isOn: $settings.settings.companionEnabled)
+                Divider()
+                SettingsToggle(title: "Keep visible when idle", isOn: $settings.settings.companionShowWhileIdle)
+                    .disabled(!settings.settings.companionEnabled)
+            }
+            SettingsCard(title: "Keyboard shortcuts", symbol: "command", subtitle: "Shortcut changes take effect after restarting Ivy.") {
+                SettingsToggle(title: "Push to talk", detail: "Hold ⌘⇧Space to speak to Ivy.", isOn: $settings.settings.pushToTalkEnabled)
+                Divider()
+                SettingsToggle(title: "Quick command bar", detail: "Press ⌃⌥⌘K to open a quick prompt.", isOn: $settings.settings.commandBarHotkeyEnabled)
+            }
         }
-        .toggleStyle(.checkbox)
-        .font(.body)
     }
 }
 
-/// Live (Kore) speaking style, "Hey Ivy", and the ElevenLabs read-aloud voice. None of this changes which voice is used.
+/// Live speaking style, wake phrase and read-aloud controls use separate, consistently aligned groups.
 struct VoiceSettingsSection: View {
     @ObservedObject var settings: SettingsModel
     @ObservedObject var wakeWord: WakeWordController
     var onPreviewVoice: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeading(title: "Voice")
-            Group {
-                Toggle("Show live transcript", isOn: $settings.settings.showLiveTranscript)
-                Toggle("Echo cancellation for \"Hey Ivy\" (next launch)", isOn: $settings.settings.echoCancellation)
-                Toggle("Wake with \u{201C}Hey Ivy\u{201D} (keeps the mic open, on-device only)", isOn: $settings.settings.wakeWordEnabled)
-                Toggle("Pause \u{201C}Hey Ivy\u{201D} while the screen is locked", isOn: $settings.settings.pauseWakeWordWhenLocked)
+        VStack(spacing: 18) {
+            SettingsCard(title: "Live conversation", symbol: "waveform", subtitle: "Choose how Ivy speaks during a voice session.") {
+                SettingsToggle(title: "Show live transcript", detail: "See your conversation as you speak.", isOn: $settings.settings.showLiveTranscript)
+                Divider()
+                choice("Pause tolerance", $settings.settings.voicePatience,
+                       [(.short, "Short"), (.normal, "Normal"), (.long, "Long")])
+                choice("Answer length", $settings.settings.voiceResponseLength,
+                       [(.brief, "Brief"), (.normal, "Normal"), (.detailed, "Detailed")])
+                choice("Speaking pace", $settings.settings.voiceSpeakingPace,
+                       [(.slow, "Slow"), (.normal, "Normal"), (.fast, "Fast")])
+                Text("Speaking preferences take effect after restarting Ivy.")
+                    .font(.callout).foregroundStyle(.secondary)
             }
-            .toggleStyle(.checkbox)
-            if let wakeStatus {
-                Text(wakeStatus.text)
-                    .font(.caption)
-                    .foregroundStyle(wakeStatus.color)
-                    .fixedSize(horizontal: false, vertical: true)
+            SettingsCard(title: "Hey Ivy", symbol: "ear", subtitle: "Hands-free access with an on-device wake phrase.") {
+                SettingsToggle(title: "Wake with “Hey Ivy”", detail: "Keeps the microphone open. Wake detection stays on this Mac.", isOn: $settings.settings.wakeWordEnabled)
+                Divider()
+                SettingsToggle(title: "Pause when your Mac is locked", isOn: $settings.settings.pauseWakeWordWhenLocked)
+                Divider()
+                SettingsToggle(title: "Reduce audio echo", detail: "Helps Ivy hear you during playback. Restart Ivy to apply.", isOn: $settings.settings.echoCancellation)
+                if let wakeStatus {
+                    Label(wakeStatus.text, systemImage: "mic")
+                        .font(.callout).foregroundStyle(wakeStatus.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            choice("Wait through pauses", $settings.settings.voicePatience,
-                   [(.short, "Short"), (.normal, "Normal"), (.long, "Long")])
-            choice("Answer length", $settings.settings.voiceResponseLength,
-                   [(.brief, "Brief"), (.normal, "Normal"), (.detailed, "Detailed")])
-            choice("Speaking pace", $settings.settings.voiceSpeakingPace,
-                   [(.slow, "Slow"), (.normal, "Normal"), (.fast, "Fast")])
-            Text("Ivy Live voice options apply from the next launch.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-
-            slider("Read-aloud speed", $settings.settings.ttsSpeed, ElevenLabsVoiceSettings.speedRange)
-            slider("Stability", $settings.settings.ttsStability, 0...1)
-            slider("Style", $settings.settings.ttsStyle, 0...1)
-            if let onPreviewVoice {
-                Button("Preview read-aloud voice", action: onPreviewVoice)
-                    .font(.body)
+            SettingsCard(title: "Read aloud", symbol: "speaker.wave.2", subtitle: "Fine-tune the voice used to read chat replies.") {
+                slider("Reading speed", $settings.settings.ttsSpeed, ElevenLabsVoiceSettings.speedRange)
+                slider("Voice consistency", $settings.settings.ttsStability, 0...1)
+                slider("Expressiveness", $settings.settings.ttsStyle, 0...1)
+                Text("Higher consistency sounds steadier. More expressiveness adds emphasis.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if let onPreviewVoice {
+                    Button(action: onPreviewVoice) { Label("Preview voice", systemImage: "play.fill") }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                }
             }
         }
         .font(.body)
     }
 
     private func choice<Value: Hashable>(_ label: String, _ value: Binding<Value>, _ options: [(Value, String)]) -> some View {
-        Picker(label, selection: value) {
-            ForEach(options, id: \.0) { option in
-                Text(option.1).tag(option.0)
-            }
+        SettingsControlRow(title: label) {
+            SettingsSegmentedPicker(title: label, selection: value, options: options)
         }
-        .pickerStyle(.segmented)
-        .controlSize(.small)
     }
 
     private func slider(_ label: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
-        HStack {
-            Text(label).frame(width: 110, alignment: .leading)
-            Slider(value: value, in: range)
-                .controlSize(.small)
-                .accessibilityLabel(label)
-            Text(value.wrappedValue.formatted(.number.precision(.fractionLength(2))))
-                .monospacedDigit()
-                .frame(width: 30, alignment: .trailing)
+        SettingsControlRow(title: label) {
+            HStack(spacing: 12) {
+                Slider(value: value, in: range).accessibilityLabel(label)
+                Text(value.wrappedValue.formatted(.number.precision(.fractionLength(2))))
+                    .font(.callout).monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
     private var wakeStatus: (text: String, color: Color)? {
         switch wakeWord.status {
         case .off: return nil
-        case .listening: return ("Listening for \u{201C}Hey Ivy\u{201D}.", .green)
+        case .listening: return ("Listening for “Hey Ivy”.", IvyTheme.moss)
         case .paused: return ("Paused while a voice session is active.", .secondary)
         case .unavailable(let reason): return (reason, .orange)
         }
@@ -180,22 +191,27 @@ struct VisionSettingsSection: View {
     @ObservedObject var settings: SettingsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeading(title: "Screen & images")
-            Toggle("\u{201C}What am I looking at?\u{201D} shortcut \u{2303}\u{2325}\u{2318}S (next launch)", isOn: $settings.settings.screenHelpHotkeyEnabled)
-            Toggle("Send text only, never pixels", isOn: $settings.settings.visionTextOnly)
-            Toggle("Hide text that looks like a key or token", isOn: $settings.settings.visionMaskSecrets)
-            Toggle("Keep the text from images in history", isOn: $settings.settings.visionKeepTextFromImages)
-            TextField("Never capture while these apps are in front", text: Binding(
-                get: { settings.settings.visionExcludedApps.joined(separator: ", ") },
-                set: { settings.settings.visionExcludedApps = $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
-            ))
-            .textFieldStyle(.roundedBorder)
-            Text("Text is read on this Mac. Images are never saved; history keeps a placeholder.")
-                .font(.caption).foregroundStyle(.tertiary)
+        VStack(spacing: 18) {
+            SettingsCard(title: "Screen sharing", symbol: "rectangle.dashed", subtitle: "Ivy only captures your screen when you ask.") {
+                SettingsToggle(title: "Screen-help shortcut", detail: "Press ⌃⌥⌘S. Restart Ivy after changing this shortcut.", isOn: $settings.settings.screenHelpHotkeyEnabled)
+                Divider()
+                SettingsToggle(title: "Share text only", detail: "Send recognized text instead of image pixels.", isOn: $settings.settings.visionTextOnly)
+                Divider()
+                SettingsToggle(title: "Hide keys and tokens", detail: "Mask text that looks like a secret before sharing.", isOn: $settings.settings.visionMaskSecrets)
+                Divider()
+                SettingsToggle(title: "Save recognized text", detail: "Keep text from images in conversation history.", isOn: $settings.settings.visionKeepTextFromImages)
+            }
+            SettingsCard(title: "Excluded apps", symbol: "eye.slash", subtitle: "Never capture while any of these apps is in front.") {
+                TextField("App names, separated by commas", text: Binding(
+                    get: { settings.settings.visionExcludedApps.joined(separator: ", ") },
+                    set: { settings.settings.visionExcludedApps = $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Excluded apps")
+                Text("Text recognition happens on this Mac. Images are never saved in history.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .toggleStyle(.checkbox)
-        .font(.body)
     }
 }
 
@@ -206,9 +222,9 @@ struct PermissionsSection: View {
     @State private var refresh = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                SectionHeading(title: "Permissions")
+                Text("Privacy permissions").font(.body.weight(.medium))
                 Spacer()
                 Button("Privacy Settings…") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
@@ -219,7 +235,9 @@ struct PermissionsSection: View {
                 .buttonStyle(.link)
             }
             ForEach(types, id: \.self) { type in
+                Divider()
                 PermissionRow(type: type, state: permissionManager.status(for: type))
+                    .frame(minHeight: 28)
             }
         }
         .id(refresh)
@@ -236,11 +254,11 @@ struct PermissionRow: View {
     var body: some View {
         HStack {
             Text(type.displayName)
-                .font(.caption)
+                .font(.body)
             Spacer()
             if state == .denied || state == .restricted, let url = type.settingsURL {
                 Button("Open Settings") { NSWorkspace.shared.open(url) }
-                    .font(.system(size: 9))
+                    .font(.callout)
                     .buttonStyle(.link)
                     .accessibilityLabel("Open \(type.displayName) settings")
             }
@@ -253,15 +271,15 @@ struct PermissionRow: View {
     private var badge: some View {
         switch state {
         case .authorized:
-            Text("Allowed").font(.system(size: 9, weight: .medium)).foregroundStyle(.green)
+            Text("Allowed").font(.callout.weight(.medium)).foregroundStyle(.green)
         case .denied:
-            Text("Denied").font(.system(size: 9, weight: .medium)).foregroundStyle(.red)
+            Text("Denied").font(.callout.weight(.medium)).foregroundStyle(.red)
         case .restricted:
-            Text("Restricted").font(.system(size: 9, weight: .medium)).foregroundStyle(.orange)
+            Text("Restricted").font(.callout.weight(.medium)).foregroundStyle(.orange)
         case .notDetermined:
-            Text("Not requested").font(.system(size: 9)).foregroundStyle(.secondary)
+            Text("Not requested").font(.callout).foregroundStyle(.secondary)
         case .unsupported:
-            Text("Unsupported").font(.system(size: 9)).foregroundStyle(.secondary)
+            Text("Unsupported").font(.callout).foregroundStyle(.secondary)
         }
     }
 }
@@ -288,7 +306,7 @@ struct CredentialRow: View {
             HStack(spacing: 6) {
                 SecureField(source == .missing ? "Paste key" : "Paste a new key to replace", text: $draft)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
+                    .font(.body)
                     .onSubmit(save)
                 Button("Save", action: save)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

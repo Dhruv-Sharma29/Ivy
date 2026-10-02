@@ -274,9 +274,9 @@ public protocol GeminiClientProtocol: Sendable {
 - Standard File commands: New Conversation (Command-N) and Open Ivy (Command-O). Settings uses the native Settings scene (Command-comma).
 
 ### Conversation interface
-- Semantic macOS colors and typography in light and dark appearances; green brand marks use the contrasting moss token.
+- Neutral macOS surfaces keep the toolbar, sidebar and content consistent. Primary controls and selection use the system accent (blue by default); section symbols use a contrasting blue. Colors adapt to light, dark and increased-contrast appearances.
 - Conversation sidebar: search, pinned/date groups, visible conversation action menus, archive access, workspace selection and Settings.
-- Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. User messages use neutral bubbles.
+- Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. User messages use a subtle blue-gray bubble.
 - Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
 - Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
@@ -286,6 +286,8 @@ public protocol GeminiClientProtocol: Sendable {
 
 ### Settings
 - Native searchable sidebar with General, Voice, Personalization, Screen, Proactive, Privacy & Data, API Keys, Permissions and About.
+- Related controls sit in clearly titled cards with consistent spacing, readable descriptions and native switches. Voice preferences are separated into Live Conversation, Hey Ivy and Read Aloud.
+- Pickers and sliders share one label column, with aligned numeric values; segmented pickers fill the same width and use equal segment widths and a consistent 28-point height. Narrow containers stack the label above the control. Speaking preferences that require a restart say so in their group.
 - Existing secure credential storage and on-demand permission behavior remain intact.
 - The old `alwaysShowInDock` preference is decoded for compatibility; it no longer controls desktop app presence.
 

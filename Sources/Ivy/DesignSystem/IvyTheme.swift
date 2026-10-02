@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// Ivy's design tokens (Phase 17a). Colours come from the logo (`IvyLogo`); the system accent is not used for
-/// Ivy's identity. Each colour has a light and a dark value.
+/// Neutral macOS surfaces and one system accent keep title bars, selection and content consistent.
 enum IvyTheme {
-    /// Primary green (#3BBE6E in light; lifted for contrast on dark backgrounds).
-    static let leaf = adaptive(light: (0.231, 0.745, 0.431), dark: (0.36, 0.82, 0.53))
-    /// Deep green for text on light tints (#0C5A36).
-    static let moss = adaptive(light: (0.047, 0.353, 0.212), dark: (0.55, 0.87, 0.66))
-    /// Light accent behind Ivy's own messages.
-    static let sprout = adaptive(light: (0.90, 0.96, 0.91), dark: (0.13, 0.22, 0.16))
+    static let leaf = Color.accentColor
+    static let moss = adaptive(light: (0.12, 0.28, 0.53), dark: (0.60, 0.73, 0.95))
+    static let sprout = adaptive(light: (0.91, 0.94, 0.98), dark: (0.18, 0.21, 0.27))
+    static let canvas = Color(nsColor: .windowBackgroundColor)
+    static let surface = Color(nsColor: .controlBackgroundColor)
+    static let sidebar = Color(nsColor: .windowBackgroundColor)
+    static let sectionAccent = moss
     static let riskAmber = Color.orange
     static let dangerRed = Color.red
 
@@ -23,8 +23,15 @@ enum IvyTheme {
 
     private static func adaptive(light: (Double, Double, Double), dark: (Double, Double, Double)) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let c = isDark ? dark : light
+            let match = appearance.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])
+            let isDark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
+            var c = isDark ? dark : light
+            if match == .accessibilityHighContrastAqua {
+                c = c.0 + c.1 + c.2 > 2.4 ? (1, 1, 1) : (c.0 * 0.8, c.1 * 0.8, c.2 * 0.8)
+            }
+            if match == .accessibilityHighContrastDarkAqua {
+                c = c.0 + c.1 + c.2 < 0.8 ? (0, 0, 0) : (sqrt(c.0), sqrt(c.1), sqrt(c.2))
+            }
             return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1)
         })
     }

@@ -33,7 +33,8 @@ struct LayoutTests {
         try store.save(conversation)
         let credentials = FixedCredentialProvider([.geminiAPIKey: "fixture-not-a-real-key"])
         let environment = IvyAppEnvironment(
-            settingsStore: LayoutSettingsStore(), credentials: credentials, conversationStore: store
+            settingsStore: LayoutSettingsStore(), credentials: credentials, conversationStore: store,
+            geminiClient: LayoutOfflineClient(), now: { now }
         ) { credentials, _ in GeminiLiveVoiceCoordinator(credentials: credentials) }
         environment.brain.load(conversation)
         let app = IvyApp(environment: environment)
@@ -66,6 +67,9 @@ struct LayoutTests {
                 try await snapshot(settings, scheme: scheme, size: NSSize(width: 800, height: 600),
                                    url: directory.appendingPathComponent("settings-\(pane.id)-\(name).png"))
             }
+            let voice = VoiceSettingsSection(settings: environment.settings, wakeWord: environment.wakeWord, onPreviewVoice: {})
+            try await snapshot(voice.padding(20).background(IvyTheme.canvas).tint(IvyTheme.leaf), scheme: scheme,
+                               size: NSSize(width: 600, height: 1120), url: directory.appendingPathComponent("voice-full-\(name).png"))
             environment.brain.startNewConversation()
             let empty = ChatPaneView(brain: environment.brain, voiceManager: environment.voiceManager,
                                      liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
@@ -96,6 +100,73 @@ struct LayoutTests {
         await environment.shutdown()
     }
 
+    @Test("settings controls keep one aligned column and reflow at narrow widths")
+    func controlAlignment() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for width in [CGFloat(300), 560] {
+            let frames = OSAllocatedUnfairLock(initialState: [String: CGRect]())
+            let rows = VStack(spacing: 20) {
+                ForEach(["Pause tolerance", "Answer length", "Speed"], id: \.self) { title in
+                    SettingsControlRow(title: title) {
+                        Picker(title, selection: .constant(1)) {
+                            Text("Short").tag(0)
+                            Text("Normal").tag(1)
+                            Text("Long").tag(2)
+                        }
+                        .labelsHidden().pickerStyle(.segmented)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(key: ControlFrames.self,
+                                                       value: [title: geometry.frame(in: .named("controls"))])
+                            }
+                        }
+                    }
+                }
+            }
+            .coordinateSpace(name: "controls")
+            .onPreferenceChange(ControlFrames.self) { value in frames.withLock { $0 = value } }
+            try await snapshot(rows, scheme: .light, size: NSSize(width: width, height: 260),
+                               url: directory.appendingPathComponent("alignment-\(Int(width)).png"))
+            let measured = frames.withLock { $0 }
+            #expect(measured.count == 3)
+            let first = try #require(measured["Pause tolerance"])
+            for frame in measured.values {
+                #expect(abs(frame.minX - first.minX) < 1, "all controls must start at the same column")
+                #expect(frame.minX >= 0 && frame.maxX <= width + 1, "controls must stay inside the window")
+                #expect(frame.width >= 200 && frame.height >= 18)
+            }
+            #expect(width == 300 ? first.minX < 1 : first.minX >= 140, "narrow rows must stack their label above the control")
+        }
+    }
+
+    @Test("brand text accents remain readable in light, dark and increased contrast appearances")
+    func paletteContrast() throws {
+        for name in [NSAppearance.Name.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua] {
+            let appearance = try #require(NSAppearance(named: name))
+            for background in [IvyTheme.canvas, IvyTheme.surface, IvyTheme.sidebar] {
+                for foreground in [IvyTheme.moss, IvyTheme.brass] {
+                    let a = luminance(foreground, appearance: appearance)
+                    let b = luminance(background, appearance: appearance)
+                    #expect((max(a, b) + 0.05) / (min(a, b) + 0.05) >= 4.5)
+                }
+            }
+        }
+    }
+
+    private func luminance(_ color: Color, appearance: NSAppearance) -> Double {
+        var rgb: NSColor = .black
+        appearance.performAsCurrentDrawingAppearance {
+            rgb = NSColor(color).usingColorSpace(.sRGB) ?? .black
+        }
+        func linear(_ value: CGFloat) -> Double {
+            let v = Double(value)
+            return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(rgb.redComponent) + 0.7152 * linear(rgb.greenComponent) + 0.0722 * linear(rgb.blueComponent)
+    }
+
     private func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, url: URL) async throws {
         let host = NSHostingView(rootView: view.preferredColorScheme(scheme))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
@@ -117,6 +188,13 @@ struct LayoutTests {
         #expect(bitmap.pixelsHigh >= Int(size.height))
         #expect(png.count > 5_000, "a rendered screen must contain real interface content")
         try png.write(to: url)
+    }
+}
+
+private struct ControlFrames: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 
@@ -151,5 +229,16 @@ private final class LayoutApprovalClient: GeminiClientProtocol, @unchecked Senda
         return first
             ? ModelTurnResponse(functionCalls: [FunctionCall(name: "run_shell", args: ["command": .string("echo fixture")])])
             : ModelTurnResponse(text: "The action was cancelled.")
+    }
+}
+
+/// Every layout, including a proactive briefing, stays offline.
+private struct LayoutOfflineClient: GeminiClientProtocol {
+    func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String {
+        "Fixture briefing."
+    }
+    func generateContent(history: [ChatMessage], systemPrompt: String,
+                         tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
+        ModelTurnResponse(text: "Fixture briefing.")
     }
 }

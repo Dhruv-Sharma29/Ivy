@@ -87,6 +87,7 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
             .searchable(text: $query, placement: .sidebar, prompt: "Search conversations")
 
             Divider()
@@ -108,6 +109,7 @@ struct SidebarView: View {
             }
             .padding(12)
         }
+        .background(IvyTheme.sidebar)
         .onAppear { library.refresh() }
         // A turn just saved: its title, preview and position in the list may have changed.
         .onChange(of: brain.messages.count) { library.refresh() }

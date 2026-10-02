@@ -10,15 +10,9 @@ struct ProactivePanel: View {
     @State private var errorText: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Proactive Ivy")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Toggle("Let Ivy notify me first (reminders, heads-ups, briefing)", isOn: $settings.settings.proactiveEnabled)
-                .toggleStyle(.checkbox)
-            Text("Ivy can only notify or suggest. Nothing runs without your approval.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+        SettingsCard(title: "Reminders & suggestions", symbol: "bell", subtitle: "Ivy can suggest and notify. Actions still require your approval.") {
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsToggle(title: "Let Ivy notify you", detail: "Receive reminders, calendar heads-ups and a daily briefing.", isOn: $settings.settings.proactiveEnabled)
 
             if settings.settings.proactiveEnabled {
                 options
@@ -28,6 +22,7 @@ struct ProactivePanel: View {
             if let errorText {
                 Text(errorText).font(.caption).foregroundStyle(.red)
             }
+        }
         }
         .font(.body)
         .onAppear { calendarsText = settings.settings.headsUpCalendars.joined(separator: ", ") }
@@ -48,7 +43,7 @@ struct ProactivePanel: View {
                     .onSubmit(saveCalendars)
                     .onChange(of: calendarsText) { saveCalendars() }
                 Text("Only these calendars, and only each event's title and start time.")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Toggle("Daily briefing", isOn: $settings.settings.proactiveBriefing)
             if settings.settings.proactiveBriefing {
@@ -103,13 +98,13 @@ struct ProactivePanel: View {
             let pending = proactive.triggers.filter(\.isEnabled)
             if pending.isEmpty {
                 Text("Nothing scheduled. Ask Ivy to remind you of something.")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.secondary)
             }
             ForEach(pending) { trigger in
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(trigger.message).font(.caption).lineLimit(2)
-                        Text(Self.describe(trigger)).font(.system(size: 9)).foregroundStyle(.secondary)
+                        Text(Self.describe(trigger)).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button {
@@ -164,13 +159,13 @@ struct ProactivePanel: View {
             Text("Recent activity").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
             let recent = Array(proactive.activity.suffix(10).reversed())
             if recent.isEmpty {
-                Text("Ivy hasn't spoken first yet.").font(.caption).foregroundStyle(.tertiary)
+                Text("Ivy hasn't spoken first yet.").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(recent) { entry in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(entry.message).font(.caption).lineLimit(2)
                     Text("\(entry.date.formatted(date: .abbreviated, time: .shortened)) · \(Self.outcome(entry.outcome)) · \(entry.reason)")
-                        .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
         }

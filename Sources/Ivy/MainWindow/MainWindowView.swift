@@ -22,6 +22,7 @@ struct MainWindowView: View {
                          proactive: proactive, attachments: attachments, tasks: tasks)
         }
         .navigationSplitViewStyle(.balanced)
+        .tint(IvyTheme.leaf)
         .frame(minWidth: 560, minHeight: 480)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -96,7 +97,7 @@ struct ChatPaneView: View {
             .frame(maxWidth: 800)
             .frame(maxWidth: .infinity)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(IvyTheme.canvas)
         .navigationTitle(brain.messages.isEmpty ? "New conversation" : brain.currentConversation.displayTitle)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -231,6 +232,8 @@ struct ChatPaneView: View {
                 .resizable()
                 .frame(width: 48, height: 48)
                 .foregroundStyle(IvyTheme.moss)
+                .padding(18)
+                .background(IvyTheme.sprout, in: RoundedRectangle(cornerRadius: 22))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 10) {
                 Text(brain.isGeminiKeyConfigured ? "What are we working on?" : "Make yourself at home.")
@@ -355,7 +358,7 @@ struct MessageRowView: View {
                     .font(.body)
                     .textSelection(.enabled)
                     .padding(14)
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+                    .background(IvyTheme.sprout, in: RoundedRectangle(cornerRadius: 16))
                 }
                 if !message.attachments.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {

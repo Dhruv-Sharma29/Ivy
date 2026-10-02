@@ -17,30 +17,36 @@ struct PersonalizationPanel: View {
     @State private var savedText: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Personalization")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.secondary)
+        SettingsCard(title: "Personality & preferences", symbol: "person.crop.circle") {
+        VStack(alignment: .leading, spacing: 18) {
 
-            Picker("Sass", selection: Binding(get: { model.profile.sass }, set: { model.setSass($0) })) {
+            SettingsControlRow(title: "Personality") {
+            Picker("Personality", selection: Binding(get: { model.profile.sass }, set: { model.setSass($0) })) {
                 Text("Polite").tag(0)
                 Text("Light").tag(1)
                 Text("Ivy").tag(2)
                 Text("Roast").tag(3)
             }
             .pickerStyle(.segmented)
-            .controlSize(.small)
+            .labelsHidden()
+            .controlSize(.regular)
+            .fixedSize(horizontal: true, vertical: false)
+            }
 
-            Picker("Answers", selection: Binding(get: { model.profile.responseLength }, set: { model.setResponseLength($0) })) {
+            SettingsControlRow(title: "Answer length") {
+            Picker("Answer length", selection: Binding(get: { model.profile.responseLength }, set: { model.setResponseLength($0) })) {
                 Text("Brief").tag(PersonalizationProfile.ResponseLength.brief)
                 Text("Balanced").tag(PersonalizationProfile.ResponseLength.balanced)
                 Text("Detailed").tag(PersonalizationProfile.ResponseLength.detailed)
             }
             .pickerStyle(.segmented)
-            .controlSize(.small)
+            .labelsHidden()
+            .controlSize(.regular)
+            .fixedSize(horizontal: true, vertical: false)
+            }
 
-            Toggle("Occasional emoji", isOn: Binding(get: { model.profile.useEmoji }, set: { model.setUseEmoji($0) }))
-                .toggleStyle(.checkbox)
+            SettingsToggle(title: "Occasional emoji", isOn: Binding(get: { model.profile.useEmoji }, set: { model.setUseEmoji($0) }))
+            Divider()
 
             DisclosureGroup("About you") {
                 ForEach(PersonalizationProfile.AboutField.allCases, id: \.self) { field in
@@ -50,7 +56,7 @@ struct PersonalizationPanel: View {
                 }
                 Button("Save", action: saveAbout).controlSize(.small)
                 Text("No addresses, ID numbers or passwords: Ivy refuses to store them.")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             DisclosureGroup("Favourite apps") {
@@ -69,7 +75,7 @@ struct PersonalizationPanel: View {
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
                 HStack {
                     Text("\(instructions.count)/\(PersonalizationProfile.maxCustomInstructions)")
-                        .font(.caption).foregroundStyle(.tertiary)
+                        .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Save", action: saveInstructions).controlSize(.small)
                 }
@@ -92,7 +98,7 @@ struct PersonalizationPanel: View {
                     Button("Add", action: addShortcut).controlSize(.small)
                 }
                 Text("Type the shortcut as a message to send its text. It never approves anything for you.")
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             DisclosureGroup("What Ivy remembers (\(model.profile.learnedPreferences.count))") {
@@ -134,7 +140,8 @@ struct PersonalizationPanel: View {
                 Text(notice).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             Text("Changes apply to chat now and to Ivy Live from the next launch.")
-                .font(.caption).foregroundStyle(.tertiary)
+                .font(.caption).foregroundStyle(.secondary)
+        }
         }
         .font(.body)
         .onAppear(perform: loadDrafts)

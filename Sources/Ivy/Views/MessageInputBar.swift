@@ -82,11 +82,12 @@ public struct MessageInputBar: View {
                 .accessibilityIdentifier("ivy.send")
             }
         }
+        .tint(IvyTheme.leaf)
         .padding(14)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+        .background(IvyTheme.surface, in: RoundedRectangle(cornerRadius: 16))
         .overlay {
             RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(isFocused ? Color.accentColor.opacity(0.7) : Color(nsColor: .separatorColor), lineWidth: 1)
+                .strokeBorder(isFocused ? IvyTheme.leaf : Color(nsColor: .separatorColor), lineWidth: 1)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
