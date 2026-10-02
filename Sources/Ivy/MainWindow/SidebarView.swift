@@ -31,6 +31,20 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(nsImage: IvyLogoImage.template)
+                    .renderingMode(.template)
+                    .resizable()
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(IvyTheme.moss)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ivy").font(.headline)
+                    Text("Your Mac assistant").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(16)
             List(selection: selection) {
                 if isSearching {
                     let hits = library.search(query)
@@ -46,16 +60,15 @@ struct SidebarView: View {
                 } else {
                     let groups = ConversationGroup.group(library.entries)
                     if groups.isEmpty {
-                        Text("No conversations yet. Say something.")
-                            .font(.system(size: 12))
+                        Text("Your conversations will appear here.")
+                            .font(.callout)
                             .foregroundStyle(.secondary)
                     }
                     ForEach(groups) { group in
                         Section(group.section.title) {
                             ForEach(group.entries) { entry in
-                                row(title: entry.title, detail: entry.preview, date: entry.updatedAt, pinned: entry.isPinned)
+                                conversationRow(entry)
                                     .tag(entry.id)
-                                    .contextMenu { menu(for: entry) }
                             }
                         }
                     }
@@ -66,9 +79,8 @@ struct SidebarView: View {
                                 Text("Nothing archived.").foregroundStyle(.secondary)
                             }
                             ForEach(archived) { entry in
-                                row(title: entry.title, detail: entry.preview, date: entry.updatedAt, pinned: false)
+                                conversationRow(entry)
                                     .tag(entry.id)
-                                    .contextMenu { menu(for: entry) }
                             }
                         }
                     }
@@ -78,27 +90,32 @@ struct SidebarView: View {
             .searchable(text: $query, placement: .sidebar, prompt: "Search conversations")
 
             Divider()
-            HStack {
-                Button {
-                    library.newConversation()
-                } label: {
-                    Label("New Chat", systemImage: "square.and.pencil")
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    WorkspaceMenu(workspaces: workspaces, tasks: tasks)
+                    Spacer(minLength: 0)
                 }
-                .keyboardShortcut("n", modifiers: [.command])
-                .help("New conversation (⌘N)")
-                Spacer()
-                WorkspaceMenu(workspaces: workspaces, tasks: tasks)
-                Toggle("Archived", isOn: $showArchived)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 11))
+                HStack {
+                    Toggle(isOn: $showArchived) { Label("Archived", systemImage: "archivebox") }
+                        .toggleStyle(.checkbox)
+                    Spacer()
+                    SettingsLink { Image(systemName: "gearshape").frame(width: 28, height: 28) }
+                        .buttonStyle(.borderless)
+                        .help("Settings (⌘,)")
+                        .accessibilityLabel("Settings")
+                }
+                .font(.callout)
             }
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(12)
         }
         .onAppear { library.refresh() }
         // A turn just saved: its title, preview and position in the list may have changed.
         .onChange(of: brain.messages.count) { library.refresh() }
+        .alert("Conversation Could Not Be Updated", isPresented: Binding(
+            get: { library.lastError != nil }, set: { if !$0 { library.dismissError() } }
+        )) {
+            Button("OK", role: .cancel) { library.dismissError() }
+        } message: { Text(library.lastError ?? "") }
         .alert("Rename Conversation", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Title", text: $newTitle)
             Button("Rename") {
@@ -123,25 +140,35 @@ struct SidebarView: View {
         }
     }
 
+    private func conversationRow(_ entry: ConversationSummary) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            row(title: entry.title, detail: entry.preview, date: entry.updatedAt, pinned: entry.isPinned)
+            Menu { menu(for: entry) } label: {
+                Image(systemName: "ellipsis").frame(width: 28, height: 28)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel("Actions for \(entry.title)")
+        }
+        .contextMenu { menu(for: entry) }
+    }
+
     private func row(title: String, detail: String, date: Date, pinned: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                if pinned {
-                    Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.secondary)
-                }
-                Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                Spacer(minLength: 4)
-                Text(date.formatted(.relative(presentation: .named)))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                if pinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
+                Text(title).font(.body.weight(.medium)).lineLimit(1)
             }
             if !detail.isEmpty {
-                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
         }
-        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(pinned ? "Pinned. " : "")\(title)")
+        .help(date.formatted(date: .abbreviated, time: .shortened))
     }
 
     @ViewBuilder

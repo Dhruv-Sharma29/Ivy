@@ -19,7 +19,7 @@ struct Phase6BundleConfigurationTests {
 
         #expect(info["CFBundleIdentifier"] as? String == "com.ivy.assistant")
         #expect(info["CFBundleExecutable"] as? String == "Ivy")
-        #expect(info["LSUIElement"] as? Bool == true)
+        #expect(info["LSUIElement"] as? Bool == false)
 
         let micDesc = try #require(info["NSMicrophoneUsageDescription"] as? String)
         #expect(!micDesc.isEmpty && micDesc.contains("microphone"))
@@ -87,7 +87,7 @@ struct Phase6BundleConfigurationTests {
 
         #expect(info["CFBundleIdentifier"] as? String == "com.ivy.assistant")
         #expect(info["CFBundleExecutable"] as? String == "Ivy")
-        #expect(info["LSUIElement"] as? Bool == true)
+        #expect(info["LSUIElement"] as? Bool == false)
     }
 
     @Test("SystemWakeWordDetector handles non-app or test environment without crashing")

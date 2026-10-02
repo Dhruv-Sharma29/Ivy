@@ -11,7 +11,7 @@ struct AttachmentBar: View {
         VStack(alignment: .leading, spacing: 6) {
             if let error = tray.lastError {
                 HStack {
-                    Text(error).font(.system(size: 11)).foregroundStyle(.orange)
+                    Text(error).font(.callout).foregroundStyle(.primary)
                     Spacer()
                     Button("Dismiss") { tray.dismissError() }.buttonStyle(.plain).font(.system(size: 11))
                 }
@@ -24,10 +24,11 @@ struct AttachmentBar: View {
                     Divider()
                     Button("Image or PDF…", action: pickFile)
                 } label: {
-                    Image(systemName: "paperclip")
+                    Label("Attach", systemImage: "paperclip")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .frame(minHeight: 28)
                 .help("Show Ivy your screen, an image or a PDF")
                 .accessibilityLabel("Attach")
 

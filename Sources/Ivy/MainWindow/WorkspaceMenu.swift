@@ -40,10 +40,12 @@ struct WorkspaceMenu: View {
             }
         } label: {
             Label(workspaces.active?.name ?? "No workspace", systemImage: "folder")
-                .font(.system(size: 11))
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
+        .frame(maxWidth: .infinity, alignment: .leading)
         .help(workspaces.context ?? "Pick the project Ivy's git, build and test tools work in")
         .sheet(item: $editing) { workspace in
             WorkspaceCommandsSheet(workspaces: workspaces, workspace: workspace)

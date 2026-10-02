@@ -114,7 +114,7 @@ public final class IvyAppEnvironment {
         brain.collectStorageNotices()
         self.brain = brain
         self.library = ConversationLibrary(store: conversationStore, brain: brain)
-        let router = AppRouter(alwaysShowInDock: settings.settings.alwaysShowInDock)
+        let router = AppRouter()
         self.router = router
         // An existing install (a key, or saved conversations) never gets the first-run introduction.
         if !settings.settings.onboardingCompleted,
@@ -239,7 +239,6 @@ public final class IvyAppEnvironment {
                 }
             }
             ttsVoice.withLock { $0 = new.ttsVoiceSettings }
-            router.setAlwaysShowInDock(new.alwaysShowInDock)
             liveCoordinator?.loneIvyInterrupts = new.loneIvyBargeIn
             if !new.pauseWakeWordWhenLocked {
                 wakeWord?.setSuspended(false, reason: "lock")

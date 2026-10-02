@@ -10,7 +10,7 @@ Ivy is distributed as a signed, notarized macOS application bundle with **Harden
 
 - **Target OS**: macOS 14.0 (Sonoma) and later (Apple Silicon & Intel)
 - **Bundle Identifier**: `com.ivy.assistant`
-- **Application Type**: Menu bar assistant (`LSUIElement = true`)
+- **Application Type**: Desktop assistant (`LSUIElement = false`)
 - **Distribution Format**: Mountable Disk Image (`Ivy-<version>.dmg`) containing `Ivy.app` and `/Applications` symlink
 - **Security Profile**: Developer ID Application with Hardened Runtime (`--options runtime`) and Apple Notarization ticket stapled
 

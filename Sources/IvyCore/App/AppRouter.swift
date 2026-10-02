@@ -3,58 +3,32 @@ import Combine
 
 /// Whether Ivy shows in the Dock and ⌘-Tab. Mirrors `NSApplication.ActivationPolicy` without importing AppKit.
 public enum AppPresence: Equatable, Sendable {
-    /// Menu-bar only (what `LSUIElement` gives Ivy.app at launch).
+    /// Reserved for accessory panels; Ivy itself is a regular desktop app.
     case accessory
     /// A normal app: Dock icon, ⌘-Tab, menu bar.
     case regular
 }
 
 /// Where the user is in the app: which conversation the main window shows, and whether that window is open.
-/// The single owner of the Dock decision, so window open/close can't leave the policy flickering or stuck.
+/// Closing a window keeps Ivy in the Dock, so it can be reopened like any other Mac app.
 @MainActor
 public final class AppRouter: ObservableObject {
     /// The conversation the main window's sidebar has selected (nil = the brain's active conversation).
     @Published public var selectedConversationID: UUID?
-    @Published public private(set) var presence: AppPresence = .accessory
+    public let presence: AppPresence = .regular
 
     private var openMainWindows = 0
-    private var alwaysShowInDock: Bool
-    /// Applies the policy to the real app (AppKit lives in the app target).
-    public var applyPresence: ((AppPresence) -> Void)?
-
-    public init(alwaysShowInDock: Bool = false) {
-        self.alwaysShowInDock = alwaysShowInDock
-        presence = Self.presence(openWindows: 0, alwaysShowInDock: alwaysShowInDock)
-    }
-
-    /// The Dock icon appears while a main window is open (or always, if the user asked) and goes away after.
-    public static func presence(openWindows: Int, alwaysShowInDock: Bool) -> AppPresence {
-        openWindows > 0 || alwaysShowInDock ? .regular : .accessory
-    }
+    public init() {}
 
     public func mainWindowDidOpen() {
         openMainWindows += 1
-        update()
     }
 
     public func mainWindowDidClose() {
         openMainWindows = max(0, openMainWindows - 1)
-        update()
     }
 
     public var isMainWindowOpen: Bool { openMainWindows > 0 }
-
-    public func setAlwaysShowInDock(_ on: Bool) {
-        alwaysShowInDock = on
-        update()
-    }
-
-    private func update() {
-        let next = Self.presence(openWindows: openMainWindows, alwaysShowInDock: alwaysShowInDock)
-        guard next != presence else { return }
-        presence = next
-        applyPresence?(next)
-    }
 
     // MARK: - Deep links
 

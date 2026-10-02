@@ -1,9 +1,9 @@
 # Spec: Ivy — Native macOS Assistant
 
 ## Objective
-Ivy is a lightweight, responsive native macOS menu bar assistant built in Swift and SwiftUI, powered by Google's Gemini 3.8 Flash REST API (without the Google GenAI SDK). Ivy has a distinctive persona: sharp, sarcastic, witty, and impatient with vagueness, but reliably effective. Ivy pairs conversational AI with local macOS system automation (AppleScript, shell, application control, calendar, file management), backed by an uncompromising in-character confirmation gate for risky/destructive actions.
+Ivy is a lightweight, responsive native macOS desktop assistant built in Swift and SwiftUI, powered by Google's Gemini 3.8 Flash REST API (without the Google GenAI SDK). Ivy has a distinctive persona: sharp, sarcastic, witty, and impatient with vagueness, but reliably effective. Ivy pairs conversational AI with local macOS system automation (AppleScript, shell, application control, calendar, file management), backed by an uncompromising in-character confirmation gate for risky/destructive actions.
 
-The initiative is built incrementally across 7 phases, starting strictly with **Phase 1: Core text-only menu bar chat loop**.
+The initiative is built incrementally across 7 phases, starting strictly with **Phase 1: Core text-only chat loop**.
 
 ---
 
@@ -44,7 +44,7 @@ Ivy uses a Unidirectional Data Flow (UDF) clean architecture designed around Swi
 ```
 ┌────────────────────────────────────────────────────────┐
 │                      UI Layer                          │
-│   IvyApp (MenuBarExtra) ──► IvyPopoverView             │
+│   IvyApp (Window)       ──► MainWindowView             │
 │                                 │                      │
 │                                 ▼                      │
 │                   @StateObject / @Observable           │
@@ -90,7 +90,7 @@ Ivy/
 │   └── todo.md                       # Discrete, verifiable task list
 ├── Sources/
 │   ├── Ivy/                          # Application Entry Point & UI
-│   │   ├── IvyApp.swift              # @main SwiftUI App + MenuBarExtra(.window)
+│   │   ├── IvyApp.swift              # @main SwiftUI Window + menu shortcut + Settings
 │   │   ├── Views/
 │   │   │   ├── IvyPopoverView.swift  # Main popover container view
 │   │   │   ├── ChatMessageListView.swift # Scrollable message bubbles
@@ -98,7 +98,7 @@ Ivy/
 │   │   │   ├── MessageInputBar.swift # TextEditor / TextField + Send action
 │   │   │   └── StatusIndicatorView.swift # Idle / Thinking / Error indicator
 │   │   └── Resources/
-│   │       └── Info.plist            # LSUIElement=true (accessory/menu bar app)
+│   │       └── Info.plist            # LSUIElement=false (desktop app)
 │   │
 │   └── IvyCore/                      # Domain logic, API client, Brain state
 │       ├── Models/
@@ -265,38 +265,29 @@ public protocol GeminiClientProtocol: Sendable {
 
 ## 5. UI Architecture
 
-### Menu Bar Window (`Ivy/IvyApp.swift`)
-```swift
-import SwiftUI
-import IvyCore
+### Desktop app shell (revised 2026-10-02)
+- Ivy launches into a native SwiftUI `Window("Ivy", id: "main")`, with Dock and Command-Tab presence.
+- Closing the main window leaves the app in the Dock; clicking the Dock icon or choosing Open Ivy reopens the same window.
+- Initial size: 1080 × 760 points; minimum content size: 560 × 480 points. Native title bar, window controls, unified toolbar, resizing and full-screen support.
+- `NavigationSplitView`: conversation sidebar and chat detail. The native sidebar toggle supports a compact chat layout.
+- Menu bar extra: a small shortcut menu for opening Ivy, starting a conversation, ending voice, Settings and Quit.
+- Standard File commands: New Conversation (Command-N) and Open Ivy (Command-O). Settings uses the native Settings scene (Command-comma).
 
-@main
-struct IvyApp: App {
-    @StateObject private var brain = IvyBrain()
+### Conversation interface
+- Semantic macOS colors and typography in light and dark appearances; green brand marks use the contrasting moss token.
+- Conversation sidebar: search, pinned/date groups, visible conversation action menus, archive access, workspace selection and Settings.
+- Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. User messages use neutral bubbles.
+- Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
+- Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
+- Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
+- Draft text is retained separately for each conversation while the main view is alive.
+- Conversation instructions use a multiline sheet and show validation failures in place.
+- Storage notices and voice failures are visible. Confirmation state is shared with the existing safety gate; the UI never auto-approves an action.
 
-    var body: some Scene {
-        MenuBarExtra("Ivy", systemImage: brain.statusIcon) {
-            IvyPopoverView(brain: brain)
-        }
-        .menuBarExtraStyle(.window)
-    }
-}
-```
-
-### Popover View Layout (`Ivy/Views/IvyPopoverView.swift`)
-- **Dimensions**: Fixed width (360pt), dynamic height (480pt–600pt).
-- **Header**:
-  - Title: "Ivy" (bold, semi-callout font)
-  - Status indicator: Subtle colored dot or animated symbol (Idle: Gray, Thinking: Amber pulse, Speaking: Blue)
-  - Clear / Reset conversation button
-- **Message List**:
-  - `ScrollViewReader` with auto-scroll to latest message on append.
-  - User bubbles: Right-aligned, primary accent background, white text.
-  - Ivy bubbles: Left-aligned, macOS system secondary background with sarcastic tone styling.
-- **Input Bar**:
-  - Multiline `TextField` or `TextEditor` with placeholder *"Ask Ivy... if you must"*.
-  - Keyboard shortcuts: `Return` to send, `Shift+Return` for newline.
-  - Send button (disabled when empty or while `isThinking == true`).
+### Settings
+- Native searchable sidebar with General, Voice, Personalization, Screen, Proactive, Privacy & Data, API Keys, Permissions and About.
+- Existing secure credential storage and on-demand permission behavior remain intact.
+- The old `alwaysShowInDock` preference is decoded for compatibility; it no longer controls desktop app presence.
 
 ---
 
@@ -352,7 +343,7 @@ Confirmation uses a native modal `NSAlert` or in-popover confirmation banner. If
 ## 9. Permissions & Entitlements (Phase 6+)
 
 ### Info.plist Keys:
-- `LSUIElement = YES`: Hides app from the macOS Dock; runs purely as an accessory in the status bar.
+- `LSUIElement = NO`: Runs as a regular Mac app with a Dock icon and a main window.
 - `NSAppleEventsUsageDescription`: "Ivy needs permission to automate macOS applications via AppleScript."
 - `NSMicrophoneUsageDescription`: "Ivy needs access to your microphone for push-to-talk voice commands."
 - `NSSpeechRecognitionUsageDescription`: "Ivy uses speech recognition to transcribe your voice."
@@ -395,8 +386,8 @@ Confirmation uses a native modal `NSAlert` or in-popover confirmation banner. If
 ## 12. Success Criteria for Phase 1 (Core Loop)
 - [ ] Swift Package compiles cleanly with `swift build -Xswiftc -strict-concurrency=complete`.
 - [ ] Unit tests pass via `swift test` with zero failures.
-- [ ] Ivy lives in the macOS menu bar with an icon (`sparkle`).
-- [ ] Clicking the icon reveals a polished popover with conversation history and input bar.
+- [ ] Ivy opens its main window at launch and remains in the Dock when that window closes.
+- [ ] The menu bar shortcut and Dock reopen the same main window.
 - [ ] User can enter an API key via UI or environment variable (`GEMINI_API_KEY`).
 - [ ] Sending a message sends the turn history + Ivy system prompt to `gemini-3.8-flash`.
 - [ ] Model responds in Ivy's distinctive sarcastic tone and appears in the chat scroll.

@@ -32,13 +32,13 @@ struct SettingsPanel: View {
             PermissionsSection(permissionManager: permissionManager, types: [.microphone, .speechRecognition, .calendar])
             HStack {
                 Text(IvyVersion.displayVersion)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(.tertiary)
                 Spacer()
                 SettingsLink { Text("All Settings…") }
-                    .font(.system(size: 11))
+                    .font(.body)
                 Button("Quit Ivy") { NSApp.terminate(nil) }
-                    .font(.system(size: 11))
+                    .font(.body)
             }
         }
         .padding(.horizontal, 14)
@@ -51,7 +51,7 @@ struct SettingsPanel: View {
 struct SectionHeading: View {
     let title: String
     var body: some View {
-        Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+        Text(title).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
     }
 }
 
@@ -64,7 +64,7 @@ struct KeysSection: View {
             CredentialRow(key: .geminiAPIKey, credentials: credentials, onChange: onChange)
             CredentialRow(key: .elevenLabsAPIKey, credentials: credentials, onChange: onChange)
             Text("Keys go straight to the macOS Keychain. Ivy never shows them again.")
-                .font(.system(size: 10)).foregroundStyle(.tertiary)
+                .font(.caption).foregroundStyle(.tertiary)
         }
     }
 }
@@ -73,14 +73,14 @@ struct HistorySettingsSection: View {
     @ObservedObject var settings: SettingsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             Toggle("Save conversation history", isOn: $settings.settings.persistConversationHistory)
             Toggle("Reopen last conversation on launch", isOn: $settings.settings.restoreLastConversation)
             Toggle("Name new conversations automatically (1 extra request each)", isOn: $settings.settings.autoTitleConversations)
             Toggle("Add voice sessions to the conversation as text", isOn: $settings.settings.saveVoiceTranscripts)
         }
         .toggleStyle(.checkbox)
-        .font(.system(size: 11))
+        .font(.body)
     }
 }
 
@@ -88,8 +88,7 @@ struct GeneralSettingsSection: View {
     @ObservedObject var settings: SettingsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Toggle("Always show Ivy in the Dock", isOn: $settings.settings.alwaysShowInDock)
+        VStack(alignment: .leading, spacing: 8) {
             Toggle("Show Ivy on screen while it listens, talks or works", isOn: $settings.settings.companionEnabled)
             Toggle("Keep Ivy on screen when idle", isOn: $settings.settings.companionShowWhileIdle)
                 .disabled(!settings.settings.companionEnabled)
@@ -97,7 +96,7 @@ struct GeneralSettingsSection: View {
             Toggle("Command bar shortcut \u{2303}\u{2325}\u{2318}K (next launch)", isOn: $settings.settings.commandBarHotkeyEnabled)
         }
         .toggleStyle(.checkbox)
-        .font(.system(size: 11))
+        .font(.body)
     }
 }
 
@@ -108,7 +107,7 @@ struct VoiceSettingsSection: View {
     var onPreviewVoice: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 10) {
             SectionHeading(title: "Voice")
             Group {
                 Toggle("Show live transcript", isOn: $settings.settings.showLiveTranscript)
@@ -119,7 +118,7 @@ struct VoiceSettingsSection: View {
             .toggleStyle(.checkbox)
             if let wakeStatus {
                 Text(wakeStatus.text)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(wakeStatus.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -130,7 +129,7 @@ struct VoiceSettingsSection: View {
             choice("Speaking pace", $settings.settings.voiceSpeakingPace,
                    [(.slow, "Slow"), (.normal, "Normal"), (.fast, "Fast")])
             Text("Ivy Live voice options apply from the next launch.")
-                .font(.system(size: 10))
+                .font(.caption)
                 .foregroundStyle(.tertiary)
 
             slider("Read-aloud speed", $settings.settings.ttsSpeed, ElevenLabsVoiceSettings.speedRange)
@@ -138,10 +137,10 @@ struct VoiceSettingsSection: View {
             slider("Style", $settings.settings.ttsStyle, 0...1)
             if let onPreviewVoice {
                 Button("Preview read-aloud voice", action: onPreviewVoice)
-                    .font(.system(size: 11))
+                    .font(.body)
             }
         }
-        .font(.system(size: 11))
+        .font(.body)
     }
 
     private func choice<Value: Hashable>(_ label: String, _ value: Binding<Value>, _ options: [(Value, String)]) -> some View {
@@ -181,7 +180,7 @@ struct VisionSettingsSection: View {
     @ObservedObject var settings: SettingsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             SectionHeading(title: "Screen & images")
             Toggle("\u{201C}What am I looking at?\u{201D} shortcut \u{2303}\u{2325}\u{2318}S (next launch)", isOn: $settings.settings.screenHelpHotkeyEnabled)
             Toggle("Send text only, never pixels", isOn: $settings.settings.visionTextOnly)
@@ -193,10 +192,10 @@ struct VisionSettingsSection: View {
             ))
             .textFieldStyle(.roundedBorder)
             Text("Text is read on this Mac. Images are never saved; history keeps a placeholder.")
-                .font(.system(size: 10)).foregroundStyle(.tertiary)
+                .font(.caption).foregroundStyle(.tertiary)
         }
         .toggleStyle(.checkbox)
-        .font(.system(size: 11))
+        .font(.body)
     }
 }
 
@@ -207,7 +206,7 @@ struct PermissionsSection: View {
     @State private var refresh = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 SectionHeading(title: "Permissions")
                 Spacer()
@@ -216,7 +215,7 @@ struct PermissionsSection: View {
                         NSWorkspace.shared.open(url)
                     }
                 }
-                .font(.system(size: 10))
+                .font(.caption)
                 .buttonStyle(.link)
             }
             ForEach(types, id: \.self) { type in
@@ -237,7 +236,7 @@ struct PermissionRow: View {
     var body: some View {
         HStack {
             Text(type.displayName)
-                .font(.system(size: 10))
+                .font(.caption)
             Spacer()
             if state == .denied || state == .restricted, let url = type.settingsURL {
                 Button("Open Settings") { NSWorkspace.shared.open(url) }
@@ -278,10 +277,10 @@ struct CredentialRow: View {
     @State private var errorText: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(key.displayName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 statusLabel
@@ -297,10 +296,10 @@ struct CredentialRow: View {
                     Button("Remove", role: .destructive, action: remove)
                 }
             }
-            .font(.system(size: 11))
+            .font(.body)
             if let errorText {
                 Text(errorText)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(.red)
             }
         }
@@ -312,17 +311,17 @@ struct CredentialRow: View {
         switch source {
         case .keychain:
             Label("Saved in Keychain", systemImage: "lock.fill").foregroundStyle(.green)
-                .font(.system(size: 10))
+                .font(.caption)
         case .environment:
             Label("From environment", systemImage: "terminal").foregroundStyle(.orange)
-                .font(.system(size: 10))
+                .font(.caption)
         case .missing:
             Label("Not set", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                .font(.system(size: 10))
+                .font(.caption)
         case .keychainInaccessible:
             Label("Keychain access denied. Paste the key again to fix", systemImage: "lock.trianglebadge.exclamationmark")
                 .foregroundStyle(.red)
-                .font(.system(size: 10))
+                .font(.caption)
         }
     }
 

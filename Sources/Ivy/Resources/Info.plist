@@ -19,7 +19,7 @@
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 Dhruv Sharma. All rights reserved.</string>
     <key>LSUIElement</key>
-    <true/>
+    <false/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Ivy needs access to your microphone for live voice conversations.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

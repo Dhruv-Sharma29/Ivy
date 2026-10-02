@@ -72,7 +72,7 @@ private struct CodeBlockView<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(label)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button(copied ? "Copied" : "Copy") {
@@ -80,9 +80,10 @@ private struct CodeBlockView<Content: View>: View {
                     NSPasteboard.general.setString(text, forType: .string)
                     copied = true
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(IvyTheme.leaf)
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.medium))
+                .frame(minHeight: 28)
+                .foregroundStyle(IvyTheme.moss)
                 .accessibilityLabel("Copy \(label)")
             }
             .padding(.horizontal, 10)

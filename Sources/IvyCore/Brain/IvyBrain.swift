@@ -130,7 +130,7 @@ public final class IvyBrain: ObservableObject {
 
         refreshCredentialStatus()
         guard let trimmedKey = credentials.credential(for: .geminiAPIKey) else {
-            let errorText = "I need a Gemini API key to work. Enter it in settings above so I can stop staring at you blankly."
+            let errorText = "I need a Gemini API key to reply. Open Settings → API Keys, add it, then try again."
             messages.append(ChatMessage(role: .model, text: errorText, isError: true))
             errorMessage = "API key missing"
             return

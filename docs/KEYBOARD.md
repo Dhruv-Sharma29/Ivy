@@ -9,26 +9,26 @@
 
 Global shortcuts avoid ⌘⇧S and ⌘K on purpose: as global hotkeys they would stop working in every other app.
 
-## Menu-bar popover
+## Menu bar shortcut
 | Keys | Does |
 |---|---|
-| Return / ⇧Return | Send / new line |
-| ⌘O | Open Ivy's window |
-| ⌘F | Conversations list |
-| ⌘N | New conversation (in the list) |
-| ⌘, | Settings panel |
+| ⌘O | Open Ivy's main window |
+| ⌘, | Open the native Settings window |
+| ⌘Q | Quit Ivy |
 
 ## Main window
 | Keys | Does |
 |---|---|
 | Return / ⇧Return | Send / new line (`/agent <goal>` plans a task; `/shortcut` expands yours) |
 | ⌘N | New conversation |
-| ⌃⌘S | Show / hide the conversation sidebar (compact mode) |
+| ⌘O | Open or bring forward the main window |
+| ⌘F | Search conversations |
+| Sidebar toolbar button | Show / hide conversations for a compact chat layout |
 | ⌘. | Stop the running task |
 | ⌘V / drop | Attach images or PDFs |
 | ⌘, | Settings window |
 
-## Approval cards (popover and window)
+## Approval cards
 | Keys | Does |
 |---|---|
 | ⌘Return | Approve ("Do it") — never plain Return, so a stray keypress can't approve |

@@ -3,66 +3,42 @@ import SwiftUI
 import Combine
 import IvyCore
 
-/// Owns Ivy's main window. AppKit-managed so it opens only on request (a SwiftUI `Window` scene would open at
-/// launch on macOS 14) and so opening/closing it drives the Dock icon through `AppRouter`.
+/// Routes hotkeys, the companion and notifications to the same native SwiftUI window.
 @MainActor
-final class MainWindowController: NSObject, NSWindowDelegate {
+final class MainWindowController {
     static var shared: MainWindowController?
-
-    private let router: AppRouter
-    private let makeRoot: () -> AnyView
-    private var window: NSWindow?
+    var openWindow: (() -> Void)?
     private var promptSubscription: AnyCancellable?
 
-    init(router: AppRouter, proactive: ProactiveEngine, makeRoot: @escaping () -> AnyView) {
-        self.router = router
-        self.makeRoot = makeRoot
-        super.init()
-        router.applyPresence = { presence in
-            NSApp.setActivationPolicy(presence == .regular ? .regular : .accessory)
-        }
-        if router.presence == .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
-        // Opening a proactive notification that carries a suggestion brings the window up to show it.
+    init(proactive: ProactiveEngine) {
         promptSubscription = proactive.$pendingPrompt
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.show() }
     }
 
-    var isVisible: Bool { window?.isVisible ?? false }
-
     func show() {
-        let window = self.window ?? makeWindow()
-        if !window.isVisible {
-            router.mainWindowDidOpen()
-        }
-        window.makeKeyAndOrderFront(nil)
+        openWindow?()
         NSApp.activate()
     }
+}
 
-    private func makeWindow() -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 960, height: 660),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
+/// Installs the scene's native open action for routes that originate outside SwiftUI.
+struct IvyWindowRoot: View {
+    let environment: IvyAppEnvironment
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        MainWindowView(
+            brain: environment.brain, library: environment.library,
+            voiceManager: environment.voiceManager, liveVoiceCoordinator: environment.liveCoordinator,
+            proactive: environment.proactive, attachments: environment.attachments,
+            tasks: environment.tasks, workspaces: environment.workspaces
         )
-        window.title = "Ivy"
-        window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: makeRoot())
-        window.minSize = NSSize(width: 420, height: 420)
-        if !window.setFrameUsingName("IvyMainWindow") {
-            window.center()
+        .onAppear {
+            MainWindowController.shared?.openWindow = { openWindow(id: "main") }
+            environment.router.mainWindowDidOpen()
         }
-        window.setFrameAutosaveName("IvyMainWindow")
-        window.delegate = self
-        self.window = window
-        return window
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        router.mainWindowDidClose()
+        .onDisappear { environment.router.mainWindowDidClose() }
     }
 }

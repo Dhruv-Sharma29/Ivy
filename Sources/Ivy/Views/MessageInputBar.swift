@@ -4,82 +4,91 @@ public struct MessageInputBar: View {
     @Binding public var text: String
     public let isThinking: Bool
     public let isVoiceActive: Bool
+    public let hasAttachments: Bool
     public let onToggleVoice: (() -> Void)?
     public let onSend: () -> Void
+    @FocusState private var isFocused: Bool
 
     public init(
-        text: Binding<String>,
-        isThinking: Bool,
-        isVoiceActive: Bool = false,
-        onToggleVoice: (() -> Void)? = nil,
+        text: Binding<String>, isThinking: Bool, isVoiceActive: Bool = false,
+        hasAttachments: Bool = false, onToggleVoice: (() -> Void)? = nil,
         onSend: @escaping () -> Void
     ) {
         self._text = text
         self.isThinking = isThinking
         self.isVoiceActive = isVoiceActive
+        self.hasAttachments = hasAttachments
         self.onToggleVoice = onToggleVoice
         self.onSend = onSend
     }
 
-    private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isThinking
+    var canSend: Bool {
+        (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasAttachments) && !isThinking
+    }
+
+    var canToggleVoice: Bool { isVoiceActive || !isThinking }
+
+    func submit() {
+        guard canSend else { return }
+        onSend()
+    }
+
+    func handleReturn(shiftPressed: Bool) -> KeyPress.Result {
+        guard !shiftPressed else { return .ignored }
+        submit()
+        return .handled
     }
 
     public var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if let onToggleVoice {
-                Button {
-                    onToggleVoice()
-                } label: {
-                    Image(systemName: isVoiceActive ? "mic.fill" : "mic")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(isVoiceActive ? Color.red : Color.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(isVoiceActive ? Color.red.opacity(0.15) : Color.secondary.opacity(0.1))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help(isVoiceActive ? "Stop Ivy Live" : "Start Ivy Live")
-                .accessibilityLabel(isVoiceActive ? "Stop voice session" : "Start voice session")
-                .disabled(isThinking)
-                .padding(.bottom, 2)
-            }
-
-            TextField("Ask Ivy... if you must", text: $text, axis: .vertical)
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Message Ivy…", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
-                .lineLimit(1...5)
-                .font(.system(size: 13))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
-                )
-                .onSubmit {
-                    if canSend {
-                        onSend()
-                    }
+                .font(.body)
+                .lineLimit(2...7)
+                .focused($isFocused)
+                .accessibilityLabel("Message Ivy")
+                .accessibilityIdentifier("ivy.composer")
+                .onSubmit(submit)
+                .onKeyPress(keys: [.return], phases: .down) { press in
+                    handleReturn(shiftPressed: press.modifiers.contains(.shift))
                 }
 
-            Button {
-                if canSend {
-                    onSend()
+            HStack(spacing: 10) {
+                if let onToggleVoice {
+                    Button(action: onToggleVoice) {
+                        Label(isVoiceActive ? "End Voice" : "Voice", systemImage: isVoiceActive ? "stop.circle" : "waveform")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .disabled(!canToggleVoice)
+                    .help(isVoiceActive ? "End the live voice session" : "Start a live voice conversation")
+                    .accessibilityIdentifier("ivy.voice")
                 }
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .resizable()
-                    .frame(width: 26, height: 26)
-                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
+                Spacer(minLength: 0)
+                Text("⇧ Return for a new line")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Button(action: submit) {
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(!canSend)
+                .help("Send message (Return)")
+                .accessibilityLabel("Send message")
+                .accessibilityIdentifier("ivy.send")
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .padding(.bottom, 2)
-            .accessibilityLabel("Send message")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(14)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(isFocused ? Color.accentColor.opacity(0.7) : Color(nsColor: .separatorColor), lineWidth: 1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }

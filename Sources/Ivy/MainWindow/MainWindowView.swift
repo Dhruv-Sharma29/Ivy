@@ -2,8 +2,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import IvyCore
 
-/// Ivy's main window: conversation sidebar + chat. Same brain, library and voice objects as the popover, so
-/// both always show the same conversation and the same (single) approval state.
 struct MainWindowView: View {
     @ObservedObject var brain: IvyBrain
     @ObservedObject var library: ConversationLibrary
@@ -18,17 +16,25 @@ struct MainWindowView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
             SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
+                .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
         } detail: {
-            ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator, proactive: proactive,
-                         attachments: attachments, tasks: tasks, columns: $columns)
+            ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator,
+                         proactive: proactive, attachments: attachments, tasks: tasks)
         }
-        // Compact mode: narrow the window (down to 420 pt) and hide the sidebar.
-        .frame(minWidth: 420, minHeight: 420)
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 560, minHeight: 480)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { library.newConversation() } label: {
+                    Label("New Conversation", systemImage: "square.and.pencil")
+                }
+                .help("New conversation (⌘N)")
+            }
+        }
+        .accessibilityIdentifier("ivy.mainWindow")
     }
 }
 
-/// The conversation itself: header, messages as blocks, the approval card when one is pending, and the composer.
 struct ChatPaneView: View {
     @ObservedObject var brain: IvyBrain
     @ObservedObject var voiceManager: VoicePlaybackManager
@@ -36,185 +42,246 @@ struct ChatPaneView: View {
     @ObservedObject var proactive: ProactiveEngine
     @ObservedObject var attachments: AttachmentTray
     @ObservedObject var tasks: TaskEngine
-    @Binding var columns: NavigationSplitViewVisibility
     @State private var inputText = ""
+    @State private var drafts: [UUID: String] = [:]
     @State private var editingInstructions = false
     @State private var instructionsDraft = ""
     @State private var instructionsError: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var isBlocked: Bool {
+        brain.isThinking || brain.pendingConfirmation != nil || liveVoiceCoordinator.state.isLive
+            || tasks.run?.isActive == true || attachments.isWorking
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
             messages
-            Divider()
-            if let request = liveVoiceCoordinator.pendingConfirmation {
-                ConfirmationCardView(request: request) { approved in
-                    liveVoiceCoordinator.respondToPendingConfirmation(id: request.id, approved: approved)
+            VStack(spacing: 0) {
+                if let request = liveVoiceCoordinator.pendingConfirmation {
+                    ConfirmationCardView(request: request) { approved in
+                        liveVoiceCoordinator.respondToPendingConfirmation(id: request.id, approved: approved)
+                    }
+                    .id(request.id)
+                    .padding(.horizontal, 16)
+                } else if let request = brain.pendingConfirmation {
+                    ConfirmationCardView(request: request) { approved in
+                        brain.respondToPendingConfirmation(id: request.id, approved: approved)
+                    }
+                    .id(request.id)
+                    .padding(.horizontal, 16)
                 }
-                .padding(12)
-                Divider()
-            } else if let request = brain.pendingConfirmation {
-                ConfirmationCardView(request: request) { approved in
-                    brain.respondToPendingConfirmation(id: request.id, approved: approved)
+                if tasks.run != nil {
+                    ScrollView { TaskCardView(engine: tasks) }
+                        .frame(maxHeight: 200)
                 }
-                .padding(12)
-                Divider()
+                if case .error(let reason) = liveVoiceCoordinator.state {
+                    Label(reason, systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 16)
+                }
+                if liveVoiceCoordinator.state.isLive {
+                    Label("Voice session active. End voice to send a typed message.", systemImage: "waveform")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                }
+                AttachmentBar(tray: attachments)
+                MessageInputBar(text: $inputText, isThinking: isBlocked,
+                                isVoiceActive: liveVoiceCoordinator.state.isLive,
+                                hasAttachments: !attachments.attachments.isEmpty,
+                                onToggleVoice: toggleLive, onSend: send)
             }
-            TaskCardView(engine: tasks)
-            AttachmentBar(tray: attachments)
-            MessageInputBar(
-                text: $inputText,
-                isThinking: brain.isThinking || brain.pendingConfirmation != nil || liveVoiceCoordinator.state == .toolConfirmation,
-                isVoiceActive: liveVoiceCoordinator.state.isLive,
-                onToggleVoice: toggleLive
-            ) {
-                send()
-            }
+            .frame(maxWidth: 800)
+            .frame(maxWidth: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        // Dropped files and pasted images become attachments (images and PDFs only).
+        .navigationTitle(brain.messages.isEmpty ? "New conversation" : brain.currentConversation.displayTitle)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    if brain.isThinking { ProgressView().controlSize(.small) }
+                    Text(liveVoiceCoordinator.state.isLive ? "Voice session active" : (brain.isThinking ? "Thinking…" : "Ivy"))
+                        .font(.headline)
+                }
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    editingInstructions = true
+                } label: { Label("Chat Instructions", systemImage: "slider.horizontal.3") }
+                .help("Instructions for this conversation")
+                SettingsLink { Label("Settings", systemImage: "gearshape") }
+                    .help("Settings (⌘,)")
+            }
+        }
+        .sheet(isPresented: $editingInstructions) { instructionsSheet }
+        .focusedSceneValue(\.ivyChatInstructions, $editingInstructions)
+        .onChange(of: editingInstructions) {
+            if editingInstructions {
+                instructionsDraft = brain.currentConversation.systemContext ?? ""
+                instructionsError = nil
+            }
+        }
         .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
             accept(providers)
             return true
         }
-        .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg]) { providers in
-            accept(providers)
-        }
+        .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg], perform: accept)
         .onAppear(perform: takeSuggestedPrompt)
         .onChange(of: attachments.suggestedPrompt) { takeSuggestedPrompt() }
         .onChange(of: proactive.pendingPrompt) { takeSuggestedPrompt() }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Button {
-                withAnimation { columns = columns == .detailOnly ? .all : .detailOnly }
-            } label: {
-                Image(systemName: "sidebar.left")
-            }
-            .buttonStyle(.borderless)
-            .keyboardShortcut("s", modifiers: [.command, .control])
-            .help("Show or hide conversations (⌃⌘S)")
-            .accessibilityLabel(columns == .detailOnly ? "Show conversations" : "Hide conversations")
-            Text(brain.messages.isEmpty ? "New conversation" : brain.currentConversation.displayTitle)
-                .font(.system(size: 14, weight: .semibold))
-                .lineLimit(1)
-            if brain.isThinking {
-                ProgressView().controlSize(.small)
-            }
-            if let context = brain.currentConversation.systemContext, !context.isEmpty {
-                Label("Custom", systemImage: "text.badge.star")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(IvyTheme.moss)
-                    .help("This chat has its own instructions: \(context)")
-            }
-            Spacer()
-            Button {
-                instructionsDraft = brain.currentConversation.systemContext ?? ""
-                instructionsError = nil
-                editingInstructions = true
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-            }
-            .buttonStyle(.borderless)
-            .help("Instructions for this chat only")
-            .accessibilityLabel("Instructions for this chat")
-            if liveVoiceCoordinator.state.isLive {
-                Label(liveVoiceCoordinator.state == .toolConfirmation ? "Approve below" : "Ivy Live", systemImage: "waveform")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(IvyTheme.leaf)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .alert("Instructions for This Chat", isPresented: $editingInstructions) {
-            TextField("e.g. Answer in British English; I'm debugging Swift", text: $instructionsDraft)
-            Button("Save") { saveInstructions() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(instructionsError ?? "Added to Ivy's instructions in this conversation only. They can't change what Ivy may do.")
+        .onChange(of: brain.conversationID) { old, new in
+            drafts[old] = inputText
+            inputText = drafts[new] ?? ""
         }
     }
 
-    /// Same rules as custom instructions: sensitive-looking text is refused, length is capped.
+    var instructionsSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Chat instructions").font(.title2.weight(.semibold))
+            Text("Apply to this conversation only. Ivy's safety checks still apply.")
+                .foregroundStyle(.secondary)
+            TextEditor(text: $instructionsDraft)
+                .font(.body)
+                .frame(minHeight: 140)
+                .padding(8)
+                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel("Instructions for this conversation")
+            if let instructionsError {
+                Label(instructionsError, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { editingInstructions = false }
+                Button("Save", action: saveInstructions).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+    }
+
     private func saveInstructions() {
         let text = instructionsDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if let reason = SensitiveDataDetector.reason(text) {
-            instructionsError = "Not saved: this looks like \(reason)."
-            editingInstructions = true
+            instructionsError = "Remove the \(reason) before saving."
             return
         }
         let capped = String(text.prefix(PersonalizationProfile.maxCustomInstructions))
         brain.updateConversation { $0.systemContext = capped.isEmpty ? nil : capped }
+        editingInstructions = false
     }
 
     private var messages: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                if brain.messages.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(nsImage: IvyLogoImage.template)
-                            .renderingMode(.template)
-                            .resizable()
-                            .frame(width: 44, height: 44)
-                            .foregroundStyle(IvyTheme.leaf)
-                            .accessibilityHidden(true)
-                        Text("Ivy is ready.").font(IvyTheme.voiceFont)
-                        Text(brain.isGeminiKeyConfigured
-                             ? "Ask something. Make it interesting. Start with /agent for a multi-step task."
-                             : "Add your Gemini API key in the menu-bar settings first. I can't think without it.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 320)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(brain.messages) { message in
-                            MessageRowView(message: message, voiceManager: voiceManager)
-                                .id(message.id)
+                VStack(alignment: .leading, spacing: 24) {
+                    if let notice = brain.storageNotice {
+                        HStack(alignment: .top) {
+                            Label(notice, systemImage: "exclamationmark.triangle")
+                            Spacer()
+                            Button("Dismiss") { brain.dismissStorageNotice() }
                         }
-                        if brain.retryableMessage != nil {
-                            Button {
-                                Task { await brain.retryLastFailed() }
-                            } label: {
-                                Label("Try again", systemImage: "arrow.clockwise")
+                        .font(.callout)
+                        .padding(12)
+                        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    if brain.messages.isEmpty {
+                        emptyState
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 28) {
+                            ForEach(brain.messages) { message in
+                                MessageRowView(message: message, voiceManager: voiceManager)
+                                    .id(message.id)
                             }
-                            .buttonStyle(.bordered)
-                            .tint(IvyTheme.leaf)
-                            .help("Send the last message again")
-                        }
-                        if brain.isThinking && brain.pendingConfirmation == nil {
-                            Text("Ivy is formulating a sharp reply…")
-                                .font(.system(size: 12))
-                                .italic()
-                                .foregroundStyle(.secondary)
-                                .id("thinking")
+                            if brain.retryableMessage != nil {
+                                Button { Task { await brain.retryLastFailed() } } label: {
+                                    Label("Try Again", systemImage: "arrow.clockwise")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isBlocked)
+                            }
+                            if brain.isThinking && brain.pendingConfirmation == nil {
+                                HStack(spacing: 10) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Thinking…").foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
-                    .padding(20)
-                    .frame(maxWidth: 820)
-                    .frame(maxWidth: .infinity)
+                    Color.clear.frame(height: 1).id("latest")
                 }
+                .padding(28)
+                .frame(maxWidth: 800)
+                .frame(maxWidth: .infinity)
             }
-            .onChange(of: brain.messages.count) {
-                if let last = brain.messages.last {
-                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                }
+            .onChange(of: brain.messages.last?.id) {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("latest", anchor: .bottom) }
             }
-            .onAppear {
-                if let last = brain.messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-            }
+            .onChange(of: brain.conversationID) { proxy.scrollTo("latest", anchor: .bottom) }
         }
     }
 
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            Image(nsImage: IvyLogoImage.template)
+                .renderingMode(.template)
+                .resizable()
+                .frame(width: 48, height: 48)
+                .foregroundStyle(IvyTheme.moss)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(brain.isGeminiKeyConfigured ? "What are we working on?" : "Make yourself at home.")
+                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                Text(brain.isGeminiKeyConfigured
+                     ? "Ask a question, talk it through, or show me what's on your screen."
+                     : "Connect Gemini in Settings to start chatting. Your API key stays in the macOS Keychain.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if brain.isGeminiKeyConfigured {
+                VStack(spacing: 8) {
+                    suggestion("Talk through an idea", symbol: "lightbulb", prompt: "Help me think through an idea.")
+                    suggestion("Break down a task", symbol: "checklist", prompt: "Help me break this task into clear steps: ")
+                    suggestion("Explain something", symbol: "text.bubble", prompt: "Explain this to me: ")
+                }
+            } else {
+                SettingsLink { Label("Open Settings", systemImage: "key") }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .frame(maxWidth: 440, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 340)
+        .padding(.vertical, 24)
+    }
+
+    private func suggestion(_ title: String, symbol: String, prompt: String) -> some View {
+        Button { inputText = prompt } label: {
+            HStack(spacing: 12) {
+                Image(systemName: symbol).frame(width: 20).foregroundStyle(IvyTheme.moss)
+                Text(title)
+                Spacer()
+                Image(systemName: "arrow.up.left").foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isBlocked)
+    }
+
     private func send() {
+        guard !isBlocked else { return }
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         // "/agent <goal>" plans a multi-step task; nothing runs until the plan is approved.
         if trimmed.lowercased().hasPrefix("/agent ") {
             let goal = String(trimmed.dropFirst("/agent ".count))
             guard tasks.run?.isActive != true, !brain.isThinking, brain.pendingConfirmation == nil else { return }
             inputText = ""
+            drafts[brain.conversationID] = ""
             Task { await tasks.start(goal: goal) }
             return
         }
@@ -223,6 +290,7 @@ struct ChatPaneView: View {
         guard !trimmed.isEmpty || !attachments.attachments.isEmpty, !brain.isThinking, brain.pendingConfirmation == nil,
               !attachments.isWorking else { return }
         inputText = ""
+        drafts[brain.conversationID] = ""
         let attached = attachments.take()
         Task { await brain.send(trimmed, attachments: attached) }
     }
@@ -257,72 +325,74 @@ struct ChatPaneView: View {
     /// for the user.
     private func takeSuggestedPrompt() {
         guard let prompt = proactive.pendingPrompt ?? attachments.suggestedPrompt else { return }
+        guard inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        inputText = prompt
         proactive.pendingPrompt = nil
         attachments.suggestedPrompt = nil
-        if inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            inputText = prompt
-        }
     }
 }
 
-/// One chat line: the user's as a bubble; Ivy's as Markdown/code/diff blocks with read-aloud; errors as before.
-private struct MessageRowView: View {
+/// Native text treatments with copy and read-aloud actions that remain keyboard reachable.
+struct MessageRowView: View {
     let message: ChatMessage
     @ObservedObject var voiceManager: VoicePlaybackManager
 
     var body: some View {
-        if message.role == .user || message.isError {
-            VStack(alignment: .trailing, spacing: 4) {
-                ChatBubbleView(message: message, voiceManager: voiceManager)
+        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                if message.role != .user {
+                    Image(systemName: message.isError ? "exclamationmark.triangle" : "leaf")
+                        .foregroundStyle(message.isError ? Color.red : IvyTheme.moss)
+                }
+                Text(message.role == .user ? "You" : "Ivy")
+                    .font(.callout.weight(.semibold))
+                Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if message.role == .user {
+                if !message.text.isEmpty {
+                    Text(message.text)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .padding(14)
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+                }
                 if !message.attachments.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(message.attachments) { attachment in
-                            AttachmentChip(attachment: attachment, onRemove: nil)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(message.attachments) { AttachmentChip(attachment: $0, onRemove: nil) }
                         }
                     }
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        } else {
-            HStack(alignment: .top, spacing: 10) {
-                Image(nsImage: IvyLogoImage.template)
-                    .renderingMode(.template)
-                    .resizable()
-                    .frame(width: 16, height: 16)
-                    .foregroundStyle(IvyTheme.leaf)
-                    .padding(.top, 2)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    MessageBlocksView(text: message.text)
-                    HStack(spacing: 10) {
-                        Text(message.timestamp.formatted(date: .omitted, time: .shortened))
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                        Button {
-                            voiceManager.togglePlayback(for: message)
-                        } label: {
-                            Image(systemName: voiceManager.isPlaying(messageId: message.id) ? "stop.fill" : "speaker.wave.2")
-                                .font(.system(size: 10))
+            } else {
+                MessageBlocksView(text: message.text)
+                HStack(spacing: 8) {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(message.text, forType: .string)
+                    } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    if !message.isError {
+                        Button { voiceManager.togglePlayback(for: message) } label: {
+                            Label(voiceManager.isPlaying(messageId: message.id) ? "Stop Reading" : "Read Aloud",
+                                  systemImage: voiceManager.isPlaying(messageId: message.id) ? "stop.fill" : "speaker.wave.2")
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel(voiceManager.isPlaying(messageId: message.id) ? "Stop reading aloud" : "Read aloud")
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(message.text, forType: .string)
-                        } label: {
-                            Image(systemName: "doc.on.doc").font(.system(size: 10))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel("Copy reply")
                     }
                 }
-                Spacer(minLength: 40)
+                .buttonStyle(.borderless)
+                .controlSize(.regular)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .padding(10)
-            .background(IvyTheme.sprout.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: IvyTheme.bubbleRadius, style: .continuous))
         }
+        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct ChatInstructionsKey: FocusedValueKey { typealias Value = Binding<Bool> }
+extension FocusedValues {
+    var ivyChatInstructions: Binding<Bool>? {
+        get { self[ChatInstructionsKey.self] }
+        set { self[ChatInstructionsKey.self] = newValue }
     }
 }

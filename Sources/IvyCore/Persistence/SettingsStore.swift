@@ -48,7 +48,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var headsUpMinutes: Int
     public var headsUpCalendars: [String]
     public var launchAtLogin: Bool
-    /// Keep the Dock icon even when no Ivy window is open (otherwise Ivy is menu-bar only until a window opens).
+    /// Legacy preference retained for decoding older settings. Ivy now always stays in the Dock.
     public var alwaysShowInDock: Bool
     /// Vision (Phase 14): send recognised text only, never pixels.
     public var visionTextOnly: Bool

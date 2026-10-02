@@ -5,32 +5,37 @@ import Foundation
 @MainActor
 @Suite("Phase 17a - App router and Dock presence")
 struct Phase17aRouterTests {
-    @Test("the Dock icon shows while a main window is open, and only then unless the user asked")
+    @Test("Ivy stays in the Dock before launch, while open, and after the last window closes")
     func presence() {
         let router = AppRouter()
-        var applied: [AppPresence] = []
-        router.applyPresence = { applied.append($0) }
-        #expect(router.presence == .accessory)
-
+        #expect(router.presence == .regular)
+        #expect(!router.isMainWindowOpen)
         router.mainWindowDidOpen()
-        router.mainWindowDidOpen() // a second window: no flicker
+        router.mainWindowDidOpen()
         router.mainWindowDidClose()
+        #expect(router.isMainWindowOpen)
         #expect(router.presence == .regular)
         router.mainWindowDidClose()
-        #expect(router.presence == .accessory)
-        router.mainWindowDidClose() // a stray close can't go negative
-        router.mainWindowDidOpen()
+        #expect(!router.isMainWindowOpen)
         #expect(router.presence == .regular)
-        #expect(applied == [.regular, .accessory, .regular], "the policy is applied only when it changes")
+        router.mainWindowDidClose()
+        router.mainWindowDidOpen()
+        #expect(router.isMainWindowOpen)
+        router.mainWindowDidClose()
+        #expect(!router.isMainWindowOpen, "a stray close cannot leave the window count negative")
+        #expect(router.presence == .regular)
     }
 
-    @Test("always show in Dock keeps Ivy a regular app with no window open")
-    func alwaysInDock() {
-        let router = AppRouter(alwaysShowInDock: true)
-        #expect(router.presence == .regular)
-        router.setAlwaysShowInDock(false)
-        #expect(router.presence == .accessory)
-        #expect(AppRouter.presence(openWindows: 0, alwaysShowInDock: true) == .regular)
+    @Test("reopening a closed window never switches Ivy into accessory mode")
+    func reopen() {
+        let router = AppRouter()
+        for _ in 0..<3 {
+            router.mainWindowDidOpen()
+            #expect(router.isMainWindowOpen)
+            router.mainWindowDidClose()
+            #expect(!router.isMainWindowOpen)
+            #expect(router.presence == .regular)
+        }
     }
 
     @Test("deep links only navigate; anything unexpected is ignored")
@@ -44,13 +49,14 @@ struct Phase17aRouterTests {
         }
     }
 
-    @Test("Dock preference persists with the other settings, off by default")
+    @Test("legacy Dock preference remains readable without changing desktop app presence")
     func setting() throws {
         #expect(IvySettings.defaults.alwaysShowInDock == false)
         var s = IvySettings.defaults
         s.alwaysShowInDock = true
         let decoded = try JSONDecoder().decode(IvySettings.self, from: JSONEncoder().encode(s))
         #expect(decoded.alwaysShowInDock)
+        #expect(AppRouter().presence == .regular)
         let old = try JSONDecoder().decode(IvySettings.self, from: Data(#"{"pushToTalkEnabled": false}"#.utf8))
         #expect(old.alwaysShowInDock == false && old.pushToTalkEnabled == false)
     }

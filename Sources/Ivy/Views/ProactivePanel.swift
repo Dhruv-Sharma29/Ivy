@@ -10,14 +10,14 @@ struct ProactivePanel: View {
     @State private var errorText: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Proactive Ivy")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
             Toggle("Let Ivy notify me first (reminders, heads-ups, briefing)", isOn: $settings.settings.proactiveEnabled)
                 .toggleStyle(.checkbox)
             Text("Ivy can only notify or suggest. Nothing runs without your approval.")
-                .font(.system(size: 10))
+                .font(.caption)
                 .foregroundStyle(.tertiary)
 
             if settings.settings.proactiveEnabled {
@@ -26,17 +26,17 @@ struct ProactivePanel: View {
                 activityList
             }
             if let errorText {
-                Text(errorText).font(.system(size: 10)).foregroundStyle(.red)
+                Text(errorText).font(.caption).foregroundStyle(.red)
             }
         }
-        .font(.system(size: 11))
+        .font(.body)
         .onAppear { calendarsText = settings.settings.headsUpCalendars.joined(separator: ", ") }
     }
 
     // MARK: - Options
 
     private var options: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 10) {
             Toggle("Reminders, follow-ups and \u{201C}tell me when\u{201D}", isOn: $settings.settings.proactiveReminders)
             Toggle("Heads-up before calendar events", isOn: $settings.settings.proactiveCalendar)
             if settings.settings.proactiveCalendar {
@@ -48,7 +48,7 @@ struct ProactivePanel: View {
                     .onSubmit(saveCalendars)
                     .onChange(of: calendarsText) { saveCalendars() }
                 Text("Only these calendars, and only each event's title and start time.")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.tertiary)
             }
             Toggle("Daily briefing", isOn: $settings.settings.proactiveBriefing)
             if settings.settings.proactiveBriefing {
@@ -94,21 +94,21 @@ struct ProactivePanel: View {
     private var triggerList: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text("Waiting to notify you").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                Text("Waiting to notify you").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Watch a folder…", action: watchFolder)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .help("Notify me when something new appears in a folder I choose")
             }
             let pending = proactive.triggers.filter(\.isEnabled)
             if pending.isEmpty {
                 Text("Nothing scheduled. Ask Ivy to remind you of something.")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.tertiary)
             }
             ForEach(pending) { trigger in
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(trigger.message).font(.system(size: 10)).lineLimit(2)
+                        Text(trigger.message).font(.caption).lineLimit(2)
                         Text(Self.describe(trigger)).font(.system(size: 9)).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -161,14 +161,14 @@ struct ProactivePanel: View {
 
     private var activityList: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Recent activity").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            Text("Recent activity").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
             let recent = Array(proactive.activity.suffix(10).reversed())
             if recent.isEmpty {
-                Text("Ivy hasn't spoken first yet.").font(.system(size: 10)).foregroundStyle(.tertiary)
+                Text("Ivy hasn't spoken first yet.").font(.caption).foregroundStyle(.tertiary)
             }
             ForEach(recent) { entry in
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.message).font(.system(size: 10)).lineLimit(2)
+                    Text(entry.message).font(.caption).lineLimit(2)
                     Text("\(entry.date.formatted(date: .abbreviated, time: .shortened)) · \(Self.outcome(entry.outcome)) · \(entry.reason)")
                         .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
                 }

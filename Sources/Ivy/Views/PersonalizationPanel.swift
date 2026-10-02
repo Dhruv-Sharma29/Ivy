@@ -19,7 +19,7 @@ struct PersonalizationPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Personalization")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             Picker("Sass", selection: Binding(get: { model.profile.sass }, set: { model.setSass($0) })) {
@@ -50,7 +50,7 @@ struct PersonalizationPanel: View {
                 }
                 Button("Save", action: saveAbout).controlSize(.small)
                 Text("No addresses, ID numbers or passwords: Ivy refuses to store them.")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.tertiary)
             }
 
             DisclosureGroup("Favourite apps") {
@@ -64,12 +64,12 @@ struct PersonalizationPanel: View {
 
             DisclosureGroup("Custom instructions") {
                 TextEditor(text: $instructions)
-                    .font(.system(size: 11))
+                    .font(.body)
                     .frame(height: 70)
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
                 HStack {
                     Text("\(instructions.count)/\(PersonalizationProfile.maxCustomInstructions)")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .font(.caption).foregroundStyle(.tertiary)
                     Spacer()
                     Button("Save", action: saveInstructions).controlSize(.small)
                 }
@@ -79,7 +79,7 @@ struct PersonalizationPanel: View {
                 ForEach(model.profile.shortcuts) { shortcut in
                     HStack(alignment: .top) {
                         Text(shortcut.trigger).font(.system(size: 11, design: .monospaced))
-                        Text(shortcut.prompt).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
+                        Text(shortcut.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         Spacer()
                         Button { model.removeShortcut(shortcut.id) } label: { Image(systemName: "xmark.circle") }
                             .buttonStyle(.plain)
@@ -92,13 +92,13 @@ struct PersonalizationPanel: View {
                     Button("Add", action: addShortcut).controlSize(.small)
                 }
                 Text("Type the shortcut as a message to send its text. It never approves anything for you.")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.tertiary)
             }
 
             DisclosureGroup("What Ivy remembers (\(model.profile.learnedPreferences.count))") {
                 ForEach(model.profile.learnedPreferences) { preference in
                     HStack {
-                        Text(preference.text).font(.system(size: 11))
+                        Text(preference.text).font(.body)
                         Spacer()
                         Button { model.forget(preference.id) } label: { Image(systemName: "trash") }
                             .buttonStyle(.plain)
@@ -126,17 +126,17 @@ struct PersonalizationPanel: View {
             .controlSize(.small)
 
             if let errorText {
-                Text(errorText).font(.system(size: 10)).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                Text(errorText).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             } else if let savedText {
-                Text(savedText).font(.system(size: 10)).foregroundStyle(.green)
+                Text(savedText).font(.caption).foregroundStyle(.green)
             }
             if let notice = model.notice {
-                Text(notice).font(.system(size: 10)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Text(notice).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             Text("Changes apply to chat now and to Ivy Live from the next launch.")
-                .font(.system(size: 10)).foregroundStyle(.tertiary)
+                .font(.caption).foregroundStyle(.tertiary)
         }
-        .font(.system(size: 11))
+        .font(.body)
         .onAppear(perform: loadDrafts)
     }
 
