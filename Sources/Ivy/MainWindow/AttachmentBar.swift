@@ -2,56 +2,76 @@ import SwiftUI
 import UniformTypeIdentifiers
 import IvyCore
 
-/// Above the composer: what will be sent with the next message, and the capture menu. The user always sees
+/// Above the composer: what will be sent with the next message. The user always sees
 /// exactly what goes out (thumbnail, label, masked regions) before pressing Return.
 struct AttachmentBar: View {
     @ObservedObject var tray: AttachmentTray
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let error = tray.lastError {
-                HStack {
-                    Text(error).font(.callout).foregroundStyle(.primary)
-                    Spacer()
-                    Button("Dismiss") { tray.dismissError() }.buttonStyle(.plain).font(.system(size: 11))
-                }
-            }
-            HStack(spacing: 8) {
-                Menu {
-                    Button("Front Window") { Task { await tray.capture(.frontWindow) } }
-                    Button("Whole Screen") { Task { await tray.capture(.display) } }
-                    Button("Select a Region…") { Task { await tray.capture(.region) } }
-                    Divider()
-                    Button("Image or PDF…", action: pickFile)
-                } label: {
-                    Label("Attach", systemImage: "paperclip")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .frame(minHeight: 28)
-                .padding(.horizontal, 10)
-                .ivyGlass(cornerRadius: 14, interactive: true)
-                .help("Show Ivy your screen, an image or a PDF")
-                .accessibilityLabel("Attach")
-
-                if tray.isWorking {
-                    ProgressView().controlSize(.small)
-                    Text("Reading on this Mac…").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(tray.attachments) { attachment in
-                            AttachmentChip(attachment: attachment) { tray.remove(attachment.id) }
-                        }
+        if tray.lastError != nil || tray.isWorking || !tray.attachments.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                if let error = tray.lastError {
+                    HStack {
+                        Text(error).font(.callout).foregroundStyle(.primary)
+                        Spacer()
+                        Button("Dismiss") { tray.dismissError() }.buttonStyle(.plain).font(.system(size: 11))
                     }
                 }
-                if !tray.attachments.isEmpty {
-                    Text(tray.summary).font(.system(size: 10)).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if tray.isWorking {
+                        ProgressView().controlSize(.small)
+                        Text("Reading on this Mac…").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(tray.attachments) { attachment in
+                                AttachmentChip(attachment: attachment) { tray.remove(attachment.id) }
+                            }
+                        }
+                    }
+                    if !tray.attachments.isEmpty {
+                        Text(tray.summary).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
+    }
+}
+
+/// Attachment actions belong to the composer, beside the text being sent.
+struct AttachmentMenu: View {
+    @ObservedObject var tray: AttachmentTray
+
+    var body: some View {
+        attachmentMenu
+            .buttonStyle(ComposerControlStyle())
+            .help("Show Ivy your screen, an image or a PDF")
+            .accessibilityLabel("Attach")
+            .accessibilityIdentifier("ivy.attach")
+    }
+
+    @ViewBuilder
+    private var attachmentMenu: some View {
+        if #available(macOS 26.0, *) {
+            menu.menuStyle(.button)
+        } else {
+            menu.menuStyle(.borderlessButton)
+        }
+    }
+
+    private var menu: some View {
+        Menu {
+            Button("Front Window") { Task { await tray.capture(.frontWindow) } }
+            Button("Whole Screen") { Task { await tray.capture(.display) } }
+            Button("Select a Region…") { Task { await tray.capture(.region) } }
+            Divider()
+            Button("Image or PDF…", action: pickFile)
+        } label: {
+            Image(systemName: "plus").font(.system(size: 18)).foregroundStyle(.primary)
+        }
+        .menuIndicator(.hidden)
     }
 
     private func pickFile() {

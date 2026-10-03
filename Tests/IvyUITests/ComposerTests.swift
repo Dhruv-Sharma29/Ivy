@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Testing
 @testable import Ivy
 
@@ -22,16 +23,42 @@ struct ComposerTests {
         }
     }
 
-    @Test("Shift Return is left to the editor; plain Return sends exactly once")
-    func returnKey() {
+    @Test("Shift Return inserts a newline at the selection, supports undo, and never sends")
+    func returnKey() throws {
+        _ = NSApplication.shared
         var sends = 0
-        let composer = MessageInputBar(text: .constant("Hello"), isThinking: false) { sends += 1 }
-        #expect(composer.handleReturn(shiftPressed: true) == .ignored)
+        var draft = "Hello world"
+        let editor = ComposerTextEditor(text: Binding(get: { draft }, set: { draft = $0 }), onSend: { sends += 1 })
+        let delegate = editor.makeCoordinator()
+        let native = ComposerTextView(frame: CGRect(x: 0, y: 0, width: 300, height: 80))
+        native.delegate = delegate
+        native.allowsUndo = true
+        native.string = draft
+        native.onSend = { sends += 1 }
+        let window = NSWindow(contentRect: native.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = native
+        defer { window.close() }
+        window.makeFirstResponder(native)
+        native.setSelectedRange(NSRange(location: 5, length: 1))
+        let shiftReturn = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .shift,
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        native.keyDown(with: shiftReturn)
+        #expect(native.string == "Hello\nworld")
+        #expect(draft == native.string)
+        #expect(native.selectedRange() == NSRange(location: 6, length: 0))
         #expect(sends == 0)
-        #expect(composer.handleReturn(shiftPressed: false) == .handled)
+        native.undoManager?.undo()
+        #expect(native.string == "Hello world")
+        native.handleReturn(shiftPressed: false)
         #expect(sends == 1)
         let blocked = MessageInputBar(text: .constant("Hello"), isThinking: true) { sends += 1 }
-        #expect(blocked.handleReturn(shiftPressed: false) == .handled)
+        native.onSend = blocked.submit
+        native.handleReturn(shiftPressed: false)
+        #expect(sends == 1)
+        native.insertText("\nPasted paragraph", replacementRange: NSRange(location: native.string.utf16.count, length: 0))
+        #expect(native.string.hasSuffix("\nPasted paragraph"))
         #expect(sends == 1)
     }
 

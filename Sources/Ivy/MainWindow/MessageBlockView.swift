@@ -66,7 +66,6 @@ private struct CodeBlockView<Content: View>: View {
     let label: String
     let text: String
     @ViewBuilder let content: () -> Content
-    @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -75,16 +74,11 @@ private struct CodeBlockView<Content: View>: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button(copied ? "Copied" : "Copy") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                    copied = true
-                }
+                MessageCopyButton(text: text, accessibilityTitle: "Copy \(label)")
                 .buttonStyle(.borderless)
                 .font(.caption.weight(.medium))
                 .frame(minHeight: 28)
                 .foregroundStyle(IvyTheme.moss)
-                .accessibilityLabel("Copy \(label)")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

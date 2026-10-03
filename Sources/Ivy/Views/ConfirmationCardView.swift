@@ -21,6 +21,7 @@ public struct ConfirmationCardView: View {
                 Text(request.title)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.primary)
+                    .lineLimit(2)
 
                 Spacer()
 
@@ -33,28 +34,31 @@ public struct ConfirmationCardView: View {
                     .clipShape(Capsule())
             }
 
-            Text(request.prompt)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(request.prompt)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
-            if !request.detail.isEmpty {
-                ScrollView {
-                    Text(request.detail)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
+                    if !request.detail.isEmpty {
+                        Text(request.detail)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
+                    }
                 }
-                .frame(maxHeight: 120)
-                .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxHeight: 220)
 
             HStack(spacing: 10) {
                 Button(role: .cancel) {
@@ -69,6 +73,7 @@ public struct ConfirmationCardView: View {
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(hasResponded)
                 .accessibilityHint("Refuses this action. Nothing will run.")
+                .accessibilityIdentifier("ivy.approval.cancel")
 
                 Button {
                     guard !hasResponded else { return }
@@ -86,6 +91,7 @@ public struct ConfirmationCardView: View {
                 .disabled(hasResponded)
                 .accessibilityLabel("Do it")
                 .accessibilityHint("Approves and runs this action. Shortcut: Command Return.")
+                .accessibilityIdentifier("ivy.approval.confirm")
             }
         }
         .padding(12)
@@ -95,5 +101,19 @@ public struct ConfirmationCardView: View {
                 .stroke(Color.orange.opacity(0.3), lineWidth: 1.5)
         )
         .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
+    }
+}
+
+/// A bounded native sheet keeps actions visible while long requests scroll independently.
+struct ConfirmationSheetView: View {
+    let request: ConfirmationRequest
+    let onConfirm: (Bool) -> Void
+
+    var body: some View {
+        ConfirmationCardView(request: request, onConfirm: onConfirm)
+            .padding(20)
+            .frame(width: 500, height: 400)
+            .interactiveDismissDisabled()
+            .accessibilityIdentifier("ivy.approval")
     }
 }
