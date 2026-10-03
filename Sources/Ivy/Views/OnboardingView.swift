@@ -118,7 +118,7 @@ struct OnboardingView: View {
             superpower("Proactive nudges", detail: "Reminders and heads-ups you ask for. I can notify; I can never act on my own.",
                        isOn: model.proactiveEnabled, set: model.setProactive)
         case .done:
-            Text("I live in your menu bar (the leaf). Open my window with \u{2318}O from there, or \u{2303}\u{2325}\u{2318}K for a quick question. Risky actions always ask you first.")
+            Text("Find Ivy's mark in your menu bar. Open my window with \u{2318}O from there, or \u{2303}\u{2325}\u{2318}K for a quick question. Risky actions always ask you first.")
                 .font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
         }
     }

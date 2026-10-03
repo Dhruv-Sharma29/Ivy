@@ -118,21 +118,21 @@ public enum IvyLogo {
         ctx.fillPath()
     }
 
-    /// Two bold pointed leaves reproduce the app icon's sprig at small sizes, without tiny veins or shading.
+    /// Swept, angular wings reproduce the supplied mark without veins or shading at menu-bar sizes.
     public static func sprigPath(in r: CGRect) -> CGPath {
         let path = CGMutablePath()
         path.move(to: p(0.56, 0.49, r))
         path.addCurve(to: p(0.30, 0.60, r), control1: p(0.44, 0.47, r), control2: p(0.43, 0.56, r))
-        path.addQuadCurve(to: p(0.35, 0.70, r), control: p(0.40, 0.69, r))
-        path.addCurve(to: p(0.27, 0.92, r), control1: p(0.35, 0.76, r), control2: p(0.29, 0.84, r))
+        path.addLine(to: p(0.38, 0.69, r))
+        path.addLine(to: p(0.27, 0.92, r))
         path.addCurve(to: p(0.58, 0.74, r), control1: p(0.35, 0.82, r), control2: p(0.58, 0.90, r))
         path.addCurve(to: p(0.56, 0.49, r), control1: p(0.65, 0.64, r), control2: p(0.57, 0.54, r))
         path.closeSubpath()
         path.move(to: p(0.48, 0.28, r))
         path.addCurve(to: p(0.67, 0.49, r), control1: p(0.54, 0.42, r), control2: p(0.54, 0.51, r))
         path.addCurve(to: p(0.92, 0.48, r), control1: p(0.75, 0.48, r), control2: p(0.81, 0.44, r))
-        path.addQuadCurve(to: p(0.80, 0.35, r), control: p(0.84, 0.39, r))
-        path.addQuadCurve(to: p(0.82, 0.18, r), control: p(0.77, 0.30, r))
+        path.addLine(to: p(0.80, 0.35, r))
+        path.addLine(to: p(0.82, 0.18, r))
         path.addCurve(to: p(0.48, 0.28, r), control1: p(0.67, 0.29, r), control2: p(0.66, 0.18, r))
         path.closeSubpath()
         return path
@@ -144,16 +144,15 @@ public enum IvyLogo {
         defer { ctx.restoreGState() }
         let art = CGRect(x: 0, y: 0, width: size, height: size)
         ctx.setFillColor(CGColor(gray: 0, alpha: 1))
-        ctx.setStrokeColor(CGColor(gray: 0, alpha: 1))
         ctx.addPath(sprigPath(in: art))
         ctx.fillPath()
         let stem = CGMutablePath()
-        stem.move(to: p(0.18, 0.10, art))
-        stem.addQuadCurve(to: p(0.52, 0.35, art), control: p(0.39, 0.13, art))
-        stem.addCurve(to: p(0.57, 0.61, art), control1: p(0.64, 0.51, art), control2: p(0.62, 0.56, art))
+        stem.move(to: p(0.14, 0.08, art))
+        stem.addCurve(to: p(0.57, 0.61, art), control1: p(0.43, 0.12, art), control2: p(0.64, 0.44, art))
+        stem.addCurve(to: p(0.18, 0.16, art), control1: p(0.62, 0.36, art), control2: p(0.37, 0.15, art))
+        stem.addQuadCurve(to: p(0.14, 0.08, art), control: p(0.13, 0.14, art))
+        stem.closeSubpath()
         ctx.addPath(stem)
-        ctx.setLineWidth(max(1, size * 0.06))
-        ctx.setLineCap(.round)
-        ctx.strokePath()
+        ctx.fillPath()
     }
 }

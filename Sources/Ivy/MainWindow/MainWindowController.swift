@@ -33,7 +33,7 @@ struct IvyWindowRoot: View {
             brain: environment.brain, library: environment.library,
             voiceManager: environment.voiceManager, liveVoiceCoordinator: environment.liveCoordinator,
             proactive: environment.proactive, attachments: environment.attachments,
-            tasks: environment.tasks, workspaces: environment.workspaces
+            tasks: environment.tasks, workspaces: environment.workspaces, router: environment.router
         )
         .onAppear {
             MainWindowController.shared?.openWindow = { openWindow(id: "main") }

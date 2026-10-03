@@ -80,6 +80,23 @@ struct LayoutTests {
         try await Task.sleep(for: .milliseconds(30))
         #expect(opened == 3)
         environment.proactive.pendingPrompt = nil
+        let delegate = IvyAppDelegate()
+        let savedLink = try #require(URL(string: "ivy://conversation/\(conversation.id)"))
+        delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://run_shell/rm")), savedLink])
+        #expect(opened == 4 && environment.router.selectedConversationID == conversation.id)
+        delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://new")), savedLink])
+        #expect(opened == 5 && environment.brain.messages.isEmpty)
+        #expect(environment.brain.conversationID != conversation.id, "only the first recognized URL in a batch is handled")
+        delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://new?prompt=run"))])
+        #expect(opened == 5, "unexpected parameters cannot act or navigate")
+        delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://conversation/\(UUID())"))])
+        #expect(opened == 6 && environment.router.navigationError != nil)
+        try await snapshot(IvyWindowRoot(environment: environment), scheme: .dark,
+            size: NSSize(width: 1080, height: 760), url: directory.appendingPathComponent("missing-conversation-link.png"))
+        MainWindowController.shared?.openWindow = { opened += 1 }
+        delegate.application(NSApplication.shared, open: [savedLink])
+        #expect(opened == 7 && environment.brain.conversationID == conversation.id)
+        #expect(environment.router.navigationError == nil)
         for scheme in [ColorScheme.light, .dark] {
             let name = scheme == .light ? "light" : "dark"
             let reply = ChatMessage(role: .model, text: "Here is the answer, ready to copy or read aloud.")
@@ -220,6 +237,12 @@ struct LayoutTests {
         let request = try #require(approvalBrain.pendingConfirmation)
         await environment.tasks.start(goal: "Review a folder")
         #expect(environment.tasks.run?.phase == .awaitingApproval)
+        let busyConversationID = environment.brain.conversationID
+        delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://new"))])
+        #expect(environment.brain.conversationID == busyConversationID)
+        #expect(environment.router.navigationError != nil)
+        #expect(environment.tasks.run?.phase == .awaitingApproval, "external links cannot dismiss a task approval")
+        environment.router.dismissNavigationError()
         for scheme in [ColorScheme.light, .dark] {
             try await snapshot(TasksWorkspaceView(tasks: environment.tasks, blocked: true, onPrompt: { _ in }),
                 scheme: scheme, size: NSSize(width: 650, height: 740),
@@ -247,7 +270,7 @@ struct LayoutTests {
             detail: String(repeating: "-- Long script fixture\n", count: 100))
         for scheme in [ColorScheme.light, .dark] {
             try await snapshot(ConfirmationSheetView(request: longRequest, onConfirm: { _ in }), scheme: scheme,
-                size: NSSize(width: 500, height: 400),
+                size: NSSize(width: 500, height: 340),
                 url: directory.appendingPathComponent("approval-long-\(scheme == .light ? "light" : "dark").png"))
         }
         #expect(approvalBrain.pendingConfirmation?.id == request.id, "rendering must never approve an action")
@@ -575,7 +598,7 @@ struct LayoutTests {
             #expect(window.sheets.count == 1, "only one modal approval may be presented")
             #expect(window.frame.contains(sheet.frame), "the complete approval must fit even at minimum window size")
             let content = try #require(sheet.contentView)
-            #expect(content.bounds.width >= 500 && content.bounds.height >= 400)
+            #expect(content.bounds.width >= 500 && content.bounds.height >= 340)
             content.layoutSubtreeIfNeeded()
             let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
             content.cacheDisplay(in: content.bounds, to: bitmap)

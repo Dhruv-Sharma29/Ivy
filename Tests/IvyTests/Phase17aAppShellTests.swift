@@ -44,9 +44,48 @@ struct Phase17aRouterTests {
         #expect(AppRouter.parse(try #require(URL(string: "ivy://conversation/\(id.uuidString)"))) == .conversation(id))
         #expect(AppRouter.parse(try #require(URL(string: "IVY://new"))) == .newConversation)
         for bad in ["ivy://conversation/not-a-uuid", "ivy://conversation/\(id.uuidString)/extra", "ivy://run_shell/rm",
-                    "https://conversation/\(id.uuidString)", "ivy://new/thing"] {
+                    "https://conversation/\(id.uuidString)", "ivy://new/thing", "ivy://new?prompt=delete",
+                    "ivy://new#run", "ivy://user:password@new", "ivy://new:80"] {
             #expect(AppRouter.parse(try #require(URL(string: bad))) == nil, "\(bad)")
         }
+    }
+
+    @Test("links select saved chats or create a new one; unknown and busy links preserve the current chat")
+    func routeConversationLinks() throws {
+        let store = InMemoryConversationStore()
+        let saved = Conversation(id: UUID(), createdAt: Date(), chatMessages: [ChatMessage(role: .user, text: "Saved topic")])
+        try store.save(saved)
+        let brain = IvyBrain(client: MockGeminiClient(), apiKey: "fixture", conversationStore: store)
+        let library = ConversationLibrary(store: store, brain: brain)
+        let router = AppRouter()
+        let originalID = brain.conversationID
+        let savedURL = try #require(URL(string: "ivy://conversation/\(saved.id)"))
+        let newURL = try #require(URL(string: "ivy://new"))
+
+        #expect(!router.open(savedURL, library: library, isBusy: true))
+        #expect(brain.conversationID == originalID && router.chatNavigationID == nil)
+        #expect(router.navigationError != nil)
+        router.dismissNavigationError()
+        #expect(router.navigationError == nil)
+        #expect(router.open(savedURL, library: library, isBusy: false))
+        #expect(brain.conversationID == saved.id && brain.messages.map(\.text) == ["Saved topic"])
+        #expect(router.selectedConversationID == saved.id)
+        let firstNavigation = router.chatNavigationID
+        #expect(router.open(savedURL, library: library, isBusy: false))
+        #expect(router.chatNavigationID != firstNavigation)
+
+        let lastNavigation = router.chatNavigationID
+        #expect(!router.open(try #require(URL(string: "ivy://conversation/\(UUID())")), library: library, isBusy: false))
+        #expect(router.navigationError == "That conversation couldn't be opened.")
+        #expect(library.lastError == nil, "the navigation notice must not also present a sidebar error alert")
+        #expect(brain.conversationID == saved.id && router.chatNavigationID == lastNavigation)
+        #expect(!router.open(try #require(URL(string: "ivy://run_shell/rm")), library: library, isBusy: false))
+        #expect(!router.open(newURL, library: library, isBusy: true))
+        #expect(brain.conversationID == saved.id)
+        #expect(router.open(newURL, library: library, isBusy: false))
+        #expect(brain.conversationID != saved.id && brain.messages.isEmpty)
+        #expect(router.navigationError == nil && router.selectedConversationID == brain.conversationID)
+        #expect(store.load(saved.id)?.messages.count == 1)
     }
 
     @Test("legacy Dock preference remains readable without changing desktop app presence")

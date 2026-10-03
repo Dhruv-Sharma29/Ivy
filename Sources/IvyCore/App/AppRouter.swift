@@ -15,6 +15,9 @@ public enum AppPresence: Equatable, Sendable {
 public final class AppRouter: ObservableObject {
     /// The conversation the main window's sidebar has selected (nil = the brain's active conversation).
     @Published public var selectedConversationID: UUID?
+    /// A fresh identity also reveals Chat when the requested conversation is already selected.
+    @Published public private(set) var chatNavigationID: UUID?
+    @Published public private(set) var navigationError: String?
     public let presence: AppPresence = .regular
 
     private var openMainWindows = 0
@@ -39,7 +42,8 @@ public final class AppRouter: ObservableObject {
 
     /// `ivy://conversation/<uuid>` and `ivy://new`. Anything else is ignored: links only navigate, never act.
     public static func parse(_ url: URL) -> DeepLink? {
-        guard url.scheme?.lowercased() == "ivy" else { return nil }
+        guard url.scheme?.lowercased() == "ivy", url.user == nil, url.password == nil,
+              url.port == nil, url.query == nil, url.fragment == nil else { return nil }
         let host = url.host?.lowercased()
         let parts = url.pathComponents.filter { $0 != "/" }
         switch host {
@@ -52,6 +56,32 @@ public final class AppRouter: ObservableObject {
             return nil
         }
     }
+
+    /// External links never send a message, start voice, or interrupt an approval or active operation.
+    @discardableResult
+    public func open(_ url: URL, library: ConversationLibrary, isBusy: Bool) -> Bool {
+        guard let link = Self.parse(url) else { return false }
+        guard !isBusy else {
+            navigationError = "Finish the current request or voice session before opening a conversation link."
+            return false
+        }
+        switch link {
+        case .conversation(let id):
+            guard library.open(id) else {
+                navigationError = library.lastError ?? "That conversation couldn't be opened."
+                library.dismissError() // The navigation notice owns this error; avoid a second sidebar alert.
+                return false
+            }
+        case .newConversation:
+            library.newConversation()
+        }
+        navigationError = nil
+        selectedConversationID = library.activeConversationID
+        chatNavigationID = UUID()
+        return true
+    }
+
+    public func dismissNavigationError() { navigationError = nil }
 }
 
 // MARK: - Sidebar grouping

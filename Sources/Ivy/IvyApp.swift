@@ -31,6 +31,14 @@ struct IvyApp: App {
         environment.wakeWord.onWake = { NSSound(named: "Tink")?.play() }
         IvyAppDelegate.shutdown = { await environment.shutdown() }
         MainWindowController.shared = MainWindowController(proactive: environment.proactive)
+        IvyAppDelegate.openURL = { url in
+            guard AppRouter.parse(url) != nil else { return }
+            let busy = environment.brain.isThinking || environment.brain.pendingConfirmation != nil
+                || environment.liveCoordinator.state.isLive || environment.liveCoordinator.pendingConfirmation != nil
+                || environment.tasks.run?.isActive == true || environment.attachments.isWorking
+            environment.router.open(url, library: environment.library, isBusy: busy)
+            MainWindowController.shared?.show()
+        }
         // The screen-help hotkey attached a capture: show it in the window, ready for the user to send.
         environment.onScreenHelp = { MainWindowController.shared?.show() }
         // Phase 17b: the on-screen companion and the ⌃⌥⌘K command bar.
@@ -86,12 +94,9 @@ struct IvyApp: App {
             Button("Quit Ivy") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         } label: {
-            // Idle shows Ivy's leaf logo; busy states keep their SF Symbols (thinking, approval, error).
-            if brain.statusIcon == "sparkle" {
-                Image(nsImage: IvyLogoImage.template)
-            } else {
-                Image(systemName: brain.statusIcon)
-            }
+            // Keep the app recognizable while requests, approvals and errors change its state.
+            Image(systemName: "leaf")
+                .accessibilityLabel("Ivy")
         }
         .menuBarExtraStyle(.menu)
 
@@ -118,6 +123,12 @@ final class IvyAppDelegate: NSObject, NSApplicationDelegate {
     /// Kept alive for the app's lifetime.
     @MainActor static var companion: CompanionController?
     @MainActor static var commandBar: CommandBarController?
+    @MainActor static var openURL: (@MainActor (URL) -> Void)?
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        // Handle one recognized destination; a URL batch must not create several empty conversations.
+        if let url = urls.first(where: { AppRouter.parse($0) != nil }) { Self.openURL?(url) }
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 

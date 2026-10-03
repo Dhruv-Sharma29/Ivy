@@ -11,6 +11,7 @@ struct MainWindowView: View {
     @ObservedObject var attachments: AttachmentTray
     @ObservedObject var tasks: TaskEngine
     @ObservedObject var workspaces: WorkspaceModel
+    @ObservedObject var router: AppRouter
     @State private var columns = NavigationSplitViewVisibility.all
     @State private var destination: WorkspaceDestination
     @State private var selectedTaskID: UUID?
@@ -18,7 +19,7 @@ struct MainWindowView: View {
 
     init(brain: IvyBrain, library: ConversationLibrary, voiceManager: VoicePlaybackManager,
          liveVoiceCoordinator: GeminiLiveVoiceCoordinator, proactive: ProactiveEngine,
-         attachments: AttachmentTray, tasks: TaskEngine, workspaces: WorkspaceModel) {
+         attachments: AttachmentTray, tasks: TaskEngine, workspaces: WorkspaceModel, router: AppRouter = AppRouter()) {
         self.brain = brain
         self.library = library
         self.voiceManager = voiceManager
@@ -27,31 +28,44 @@ struct MainWindowView: View {
         self.attachments = attachments
         self.tasks = tasks
         self.workspaces = workspaces
+        self.router = router
         // Seed a newly opened window from the active session; subsequent navigation stays view-owned.
-        self._destination = State(initialValue: liveVoiceCoordinator.state.isLive ? .chat : .home)
+        self._destination = State(initialValue: liveVoiceCoordinator.state.isLive || router.chatNavigationID != nil ? .chat : .home)
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columns) {
-            SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks, destination: $destination,
-                        selectedTaskID: $selectedTaskID, onNewTask: {
-                            promptRequest = WorkspacePrompt(text: "/agent "); destination = .chat
-                        })
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
-        } detail: {
-            ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator,
-                         proactive: proactive, attachments: attachments, tasks: tasks,
-                         library: library, destination: destination, selectedTaskID: selectedTaskID, promptRequest: promptRequest,
-                         onShowChat: { destination = .chat }, onShowTask: { selectedTaskID = $0; destination = .tasks })
-                .frame(minWidth: 320)
+        VStack(spacing: 0) {
+            if let error = router.navigationError {
+                HStack {
+                    Label(error, systemImage: "info.circle").font(.callout)
+                    Spacer()
+                    Button("Dismiss", action: router.dismissNavigationError)
+                }
+                .padding(12)
+                .background(.regularMaterial)
+            }
+            NavigationSplitView(columnVisibility: $columns) {
+                SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks, destination: $destination,
+                            selectedTaskID: $selectedTaskID, onNewTask: {
+                                promptRequest = WorkspacePrompt(text: "/agent "); destination = .chat
+                            })
+                    .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+            } detail: {
+                ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator,
+                             proactive: proactive, attachments: attachments, tasks: tasks,
+                             library: library, destination: destination, selectedTaskID: selectedTaskID, promptRequest: promptRequest,
+                             onShowChat: { destination = .chat }, onShowTask: { selectedTaskID = $0; destination = .tasks })
+                    .frame(minWidth: 320)
+            }
+            .navigationSplitViewStyle(.balanced)
         }
-        .navigationSplitViewStyle(.balanced)
         .tint(IvyTheme.leaf)
         .frame(minWidth: 560, minHeight: 480)
         .toolbar(.hidden, for: .windowToolbar)
         .onChange(of: liveVoiceCoordinator.state.isLive) { _, live in
             if live { destination = .chat }
         }
+        .onChange(of: router.chatNavigationID) { destination = .chat }
         .accessibilityIdentifier("ivy.mainWindow")
     }
 }

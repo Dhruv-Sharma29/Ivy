@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import IvyCore
 
-/// The professional app icon plus its paired-leaf monochrome mark, simplified for menu-bar sizes.
+/// The professional app icon plus its swept, pointed monochrome mark for menu-bar sizes.
 /// macOS tints the template automatically for light and dark menu bars.
 enum IvyLogoImage {
     @MainActor static let appIcon: NSImage? = Bundle.module.url(forResource: "IvyAppIcon", withExtension: "png")
