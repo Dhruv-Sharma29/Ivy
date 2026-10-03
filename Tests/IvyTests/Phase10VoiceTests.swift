@@ -26,6 +26,7 @@ private final class GatedLiveSession: GeminiLiveSession, @unchecked Sendable {
         var waiters: [CheckedContinuation<Void, Never>] = []
     }
     private let gate = OSAllocatedUnfairLock(initialState: Gate())
+    var isWaitingToConnect: Bool { gate.withLock { !$0.waiters.isEmpty } }
 
     func open() {
         let waiters = gate.withLock { g -> [CheckedContinuation<Void, Never>] in
@@ -49,9 +50,31 @@ private final class GatedLiveSession: GeminiLiveSession, @unchecked Sendable {
     }
 
     func sendAudio(_ data: Data) async throws { try await inner.sendAudio(data) }
+    func endAudioInput() async throws { try await inner.endAudioInput() }
     func sendToolResponses(_ responses: [FunctionResponse]) async throws { try await inner.sendToolResponses(responses) }
     func receiveEvents() -> AsyncThrowingStream<LiveEvent, Error> { inner.receiveEvents() }
     func disconnect() async { await inner.disconnect() }
+}
+
+/// Holds the return from capture startup after audio can already be queued, exposing the release race.
+private actor GatedAudioCapture: AudioCaptureProtocol {
+    nonisolated let inner = MockAudioCapture()
+    private var isOpen = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func resumeStart() {
+        isOpen = true
+        waiter?.resume()
+        waiter = nil
+    }
+
+    func requestPermission() async -> Bool { await inner.requestPermission() }
+    func startCapture() async throws -> AsyncThrowingStream<Data, Error> {
+        let stream = try await inner.startCapture()
+        if !isOpen { await withCheckedContinuation { waiter = $0 } }
+        return stream
+    }
+    func stopCapture() async { await inner.stopCapture() }
 }
 
 /// Idle listener fake with a pre-roll to hand over.
@@ -802,6 +825,135 @@ struct Phase10CommandTests {
         session.simulateEvent(.inputTranscript("hi"))
         session.simulateEvent(.audioChunk(Data([14, 0])))
         #expect(await waitUntil { player.playedChunks == [Data([14, 0])] })
+        await c.stopSession()
+    }
+}
+
+
+@Suite("Push-to-talk release submits a voice request")
+@MainActor
+struct PushToTalkSubmissionTests {
+    @Test("Release while capture is returning its stream drains speech or cancels silence", arguments: [true, false])
+    func releaseDuringCaptureStartup(hasSpeech: Bool) async {
+        let session = MockGeminiLiveSession()
+        let capture = GatedAudioCapture()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector())
+        let start = Task { await c.beginPushToTalk() }
+        #expect(await waitUntil { capture.inner.isCapturing })
+        if hasSpeech { capture.inner.simulateAudioChunk(loud) }
+        await c.endPushToTalk()
+        #expect(!c.isPushToTalkActive)
+        await capture.resumeStart()
+        await start.value
+        #expect(!capture.inner.isCapturing && capture.inner.stopCaptureCallCount == 1)
+        #expect(c.state == (hasSpeech ? .thinking : .idle))
+        #expect(session.audioInputEndCount == (hasSpeech ? 1 : 0))
+        #expect(session.sentAudioChunks == (hasSpeech ? [loud] : []))
+        #expect(session.isConnected == hasSpeech)
+        await c.stopSession()
+    }
+    @Test("Release submits queued speech once, keeps the reply connected, and closes after playback")
+    func releaseThenReply() async {
+        let (c, session, capture, player, _) = makeCoordinator(autoDrain: false)
+        await c.beginPushToTalk()
+        capture.simulateAudioChunk(loud)
+        capture.simulateAudioChunk(loud)
+        // Release immediately: queued frames must finish before the end marker.
+        await c.endPushToTalk()
+        #expect(!c.isPushToTalkActive)
+        #expect(!capture.isCapturing)
+        #expect(session.sentAudioChunks == [loud, loud])
+        #expect(session.audioInputEndCount == 1)
+        #expect(session.isConnected)
+        #expect(c.state == .thinking)
+        await c.endPushToTalk()
+        #expect(session.audioInputEndCount == 1)
+        // A second press during this reply cannot turn it into an unattended open microphone.
+        await c.beginPushToTalk()
+        #expect(!c.isPushToTalkActive)
+        session.simulateEvent(.audioChunk(Data([1, 2])))
+        #expect(await waitUntil { c.state == .speaking })
+        session.simulateEvent(.turnComplete)
+        #expect(await waitUntil { player.isPlaying })
+        #expect(session.isConnected)
+        player.finishPlayback()
+        #expect(await waitUntil { c.state == .idle })
+        #expect(!session.isConnected)
+        #expect(capture.stopCaptureCallCount == 1)
+        await c.beginPushToTalk()
+        #expect(c.state == .listening)
+        await c.endPushToTalk() // silent press still cancels immediately
+        #expect(c.state == .idle)
+    }
+
+    @Test("Speech recorded during a slow connection survives release and is submitted before the end marker")
+    func releaseDuringConnection() async {
+        let session = GatedLiveSession()
+        let capture = MockAudioCapture()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector())
+        let start = Task { await c.beginPushToTalk() }
+        #expect(await waitUntil { session.isWaitingToConnect })
+        capture.simulateAudioChunk(loud)
+        await c.endPushToTalk()
+        #expect(!capture.isCapturing)
+        #expect(!c.isPushToTalkActive)
+        #expect(c.state == .connecting)
+        session.open()
+        await start.value
+        #expect(c.state == .thinking)
+        #expect(session.inner.sentAudioChunks == [loud])
+        #expect(session.inner.audioInputEndCount == 1)
+        session.inner.simulateEvent(.turnComplete) // reply without speech also cleans up
+        #expect(await waitUntil { c.state == .idle })
+    }
+
+    @Test("Release after an already answered turn closes without submitting that speech again")
+    func releaseAfterAnswer() async {
+        let (c, session, capture, _, _) = makeCoordinator()
+        await c.beginPushToTalk()
+        capture.simulateAudioChunk(loud)
+        #expect(await waitUntil { session.sentAudioChunks == [loud] })
+        session.simulateEvent(.audioChunk(Data([1, 2])))
+        #expect(await waitUntil { c.state == .speaking })
+        session.simulateEvent(.turnComplete)
+        #expect(await waitUntil { c.state == .listening })
+        await c.endPushToTalk()
+        #expect(c.state == .idle)
+        #expect(session.audioInputEndCount == 0)
+        #expect(!capture.isCapturing && !session.isConnected)
+    }
+
+    @Test("An end-of-input failure is visible and releases the socket and microphone")
+    func submitFailure() async {
+        let (c, session, capture, _, _) = makeCoordinator()
+        await c.beginPushToTalk()
+        session.setEndAudioInputError(LiveError.serverError("Fixture send failed"))
+        capture.simulateAudioChunk(loud)
+        await c.endPushToTalk()
+        guard case .error(let message) = c.state else {
+            Issue.record("Expected a visible submission failure, got \(c.state)")
+            await c.stopSession()
+            return
+        }
+        #expect(message.contains("Couldn't submit your voice request"))
+        #expect(!session.isConnected && !capture.isCapturing)
+        #expect(!c.isPushToTalkActive)
+        await c.stopSession()
+        await #expect(throws: LiveError.sessionClosed) { try await session.endAudioInput() }
+    }
+
+    @Test("Releasing the shortcut in a hands-free session leaves continuous listening intact")
+    func handsFreeUnaffected() async {
+        let (c, session, capture, _, _) = makeCoordinator()
+        await c.startSession()
+        await c.beginPushToTalk()
+        capture.simulateAudioChunk(loud)
+        await c.endPushToTalk()
+        #expect(c.state == .listening)
+        #expect(capture.isCapturing && session.isConnected)
+        #expect(session.audioInputEndCount == 0)
         await c.stopSession()
     }
 }

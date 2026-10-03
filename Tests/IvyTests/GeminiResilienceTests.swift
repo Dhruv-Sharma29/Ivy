@@ -124,7 +124,7 @@ struct GeminiResilienceTests {
         }
         let client = URLSessionGeminiClient(session: makeMockSession(), retryPolicy: policy)
 
-        await #expect(throws: GeminiClientError.invalidAPIKey("Bad Request: invalid parameter format")) {
+        await #expect(throws: GeminiClientError.invalidRequest("Bad Request: invalid parameter format")) {
             _ = try await client.generateContent(
                 history: [ChatMessage(role: .user, text: "Bad request")],
                 systemPrompt: "prompt",

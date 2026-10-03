@@ -361,10 +361,18 @@ public struct GeminiAPIError: Codable, Sendable, Equatable {
     public let code: Int
     public let message: String
     public let status: String
+    public let details: [Detail]?
 
-    public init(code: Int, message: String, status: String) {
+    /// Unknown Google error-detail fields are intentionally ignored.
+    public struct Detail: Codable, Sendable, Equatable {
+        public let reason: String?
+        public init(reason: String? = nil) { self.reason = reason }
+    }
+
+    public init(code: Int, message: String, status: String, details: [Detail]? = nil) {
         self.code = code
         self.message = message
         self.status = status
+        self.details = details
     }
 }

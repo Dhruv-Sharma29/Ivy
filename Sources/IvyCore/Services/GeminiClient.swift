@@ -4,6 +4,7 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
     case missingAPIKey
     case invalidURL
     case invalidAPIKey(String)
+    case invalidRequest(String)
     case rateLimited
     /// Rate limited, and the server said how long to wait.
     case rateLimitedRetry(after: TimeInterval)
@@ -22,6 +23,8 @@ public enum GeminiClientError: Error, LocalizedError, Equatable, Sendable {
             return "Invalid Gemini API endpoint URL."
         case .invalidAPIKey(let msg):
             return "Invalid API key: \(msg)"
+        case .invalidRequest(let msg):
+            return "Gemini couldn't accept this request: \(msg)"
         case .rateLimited:
             return "Rate limited. Slow down, give me a second."
         case .rateLimitedRetry(let seconds):
@@ -316,7 +319,16 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
                     thoughtSignature: thoughtSig
                 )
 
-            case 400, 401, 403:
+            case 400:
+                let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error
+                let body = String(data: data, encoding: .utf8) ?? ""
+                let message = sanitizeText(apiError?.message ?? (body.isEmpty ? "Bad request (HTTP 400)" : body))
+                let invalidKey = apiError?.details?.contains { $0.reason == "API_KEY_INVALID" } == true
+                    || message.lowercased().hasPrefix("api key not valid")
+                if invalidKey { throw GeminiClientError.invalidAPIKey(message) }
+                throw GeminiClientError.invalidRequest(message)
+
+            case 401, 403:
                 if let apiError = try? JSONDecoder().decode(GeminiResponse.self, from: data).error {
                     throw GeminiClientError.invalidAPIKey(sanitizeText(apiError.message))
                 } else if let bodyString = String(data: data, encoding: .utf8), !bodyString.isEmpty {

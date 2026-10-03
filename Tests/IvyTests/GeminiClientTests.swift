@@ -35,6 +35,38 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 @Suite("Gemini Client Unit Tests", .serialized)
 struct GeminiClientTests {
 
+    @Test("HTTP 400 separates malformed requests and prerequisites from invalid keys without retrying")
+    func badRequestClassification() async throws {
+        let cases: [(String, GeminiClientError)] = [
+            (#"{"error":{"code":400,"message":"Missing thought_signature","status":"INVALID_ARGUMENT"}}"#,
+             .invalidRequest("Missing thought_signature")),
+            (#"{"error":{"code":400,"message":"Enable billing","status":"FAILED_PRECONDITION"}}"#,
+             .invalidRequest("Enable billing")),
+            (#"{"error":{"code":400,"message":"Credential rejected","status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID"},{"locale":"en-US","message":"Rejected"}]}}"#,
+             .invalidAPIKey("Credential rejected")),
+            ("Bad syntax with fixture-private-key", .invalidRequest("Bad syntax with [REDACTED_API_KEY]")),
+            ("", .invalidRequest("Bad request (HTTP 400)")),
+        ]
+        for (body, expected) in cases {
+            var calls = 0
+            MockURLProtocol.requestHandler = { request in
+                calls += 1
+                return (HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+            }
+            let client = URLSessionGeminiClient(session: makeMockSession())
+            await #expect(throws: expected) {
+                _ = try await client.generateContent(history: [ChatMessage(role: .user, text: "Hello")],
+                    systemPrompt: "You are Ivy", apiKey: "fixture-private-key")
+            }
+            #expect(calls == 1)
+            #expect(expected.localizedDescription.contains("fixture-private-key") == false)
+        }
+        #expect(GeminiClientError.invalidRequest("Missing field").errorDescription == "Gemini couldn't accept this request: Missing field")
+        let error = GeminiAPIError(code: 400, message: "Rejected", status: "INVALID_ARGUMENT",
+                                   details: [.init(reason: "API_KEY_INVALID"), .init()])
+        #expect(try JSONDecoder().decode(GeminiAPIError.self, from: JSONEncoder().encode(error)) == error)
+    }
+
     private func makeMockSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]

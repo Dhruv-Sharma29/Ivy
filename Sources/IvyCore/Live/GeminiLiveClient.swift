@@ -223,6 +223,18 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         }
     }
 
+    public func endAudioInput() async throws {
+        let ws = try await getConnectedWebSocket()
+        let message = BidiClientMessage(realtimeInput: BidiRealtimeInput(audioStreamEnd: true))
+        do {
+            let data = try JSONEncoder().encode(message)
+            guard let json = String(data: data, encoding: .utf8) else { throw LiveError.audioEncodingFailed }
+            try await ws.send(.string(json))
+        } catch {
+            throw LiveError.serverError("Failed to finish audio input: \(error.localizedDescription)")
+        }
+    }
+
     public func sendImage(_ jpeg: Data) async throws {
         let ws = try await getConnectedWebSocket()
         let message = BidiClientMessage(realtimeInput: BidiRealtimeInput(jpegFrame: jpeg))

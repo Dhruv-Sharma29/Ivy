@@ -163,6 +163,26 @@ struct Phase4DSocketLifecycleTests {
         #expect(Set(input.keys) == ["audio"])
     }
 
+    @Test("Ending audio sends the automatic-VAD marker without disconnecting the reply socket")
+    func endInputKeepsConnection() async throws {
+        let (client, transports) = makeClient()
+        try await client.connect()
+        let ws = try #require(transports.withLock { $0.first })
+        ws.enqueueReceiveString(Self.setupComplete)
+        #expect(await waitFor { client.isConnected })
+        try await client.endAudioInput()
+        let frame = try #require(sentStrings(ws).last)
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any])
+        let input = try #require(json["realtimeInput"] as? [String: Any])
+        #expect(Set(input.keys) == ["audioStreamEnd"])
+        #expect(input["audioStreamEnd"] as? Bool == true)
+        #expect(client.isConnected && !ws.isCancelled)
+        ws.setSendError(Self.socketLost)
+        await #expect(throws: (any Error).self) { try await client.endAudioInput() }
+        await client.disconnect()
+        await #expect(throws: LiveError.sessionClosed) { try await client.endAudioInput() }
+    }
+
     @Test("Reconnect creates a new connection ID and disconnect clears it")
     func testReconnectCreatesNewConnectionId() async throws {
         let (client, _) = makeClient()

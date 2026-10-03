@@ -9,6 +9,9 @@ public protocol GeminiLiveSession: Sendable {
     /// Streams raw PCM audio data (16kHz 16-bit mono) to Gemini Live.
     func sendAudio(_ data: Data) async throws
 
+    /// Flushes automatic voice activity detection when the microphone input ends, without closing the reply socket.
+    func endAudioInput() async throws
+
     /// Sends tool execution results back to Gemini Live.
     func sendToolResponses(_ responses: [FunctionResponse]) async throws
 
@@ -39,6 +42,8 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
     private struct State {
         var isConnected: Bool = false
         var sentAudioChunks: [Data] = []
+        var audioInputEndCount = 0
+        var endAudioInputError: Error? = nil
         var sentToolResponses: [FunctionResponse] = []
         var sentImages: [Data] = []
         var connectError: Error? = nil
@@ -64,6 +69,22 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
 
     public var sentAudioChunks: [Data] {
         state.withLock { $0.sentAudioChunks }
+    }
+
+    public var audioInputEndCount: Int { state.withLock { $0.audioInputEndCount } }
+
+    public func setEndAudioInputError(_ error: Error?) {
+        state.withLock { $0.endAudioInputError = error }
+    }
+
+    public func endAudioInput() async throws {
+        let error = state.withLock { s -> Error? in
+            guard s.isConnected else { return LiveError.sessionClosed }
+            if let error = s.endAudioInputError { return error }
+            s.audioInputEndCount += 1
+            return nil
+        }
+        if let error { throw error }
     }
 
     public var sentToolResponses: [FunctionResponse] {

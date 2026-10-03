@@ -131,6 +131,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     public private(set) var isPushToTalkActive: Bool = false
     public private(set) var wasSessionStartedByPushToTalk: Bool = false
+    private var pushToTalkHeardSpeech = false
+    private var pushToTalkReleasePending = false
+    private var pushToTalkInputClosed = false
     /// Started by the idle "Hey Ivy" wake word: ends after one answered turn, or after silence.
     public private(set) var wasSessionStartedByWakeWord: Bool = false
     private let wakeSilenceTimeout: Duration
@@ -296,6 +299,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     /// Begins push-to-talk listening (idempotent key-down event).
     public func beginPushToTalk() async {
+        // A released one-shot request owns the connection until its reply finishes.
+        guard !(wasSessionStartedByPushToTalk && !isPushToTalkActive && state.isLive) else { return }
         guard !isPushToTalkActive else {
             // Idempotent: already active, duplicate key-down ignored
             return
@@ -305,6 +310,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         switch state {
         case .idle, .error:
             wasSessionStartedByPushToTalk = true
+            pushToTalkHeardSpeech = false
+            pushToTalkInputClosed = false
+            pushToTalkReleasePending = false
             await startSession()
         case .listening:
             // Already listening (e.g. continuous hands-free session); do not restart
@@ -373,7 +381,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         }
     }
 
-    /// Ends push-to-talk listening (idempotent key-up event).
+    /// Releases the microphone and submits the utterance; the connection stays open for Ivy's reply.
     public func endPushToTalk() async {
         guard isPushToTalkActive else {
             // Idempotent: already inactive, duplicate key-up ignored
@@ -381,11 +389,45 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         }
         isPushToTalkActive = false
 
-        if wasSessionStartedByPushToTalk {
-            if state == .listening || state == .connecting || isReconnecting {
-                wasSessionStartedByPushToTalk = false
-                await stopSession()
+        guard wasSessionStartedByPushToTalk, let token = currentSessionToken else { return }
+        guard state == .listening || state == .connecting || isReconnecting else { return }
+        pushToTalkInputClosed = true
+        // Capture may be returning its stream on another executor. Its startup path completes release
+        // once the consumer exists, so already queued speech isn't mistaken for a silent press.
+        guard captureTask != nil else { return }
+        await closePushToTalkCapture(token: token)
+    }
+
+    private func closePushToTalkCapture(token: UUID) async {
+        let inputTask = captureTask
+        await audioCapture.stopCapture()
+        // Drain queued microphone frames before sending the end marker, preserving the last syllable.
+        await inputTask?.value
+        guard currentSessionToken == token else { return }
+        isHearingUser = false
+        if !pushToTalkHeardSpeech {
+            await stopSession()
+            return
+        }
+        pushToTalkReleasePending = true
+        await finishPushToTalkInput(token: token)
+    }
+
+    private func finishPushToTalkInput(token: UUID) async {
+        guard currentSessionToken == token, pushToTalkReleasePending, state == .listening else { return }
+        pushToTalkReleasePending = false
+        do {
+            // A quick utterance may finish while the socket is connecting; send that pre-roll first.
+            let held = preRoll.drain()
+            for offset in stride(from: 0, to: held.count, by: 8000) {
+                try await session.sendAudio(held.subdata(in: offset..<min(offset + 8000, held.count)))
             }
+            guard currentSessionToken == token else { return }
+            if state == .listening { transition(to: .thinking) }
+            try await session.endAudioInput()
+        } catch {
+            guard currentSessionToken == token else { return }
+            await tearDown(then: .error("Couldn't submit your voice request: \(error.localizedDescription)"))
         }
     }
 
@@ -456,6 +498,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 return
             }
             startCaptureLoop(audioStream, token: token)
+            if pushToTalkInputClosed {
+                await closePushToTalkCapture(token: token)
+                guard currentSessionToken == token else { return }
+            }
         } catch {
             guard currentSessionToken == token else { return }
             await tearDown(then: .error("Failed to start audio capture: \(error.localizedDescription)"))
@@ -481,6 +527,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         if state == .connecting {
             transition(to: .listening)
         }
+        await finishPushToTalkInput(token: token)
     }
 
     private func startCaptureLoop(_ audioStream: AsyncThrowingStream<Data, Error>, token: UUID) {
@@ -492,6 +539,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                     guard let self, self.currentSessionToken == token else { break }
 
                     let heardVoice = self.vad.process(chunk)
+                    if heardVoice && self.wasSessionStartedByPushToTalk {
+                        self.pushToTalkHeardSpeech = true
+                    }
                     self.levelMeter.reportInput(self.vad.level)
                     let hearing = self.vad.isSpeech && self.state == .listening && !self.isMuted
                     if self.isHearingUser != hearing { self.isHearingUser = hearing }
@@ -574,6 +624,10 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     private func tearDown(then finalState: VoiceSessionState) async {
+        let inputAlreadyClosed = pushToTalkInputClosed
+        pushToTalkInputClosed = false
+        pushToTalkReleasePending = false
+        pushToTalkHeardSpeech = false
         // A session that ends mid-reply still keeps what was said so far.
         flushTranscripts(interrupted: isModelTurnOpen)
         currentSessionToken = nil
@@ -612,7 +666,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         lastReplyAudio = []
 
         teardownsInFlight += 1
-        await audioCapture.stopCapture()
+        if !inputAlreadyClosed { await audioCapture.stopCapture() }
         await stopPlayback()
         await wakeWordDetector.reset()
         await session.disconnect()
@@ -728,6 +782,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             if state == .connecting {
                 transition(to: .listening)
             }
+            await finishPushToTalkInput(token: token)
 
         case .toolCall(let call):
             if await interceptCommand(token: token) { return }
@@ -941,6 +996,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         if (wasSessionStartedByPushToTalk && !isPushToTalkActive) || wasSessionStartedByWakeWord {
             await stopSession()
         } else {
+            // Speech from the answered turn must not be submitted again if the key is still held.
+            if wasSessionStartedByPushToTalk { pushToTalkHeardSpeech = false }
             transition(to: .listening)
         }
     }
