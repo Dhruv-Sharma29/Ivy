@@ -266,9 +266,12 @@ public protocol GeminiClientProtocol: Sendable {
 ## 5. UI Architecture
 
 ### Desktop app shell (revised 2026-10-02)
+
+- Starting a live voice session opens Chat so its conversation and replies are visible.
+- The composer is a compact glass bar with a plus attachment menu, native multiline editor, microphone and circular send action. Its placeholder, short draft text and 36-point icon controls share a vertical center line, with neutral attachment and microphone icons, indigo send emphasis, and immediate hover/press feedback. Long drafts grow and scroll with equal vertical padding. Shift–Return inserts a newline at the current selection without sending; Return sends once, respecting blocked turns. No persistent keyboard hint is shown.
 - Ivy launches into a native SwiftUI `Window("Ivy", id: "main")`, with Dock and Command-Tab presence.
 - Closing the main window leaves the app in the Dock; clicking the Dock icon or choosing Open Ivy reopens the same window.
-- Initial size: 1080 × 760 points; minimum content size: 560 × 480 points. Hidden title bar and toolbar remove the large top strip, while native window controls, resizing and full-screen support remain. New Conversation is in the sidebar header and File menu; Chat Instructions stays in the Conversation menu; Settings remains in the sidebar and Command-comma.
+- Initial size: 1080 × 760 points; minimum content size: 560 × 480 points. Hidden title bar and toolbar remove the large top strip, while native window controls, resizing and full-screen support remain. A labeled New chat action is below the sidebar header; New Conversation remains in the File menu; Chat Instructions stays in the Conversation menu; Settings remains in the sidebar and Command-comma.
 - `NavigationSplitView`: conversation sidebar and chat detail. The native sidebar toggle supports a compact chat layout.
 - Menu bar extra: a small shortcut menu for opening Ivy, starting a conversation, ending voice, Settings and Quit.
 - Branding uses the professional paired-leaf app icon in the Dock, sidebar, empty state and Settings, with a simplified two-leaf monochrome template for the menu bar. Icon packaging reads the same PNG master used by the app.
@@ -276,18 +279,23 @@ public protocol GeminiClientProtocol: Sendable {
 
 ### Conversation interface
 - Neutral graphite and white surfaces use a muted indigo accent. The sidebar selection, controls, composer and Settings share this palette. Colors adapt to light, dark and increased-contrast appearances.
-- Home is a compact workspace with a text introduction, six everyday prompt-drafting shortcuts (Research, Summarize, Write, Files, Explain and Plan a task), real current task state and recent conversations. Character artwork, neon gradients and playful slogans are excluded from the workspace. The professional leaf icon appears only as compact app branding. Navigation contains Home, Chat, Tasks and a native Settings link. All rows have aligned symbols, equal heights and full-row click targets; navigation and history share a scrollable sidebar. Tasks uses the real task engine. File attachments, pasted text, browsing and coding remain available through Chat without separate sidebar destinations. Drafting an action opens Chat without sending. Home never simulates progress or executes a shortcut immediately.
+- Home is a compact workspace with a text introduction, six everyday prompt-drafting shortcuts (Research, Summarize, Write, Files, Explain and Plan a task), real current task state and recent conversations. Character artwork, neon gradients and playful slogans are excluded from the workspace. The professional leaf icon appears only as compact app branding. The navigation rail contains Home, Library, Tasks and a native Settings link. All rows have aligned symbols, equal heights and full-row click targets; navigation occupies a compact icon rail beside the scrollable history. Tasks uses the real task engine. File attachments, pasted text, browsing and coding remain available through Chat without separate sidebar destinations. Drafting an action opens Chat without sending. Home never simulates progress or executes a shortcut immediately.
+- Library browses real saved conversations and finished task reports in adaptive cards or compact list rows. All, Conversations, Pinned, Task reports and Archived filters combine with title/preview search and newest/title sorting. All excludes archived conversations; Archived is explicit. Cards open the corresponding saved chat or task report; conversation menus pin, archive and export through existing library operations. New offers Conversation and Task. Attachments remain memory-only and are not presented as saved files.
+- Tasks has its own searchable Current and Recent tasks sidebar, real live task controls, and selectable saved reports with actual outcomes and steps. Its empty workspace offers six Ivy-specific starters for day planning, files, research, documents, writing and project review. New task and starters open drafts in Chat without executing. Library and Tasks use the full detail area without the chat composer; dropping or pasting an attachment opens Chat. Background scheduling is not implied by this interface.
 - On macOS 26+, native Liquid Glass is shared across navigation selections, Home action cards, Settings cards and disclosure controls, task and confirmation surfaces, user message bubbles, attachment chips, composer controls, the command bar and companion labels. Related surfaces use GlassEffectContainer, static content never receives interactive hover behavior, and task cards embedded in another card omit their own glass surface. Workspace and Settings backgrounds use native behind-window vibrancy so wallpaper subtly influences the interface. Buttons use native glass styles while retaining their keyboard, disabled and confirmation behavior. Older systems use regular material and bordered buttons. Reduce Transparency and increased contrast replace glass and window vibrancy with opaque surfaces. Long replies, code blocks and text editors retain readable text treatments.
-- Conversation sidebar: search, pinned/date groups, visible conversation action menus, archive access, workspace selection and Settings.
-- Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. User messages use a subtle indigo-tinted bubble.
+- Conversation sidebar: a 52-point icon rail for Home, Library and Tasks with Settings at its foot; compact Ivy branding, a search toggle and labeled New chat action; one-line Pinned and Recents lists with neutral selection and visible action menus; a separate Archived folder and workspace selection. Chat opens through New chat, a saved conversation or a drafted action, without a separate rail icon. Full conversation titles, timestamps and previews remain available in tooltips; search results include matching snippets. Archived starts collapsed; clicking anywhere on its header shows or hides its own scrolling list.
+- Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. Action buttons briefly pulse on click; Copy shows a checkmark and “Copied” for two seconds, resetting on repeated clicks. Read Aloud immediately shows cancellable “Preparing…” progress, then Stop Reading during playback. Reduce Motion suppresses movement while retaining status feedback. User messages use a subtle indigo-tinted bubble.
 - Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
 - Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
 - Draft text is retained separately for each conversation while the main view is alive.
 - Conversation instructions use a multiline sheet and show validation failures in place.
 - Storage notices and voice failures are visible. Confirmation state is shared with the existing safety gate; the UI never auto-approves an action.
+- Chat and live voice approvals use one centered native sheet, shared with the instructions presentation so sheets never stack. The request scrolls within a bounded area; Cancel and Do it remain visible at the minimum window size. Escape refuses the action, and only an explicit click or Command-Return approves it. Responses retain the request identity so an old sheet cannot answer a newer action.
 
 ### Settings
+
+- Settings search sits above the section list with 24 points of separation.
 
 - Settings hides the navigation toolbar to remove its empty header space. The selected page heading sits inside the content, with search and section navigation in the sidebar and compact native window controls above.
 - Native searchable sidebar with General, Voice, Personalization, Screen, Proactive, Privacy & Data, API Keys, Permissions and About.
@@ -342,7 +350,7 @@ The confirmation prompt never drops Ivy's persona:
 > *"You're about to run `rm -rf ~/Documents/Drafts`. If you regret this, don't blame me. Do it or chicken out?"*
 > Options: `[Do it]` / `[Cancel]`
 
-Confirmation uses a native modal `NSAlert` or in-popover confirmation banner. If cancelled, the tool returns `"User cancelled operation with prejudice."` to Gemini.
+Confirmation uses a native sheet in the desktop window or an in-popover confirmation banner in the legacy popover. If cancelled, the tool returns `"User cancelled operation with prejudice."` to Gemini.
 
 ---
 

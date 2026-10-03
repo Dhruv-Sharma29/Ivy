@@ -6,38 +6,41 @@ import IvyCore
 struct TaskCardView: View {
     @ObservedObject var engine: TaskEngine
     var showsSurface = true
+    var expanded = false
 
     var body: some View {
         if let run = engine.run {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: icon(run.phase)).foregroundStyle(color(run.phase))
-                    Text(run.goal).font(.system(size: 12, weight: .semibold)).lineLimit(2)
+                    Text(run.goal).font(expanded ? .headline : .system(size: 12, weight: .semibold)).lineLimit(2)
                     Spacer()
-                    Text(phaseText(run.phase)).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(phaseText(run.phase)).font(expanded ? .caption : .system(size: 10)).foregroundStyle(.secondary)
                 }
 
                 if run.phase == .planning {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
-                        Text("Planning…").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text("Planning…").font(expanded ? .callout : .system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
 
                 ForEach(run.plan.steps) { step in
-                    HStack(alignment: .top, spacing: 6) {
+                    HStack(alignment: .top, spacing: expanded ? 12 : 6) {
                         Image(systemName: stepIcon(step.status))
                             .foregroundStyle(stepColor(step.status))
                             .frame(width: 14)
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
-                                Text(step.title).font(.system(size: 11))
-                                Text(step.tool).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                                Text(step.title).font(expanded ? .body : .system(size: 11))
+                                if !expanded {
+                                    Text(step.tool).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                                }
                             }
                             if case .failed(let why) = step.status {
-                                Text(why).font(.system(size: 10)).foregroundStyle(.red).lineLimit(3)
+                                Text(why).font(expanded ? .callout : .system(size: 10)).foregroundStyle(.red).lineLimit(3)
                             } else if case .skipped(let why) = step.status {
-                                Text(why).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
+                                Text(why).font(expanded ? .callout : .system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
                             } else if step.status == .running, let output = step.output, !output.isEmpty {
                                 Text(output.suffix(200)).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary).lineLimit(3)
                             }
@@ -47,7 +50,7 @@ struct TaskCardView: View {
 
                 controls(run)
             }
-            .padding(12)
+            .padding(expanded ? 20 : 12)
             .ivyGlass(cornerRadius: IvyTheme.cardRadius, enabled: showsSurface)
             .padding(.horizontal, 12)
             .padding(.top, 8)
@@ -59,7 +62,7 @@ struct TaskCardView: View {
         HStack {
             switch run.phase {
             case .awaitingApproval:
-                Text("Risky steps will still ask you one by one.").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("Risky steps will still ask you one by one.").font(expanded ? .caption : .system(size: 10)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", role: .cancel) { engine.cancel() }
                 Button("Run this plan") { engine.approvePlan() }

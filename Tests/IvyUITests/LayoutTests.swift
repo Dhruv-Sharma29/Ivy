@@ -30,19 +30,41 @@ struct LayoutTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = FileConversationStore(directory: directory.appendingPathComponent("history-" + UUID().uuidString))
         let now = Date(timeIntervalSince1970: 1_790_920_800)
-        let conversation = Conversation(id: UUID(), createdAt: now, chatMessages: [
+        var conversation = Conversation(id: UUID(), createdAt: now, chatMessages: [
             ChatMessage(role: .user, text: "Why is this Swift task racing?", timestamp: now),
             ChatMessage(role: .model, text: "The response arrives after the view changes. Keep the state on the main actor and cancel work when its owner disappears.\n\n```swift\n.task {\n    await model.load()\n}\n```\n\nStart with the smallest fix, then run the tests.", timestamp: now.addingTimeInterval(5))
         ])
+        conversation.isPinned = true
         try store.save(conversation)
+        let recentFixture = Conversation(id: UUID(), createdAt: now.addingTimeInterval(-30),
+            chatMessages: [ChatMessage(role: .user, text: "Help me organize a busy week with meetings, errands and a very long conversation title")])
+        try store.save(recentFixture)
+        var archivedFixture = Conversation(id: UUID(), createdAt: now.addingTimeInterval(-60),
+            chatMessages: [ChatMessage(role: .user, text: "Archived fixture")])
+        archivedFixture.archivedAt = now
+        try store.save(archivedFixture)
         #expect(HomeShortcut.allCases.count == 6)
         #expect(HomeShortcut.allCases.allSatisfy { !$0.prompt.isEmpty && !$0.detail.isEmpty && !$0.symbol.isEmpty })
         #expect(HomeShortcut.plan.prompt == "/agent ")
         let credentials = FixedCredentialProvider([.geminiAPIKey: "fixture-not-a-real-key"])
+        let taskStore = InMemoryTaskStore()
+        let statuses: [StepStatus] = [.succeeded, .failed("A file was unavailable."), .skipped("Skipped by you."), .cancelled, .pending, .running]
+        let steps = statuses.enumerated().map { index, status in
+            var step = TaskStep(id: String(index), title: "Review step \(index + 1)", tool: "file_op")
+            step.status = status
+            return step
+        }
+        var savedTask = TaskRun(plan: TaskPlan(goal: "Review my weekly files", steps: steps), phase: .finished(.cancelled), createdAt: now)
+        savedTask.finishedAt = now.addingTimeInterval(30)
+        savedTask.report = "Reviewed the folder. **No files were moved.**\n\nThe task was stopped before the remaining steps."
+        try taskStore.save(savedTask)
         let environment = IvyAppEnvironment(
             settingsStore: LayoutSettingsStore(), credentials: credentials, conversationStore: store,
-            geminiClient: LayoutOfflineClient(), now: { now }
-        ) { credentials, _ in GeminiLiveVoiceCoordinator(credentials: credentials) }
+            geminiClient: LayoutOfflineClient(), taskPlanner: LayoutTaskPlanner(), taskStore: taskStore, now: { now }
+        ) { _, _ in
+            GeminiLiveVoiceCoordinator(session: MockGeminiLiveSession(), audioCapture: MockAudioCapture(),
+                                       audioPlayer: MockLiveAudioPlayer())
+        }
         environment.brain.load(conversation)
         let app = IvyApp(environment: environment)
         _ = app.body
@@ -60,6 +82,36 @@ struct LayoutTests {
         environment.proactive.pendingPrompt = nil
         for scheme in [ColorScheme.light, .dark] {
             let name = scheme == .light ? "light" : "dark"
+            let reply = ChatMessage(role: .model, text: "Here is the answer, ready to copy or read aloud.")
+            let synthesizer = MockSpeechSynthesizer(delayDuration: 10)
+            let player = MockAudioPlayer()
+            player.playbackDuration = 10
+            let playback = VoicePlaybackManager(synthesizer: synthesizer, player: player)
+            playback.togglePlayback(for: reply)
+            #expect(playback.isSynthesizing(messageId: reply.id))
+            try await snapshot(MessageRowView(message: reply, voiceManager: playback).padding(16),
+                scheme: scheme, size: NSSize(width: 460, height: 180),
+                url: directory.appendingPathComponent("reply-preparing-\(name).png"))
+            playback.togglePlayback(for: reply)
+            #expect(!playback.isPlaying(messageId: reply.id), "preparing audio remains cancellable")
+            await Task.yield()
+            synthesizer.delayDuration = 0
+            playback.togglePlayback(for: reply)
+            for _ in 0..<20 where !player.isPlaying { await Task.yield() }
+            #expect(player.isPlaying)
+            try await snapshot(MessageRowView(message: reply, voiceManager: playback).padding(16),
+                scheme: scheme, size: NSSize(width: 460, height: 180),
+                url: directory.appendingPathComponent("reply-playing-\(name).png"))
+            playback.stop()
+            #expect(!player.isPlaying)
+            for expanded in [false, true] {
+                let folder = ArchivedFolder(isExpanded: .constant(expanded)) {
+                    Text("Archived fixture").padding(.vertical, 8)
+                }
+                .padding(12)
+                try await snapshot(folder, scheme: scheme, size: NSSize(width: 240, height: 160),
+                    url: directory.appendingPathComponent("archive-\(expanded ? "expanded" : "collapsed")-\(name).png"))
+            }
             for width in [CGFloat(560), 1080] {
                 let view = IvyWindowRoot(environment: environment)
                 try await snapshot(view, scheme: scheme, size: NSSize(width: width, height: 760),
@@ -77,6 +129,21 @@ struct LayoutTests {
                 try await snapshot(page, scheme: scheme, size: NSSize(width: 650, height: 740),
                                    url: directory.appendingPathComponent("workspace-\(destination.id)-\(name).png"))
             }
+            for category in [LibraryCategory.all, .pinned, .reports, .archived] {
+                let libraryPage = LibraryWorkspaceView(library: environment.library, tasks: environment.tasks, blocked: false,
+                    category: category, layout: .list, onOpenConversation: {}, onOpenTask: { _ in }, onPrompt: { _ in })
+                try await snapshot(libraryPage, scheme: scheme, size: NSSize(width: 350, height: 640),
+                    url: directory.appendingPathComponent("library-\(category.id)-list-compact-\(name).png"))
+            }
+            let emptyLibrary = ConversationLibrary(store: FileConversationStore(directory: directory.appendingPathComponent("empty-" + UUID().uuidString)),
+                                                   brain: environment.brain)
+            try await snapshot(LibraryWorkspaceView(library: emptyLibrary, tasks: environment.tasks, blocked: false,
+                category: .conversations, onOpenConversation: {}, onOpenTask: { _ in }, onPrompt: { _ in }),
+                scheme: scheme, size: NSSize(width: 350, height: 640),
+                url: directory.appendingPathComponent("library-empty-\(name).png"))
+            try await snapshot(TasksWorkspaceView(tasks: environment.tasks, selectedTaskID: savedTask.id, blocked: false, onPrompt: { _ in }),
+                scheme: scheme, size: NSSize(width: 350, height: 740),
+                url: directory.appendingPathComponent("task-report-compact-\(name).png"))
             let region = SystemRegionalPreferences(locale: Locale(identifier: "en_GB"), timeZone: .gmt)
             try await snapshot(RegionalPreferencesView(region: region).padding(20), scheme: scheme,
                                size: NSSize(width: 420, height: 200),
@@ -119,19 +186,81 @@ struct LayoutTests {
                                url: directory.appendingPathComponent("error-\(name).png"))
             environment.brain.load(conversation)
         }
+        await environment.liveCoordinator.startSession()
+        #expect(environment.liveCoordinator.state.isLive)
+        try await snapshot(IvyWindowRoot(environment: environment), scheme: .dark,
+                           size: NSSize(width: 1080, height: 760), url: directory.appendingPathComponent("active-voice-chat.png"))
+        await environment.liveCoordinator.stopSession()
+        let multilineComposer = MessageInputBar(text: .constant("First line\nSecond line\nThird line"),
+                                                 isThinking: false, onToggleVoice: {}) {}
+        try await snapshot(multilineComposer, scheme: .dark, size: NSSize(width: 600, height: 160),
+                           url: directory.appendingPathComponent("multiline-composer.png"))
+        // The reference-style bar must keep its controls visible when narrow, blocked or live.
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(350), 700] {
+                for state in ["empty", "draft", "blocked", "voice"] {
+                    let bar = MessageInputBar(text: .constant(state == "draft" ? "Hello Ivy" : ""),
+                        isThinking: state == "blocked", isVoiceActive: state == "voice",
+                        onToggleVoice: {}, attachmentTray: environment.attachments) {}
+                    try await snapshot(bar, scheme: scheme, size: NSSize(width: width, height: 100),
+                        url: directory.appendingPathComponent("composer-\(state)-\(scheme == .light ? "light" : "dark")-\(Int(width)).png"))
+                }
+            }
+        }
+        // Attachment import failures must remain visible above the compact composer.
+        _ = await environment.attachments.addImageData(Data(), name: "invalid fixture")
+        #expect(environment.attachments.lastError != nil)
+        try await snapshot(AttachmentBar(tray: environment.attachments), scheme: .light,
+                           size: NSSize(width: 600, height: 100), url: directory.appendingPathComponent("attachment-error.png"))
+        environment.attachments.dismissError()
+        #expect(environment.attachments.lastError == nil)
         let approvalBrain = IvyBrain(client: LayoutApprovalClient(), apiKey: "fixture-not-a-real-key")
         let approvalTurn = Task { await approvalBrain.send("Propose a fixture shell action") }
         for _ in 0..<100 where approvalBrain.pendingConfirmation == nil { await Task.yield() }
         let request = try #require(approvalBrain.pendingConfirmation)
+        await environment.tasks.start(goal: "Review a folder")
+        #expect(environment.tasks.run?.phase == .awaitingApproval)
+        for scheme in [ColorScheme.light, .dark] {
+            try await snapshot(TasksWorkspaceView(tasks: environment.tasks, blocked: true, onPrompt: { _ in }),
+                scheme: scheme, size: NSSize(width: 650, height: 740),
+                url: directory.appendingPathComponent("task-awaiting-plan-\(scheme).png"))
+            try await snapshot(SidebarView(library: environment.library, brain: environment.brain,
+                workspaces: environment.workspaces, tasks: environment.tasks, destination: .constant(.tasks),
+                selectedTaskID: .constant(savedTask.id), onNewTask: {}),
+                scheme: scheme, size: NSSize(width: 280, height: 740),
+                url: directory.appendingPathComponent("task-sidebar-\(scheme).png"))
+        }
+        #expect(environment.tasks.run?.phase == .awaitingApproval, "rendering a plan never executes it")
+        environment.tasks.cancel()
         let approvalView = ChatPaneView(brain: approvalBrain, voiceManager: environment.voiceManager,
                                        liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
                                        attachments: environment.attachments, tasks: environment.tasks)
         try await snapshot(approvalView, scheme: .light, size: NSSize(width: 680, height: 760),
-                           url: directory.appendingPathComponent("pending-approval.png"))
+                           url: directory.appendingPathComponent("pending-approval.png"), expectsApproval: true)
+        let homeApproval = ChatPaneView(brain: approvalBrain, voiceManager: environment.voiceManager,
+            liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
+            attachments: environment.attachments, tasks: environment.tasks, library: environment.library, destination: .home)
+        try await snapshot(homeApproval, scheme: .dark, size: NSSize(width: 560, height: 480),
+            url: directory.appendingPathComponent("pending-home-approval-compact.png"), expectsApproval: true)
+        let longRequest = ConfirmationRequest(toolName: "run_applescript", title: "AppleScript Execution",
+            prompt: String(repeating: "Review this action before running it. ", count: 50),
+            detail: String(repeating: "-- Long script fixture\n", count: 100))
+        for scheme in [ColorScheme.light, .dark] {
+            try await snapshot(ConfirmationSheetView(request: longRequest, onConfirm: { _ in }), scheme: scheme,
+                size: NSSize(width: 500, height: 400),
+                url: directory.appendingPathComponent("approval-long-\(scheme == .light ? "light" : "dark").png"))
+        }
         #expect(approvalBrain.pendingConfirmation?.id == request.id, "rendering must never approve an action")
-        approvalBrain.respondToPendingConfirmation(id: request.id, approved: false)
+        #expect(approvalView.presentedSheet?.id == ChatSheet.approval(request, live: false).id)
+        // A stale sheet's response must leave the real pending action untouched.
+        approvalView.respond(to: .approval(longRequest, live: false), approved: true)
+        #expect(approvalBrain.pendingConfirmation?.id == request.id)
+        approvalView.sheetPresentation.wrappedValue = nil
         await approvalTurn.value
         #expect(approvalBrain.pendingConfirmation == nil)
+        #expect(approvalView.presentedSheet == nil)
+        approvalView.respond(to: .instructions, approved: false)
+        approvalView.respond(to: .approval(longRequest, live: true), approved: false)
         await environment.shutdown()
     }
 
@@ -237,9 +366,10 @@ struct LayoutTests {
 
     @Test("personal assistant navigation keeps essential destinations and actions only draft prompts")
     func navigationDestinations() {
-        #expect(WorkspaceDestination.allCases.map(\.rawValue) == ["Home", "Chat", "Tasks"])
-        #expect(Set(WorkspaceDestination.allCases.map(\.id)).count == 3)
-        #expect(Set(WorkspaceDestination.allCases.map(\.symbol)).count == 3)
+        #expect(WorkspaceDestination.railDestinations == [.home, .library, .tasks])
+        #expect(WorkspaceDestination.allCases.map(\.rawValue) == ["Home", "Chat", "Library", "Tasks"])
+        #expect(Set(WorkspaceDestination.allCases.map(\.id)).count == 4)
+        #expect(Set(WorkspaceDestination.allCases.map(\.symbol)).count == 4)
         #expect(WorkspaceDestination.tasks.shortcuts == [.plan])
         #expect(WorkspaceDestination.chat.shortcuts.isEmpty)
         #expect(HomeShortcut.allCases.map(\.rawValue) == ["Research", "Summarize", "Write", "Files", "Explain", "Plan a task"])
@@ -422,7 +552,8 @@ struct LayoutTests {
     }
 
     private func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, url: URL,
-                                   increasedContrast: Bool = false, expectsWindowMaterial: Bool? = nil) async throws {
+                                   increasedContrast: Bool = false, expectsWindowMaterial: Bool? = nil,
+                                   expectsApproval: Bool = false) async throws {
         let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height).preferredColorScheme(scheme))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -438,6 +569,19 @@ struct LayoutTests {
         host.frame = NSRect(origin: .zero, size: size)
         try await Task.sleep(for: .milliseconds(150))
         host.layoutSubtreeIfNeeded()
+        if expectsApproval {
+            // macOS omits offscreen virtual AX nodes. Verify real sheet bounds and render its content instead.
+            let sheet = try #require(window.sheets.first, "approval must be a native sheet")
+            #expect(window.sheets.count == 1, "only one modal approval may be presented")
+            #expect(window.frame.contains(sheet.frame), "the complete approval must fit even at minimum window size")
+            let content = try #require(sheet.contentView)
+            #expect(content.bounds.width >= 500 && content.bounds.height >= 400)
+            content.layoutSubtreeIfNeeded()
+            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: url.deletingPathExtension().appendingPathExtension("sheet.png"))
+        }
         if let expectsWindowMaterial {
             func materials(_ view: NSView) -> [NSVisualEffectView] {
                 let own = (view as? NSVisualEffectView).map { [$0] } ?? []
@@ -449,6 +593,26 @@ struct LayoutTests {
                 #expect(backdrop.hitTest(.zero) == nil, "the backdrop must never intercept clicks")
             }
         }
+        func verifyComposer(_ view: NSView) {
+            // Navigation retains outgoing native views briefly; only visible editors participate in layout.
+            if let editor = view as? ComposerTextView, !editor.visibleRect.isEmpty,
+               let layout = editor.layoutManager,
+               let container = editor.textContainer {
+                layout.ensureLayout(for: container)
+                #expect(editor.bounds.width > 100, "\(url.lastPathComponent): document must retain the viewport width")
+                #expect(editor.bounds.height >= 32)
+                #expect(layout.usedRect(for: container).maxY + 12 <= editor.bounds.height + 1,
+                        "the native document must contain its text without clipping")
+                if let scroll = editor.enclosingScrollView, editor.bounds.height <= scroll.contentSize.height + 1 {
+                    let glyphHeight = max(layout.usedRect(for: container).maxY, layout.extraLineFragmentRect.maxY)
+                    #expect(abs(editor.textContainerOrigin.y + glyphHeight / 2 - editor.bounds.midY) < 1,
+                            "short drafts and empty insertion points must be vertically centered")
+                }
+                #expect(editor.isEditable && editor.isSelectable)
+            }
+            for child in view.subviews { verifyComposer(child) }
+        }
+        verifyComposer(host)
         // The native drag surface must cover both the character and pill, rather than collapsing to zero size.
         func verifyDragSurfaces(_ view: NSView) {
             if let surface = view as? CompanionDragSurface {
@@ -534,5 +698,12 @@ private struct LayoutOfflineClient: GeminiClientProtocol {
     func generateContent(history: [ChatMessage], systemPrompt: String,
                          tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
         ModelTurnResponse(text: "Fixture briefing.")
+    }
+}
+
+/// This fixture only proposes a plan. Layout tests never approve or execute its command.
+private struct LayoutTaskPlanner: TaskPlanning {
+    func plan(goal: String, context: String, tools: [FunctionDeclaration]) async throws -> String {
+        #"{"steps":[{"id":"1","title":"Review folder metadata","tool":"run_shell","arguments":{"command":"echo fixture"}}]}"#
     }
 }

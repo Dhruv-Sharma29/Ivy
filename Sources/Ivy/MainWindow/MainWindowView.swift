@@ -12,21 +12,46 @@ struct MainWindowView: View {
     @ObservedObject var tasks: TaskEngine
     @ObservedObject var workspaces: WorkspaceModel
     @State private var columns = NavigationSplitViewVisibility.all
-    @State private var destination = WorkspaceDestination.home
+    @State private var destination: WorkspaceDestination
+    @State private var selectedTaskID: UUID?
+    @State private var promptRequest: WorkspacePrompt?
+
+    init(brain: IvyBrain, library: ConversationLibrary, voiceManager: VoicePlaybackManager,
+         liveVoiceCoordinator: GeminiLiveVoiceCoordinator, proactive: ProactiveEngine,
+         attachments: AttachmentTray, tasks: TaskEngine, workspaces: WorkspaceModel) {
+        self.brain = brain
+        self.library = library
+        self.voiceManager = voiceManager
+        self.liveVoiceCoordinator = liveVoiceCoordinator
+        self.proactive = proactive
+        self.attachments = attachments
+        self.tasks = tasks
+        self.workspaces = workspaces
+        // Seed a newly opened window from the active session; subsequent navigation stays view-owned.
+        self._destination = State(initialValue: liveVoiceCoordinator.state.isLive ? .chat : .home)
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
-            SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks, destination: $destination)
-                .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
+            SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks, destination: $destination,
+                        selectedTaskID: $selectedTaskID, onNewTask: {
+                            promptRequest = WorkspacePrompt(text: "/agent "); destination = .chat
+                        })
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
         } detail: {
             ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator,
                          proactive: proactive, attachments: attachments, tasks: tasks,
-                         library: library, destination: destination, onShowChat: { destination = .chat })
+                         library: library, destination: destination, selectedTaskID: selectedTaskID, promptRequest: promptRequest,
+                         onShowChat: { destination = .chat }, onShowTask: { selectedTaskID = $0; destination = .tasks })
+                .frame(minWidth: 320)
         }
         .navigationSplitViewStyle(.balanced)
         .tint(IvyTheme.leaf)
         .frame(minWidth: 560, minHeight: 480)
         .toolbar(.hidden, for: .windowToolbar)
+        .onChange(of: liveVoiceCoordinator.state.isLive) { _, live in
+            if live { destination = .chat }
+        }
         .accessibilityIdentifier("ivy.mainWindow")
     }
 }
@@ -41,7 +66,10 @@ struct ChatPaneView: View {
     var library: ConversationLibrary? = nil
     var showsHome = false
     var destination: WorkspaceDestination? = nil
+    var selectedTaskID: UUID? = nil
+    var promptRequest: WorkspacePrompt? = nil
     var onShowChat: (() -> Void)? = nil
+    var onShowTask: ((UUID) -> Void)? = nil
     @State private var inputText = ""
     @State private var drafts: [UUID: String] = [:]
     @State private var editingInstructions = false
@@ -62,26 +90,17 @@ struct ChatPaneView: View {
                 IvyHomeView(library: library, brain: brain, tasks: tasks,
                             onPrompt: { inputText = $0; onShowChat?() }, onOpenConversation: { onShowChat?() },
                             onCapture: { Task { await attachments.capture(.frontWindow) } })
-            } else if currentDestination != .chat && currentDestination != .home {
-                WorkspacePage(destination: currentDestination, tasks: tasks,
-                              blocked: isBlocked, onPrompt: { inputText = $0; onShowChat?() })
+            } else if currentDestination == .library, let library {
+                LibraryWorkspaceView(library: library, tasks: tasks, blocked: isBlocked,
+                    onOpenConversation: { onShowChat?() }, onOpenTask: { onShowTask?($0) },
+                    onPrompt: { inputText = $0; onShowChat?() })
+            } else if currentDestination == .tasks {
+                TasksWorkspaceView(tasks: tasks, selectedTaskID: selectedTaskID,
+                                   blocked: isBlocked, onPrompt: { inputText = $0; onShowChat?() })
             } else {
                 messages
             }
             VStack(spacing: 0) {
-                if let request = liveVoiceCoordinator.pendingConfirmation {
-                    ConfirmationCardView(request: request) { approved in
-                        liveVoiceCoordinator.respondToPendingConfirmation(id: request.id, approved: approved)
-                    }
-                    .id(request.id)
-                    .padding(.horizontal, 16)
-                } else if let request = brain.pendingConfirmation {
-                    ConfirmationCardView(request: request) { approved in
-                        brain.respondToPendingConfirmation(id: request.id, approved: approved)
-                    }
-                    .id(request.id)
-                    .padding(.horizontal, 16)
-                }
                 if tasks.run != nil && currentDestination != .tasks {
                     ScrollView { TaskCardView(engine: tasks) }
                         .frame(maxHeight: 200)
@@ -98,11 +117,13 @@ struct ChatPaneView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 16)
                 }
-                AttachmentBar(tray: attachments)
-                MessageInputBar(text: $inputText, isThinking: isBlocked,
-                                isVoiceActive: liveVoiceCoordinator.state.isLive,
-                                hasAttachments: !attachments.attachments.isEmpty,
-                                onToggleVoice: toggleLive, onSend: send)
+                if currentDestination == .home || currentDestination == .chat {
+                    AttachmentBar(tray: attachments)
+                    MessageInputBar(text: $inputText, isThinking: isBlocked,
+                                    isVoiceActive: liveVoiceCoordinator.state.isLive,
+                                    hasAttachments: !attachments.attachments.isEmpty,
+                                    onToggleVoice: toggleLive, attachmentTray: attachments, onSend: send)
+                }
             }
             .frame(maxWidth: 800)
             .frame(maxWidth: .infinity)
@@ -111,7 +132,16 @@ struct ChatPaneView: View {
         .navigationTitle(currentDestination == .chat
                          ? (brain.messages.isEmpty ? "New conversation" : brain.currentConversation.displayTitle)
                          : currentDestination.rawValue)
-        .sheet(isPresented: $editingInstructions) { instructionsSheet }
+        .sheet(item: sheetPresentation) { sheet in
+            switch sheet {
+            case .instructions:
+                instructionsSheet
+            case .approval(let request, _):
+                ConfirmationSheetView(request: request) { approved in
+                    respond(to: sheet, approved: approved)
+                }
+            }
+        }
         .focusedSceneValue(\.ivyChatInstructions, $editingInstructions)
         .onChange(of: editingInstructions) {
             if editingInstructions {
@@ -124,6 +154,9 @@ struct ChatPaneView: View {
             return true
         }
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg], perform: accept)
+        .onChange(of: promptRequest?.id) {
+            if let promptRequest { inputText = promptRequest.text }
+        }
         .onAppear(perform: takeSuggestedPrompt)
         .onChange(of: attachments.suggestedPrompt) { takeSuggestedPrompt() }
         .onChange(of: proactive.pendingPrompt) { takeSuggestedPrompt() }
@@ -131,6 +164,33 @@ struct ChatPaneView: View {
             drafts[old] = inputText
             inputText = drafts[new] ?? ""
             onShowChat?()
+        }
+    }
+
+    var presentedSheet: ChatSheet? {
+        if let request = liveVoiceCoordinator.pendingConfirmation { return .approval(request, live: true) }
+        if let request = brain.pendingConfirmation { return .approval(request, live: false) }
+        return editingInstructions ? .instructions : nil
+    }
+
+    var sheetPresentation: Binding<ChatSheet?> {
+        // Capture the displayed identity: dismissing an old sheet must never answer a newer request.
+        let displayed = presentedSheet
+        return Binding(get: { presentedSheet }, set: { value in
+            if value == nil, let displayed { respond(to: displayed, approved: false) }
+        })
+    }
+
+    func respond(to sheet: ChatSheet, approved: Bool) {
+        switch sheet {
+        case .instructions:
+            editingInstructions = false
+        case .approval(let request, let live):
+            if live {
+                liveVoiceCoordinator.respondToPendingConfirmation(id: request.id, approved: approved)
+            } else {
+                brain.respondToPendingConfirmation(id: request.id, approved: approved)
+            }
         }
     }
 
@@ -293,6 +353,7 @@ struct ChatPaneView: View {
     }
 
     private func accept(_ providers: [NSItemProvider]) {
+        if currentDestination == .library || currentDestination == .tasks { onShowChat?() }
         let tray = attachments
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -329,10 +390,24 @@ struct ChatPaneView: View {
     }
 }
 
+enum ChatSheet: Identifiable {
+    case instructions
+    case approval(ConfirmationRequest, live: Bool)
+
+    var id: String {
+        switch self {
+        case .instructions: "instructions"
+        case .approval(let request, let live): "\(live ? "live" : "chat")-\(request.id)"
+        }
+    }
+}
+
 /// Native text treatments with copy and read-aloud actions that remain keyboard reachable.
 struct MessageRowView: View {
     let message: ChatMessage
     @ObservedObject var voiceManager: VoicePlaybackManager
+    @State private var readClickCount = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 10) {
@@ -364,15 +439,30 @@ struct MessageRowView: View {
             } else {
                 MessageBlocksView(text: message.text)
                 HStack(spacing: 8) {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(message.text, forType: .string)
-                    } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    MessageCopyButton(text: message.text)
                     if !message.isError {
-                        Button { voiceManager.togglePlayback(for: message) } label: {
-                            Label(voiceManager.isPlaying(messageId: message.id) ? "Stop Reading" : "Read Aloud",
-                                  systemImage: voiceManager.isPlaying(messageId: message.id) ? "stop.fill" : "speaker.wave.2")
+                        let preparing = voiceManager.isSynthesizing(messageId: message.id)
+                        let reading = voiceManager.isPlaying(messageId: message.id)
+                        Button {
+                            readClickCount += 1
+                            voiceManager.togglePlayback(for: message)
+                        } label: {
+                            HStack(spacing: 6) {
+                                if preparing {
+                                    ProgressView().controlSize(.mini).frame(width: 14, height: 14)
+                                } else {
+                                    Image(systemName: reading ? "stop.fill" : "speaker.wave.2")
+                                        .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                                }
+                                Text(preparing ? "Preparing…" : (reading ? "Stop Reading" : "Read Aloud"))
+                            }
                         }
+                        .modifier(MessageActionFeedback(trigger: readClickCount))
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: reading)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: preparing)
+                        .help(preparing ? "Cancel preparing audio" : (reading ? "Stop reading this message" : "Read this message aloud"))
+                        .accessibilityLabel(preparing ? "Cancel preparing audio" : (reading ? "Stop Reading" : "Read Aloud"))
+                        .accessibilityValue(preparing ? "Preparing audio" : (reading ? "Playing" : ""))
                     }
                 }
                 .ivyGlassButtonStyle()

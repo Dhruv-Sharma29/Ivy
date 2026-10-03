@@ -31,6 +31,21 @@ struct SettingsWindowView: View {
                     }
                 }
                 .padding(18)
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Find a setting", text: $query)
+                        .textFieldStyle(.plain)
+                        .accessibilityIdentifier("ivy.settings.search")
+                    if !query.isEmpty {
+                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                            .accessibilityLabel("Clear search")
+                    }
+                }
+                .padding(10)
+                .ivyGlass(cornerRadius: 10)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 24)
                 List(selection: $selection) {
                 ForEach(SettingsPane.allCases.filter { query.isEmpty || $0.searchText.localizedStandardContains(query) }) { pane in
                     Label {
@@ -43,7 +58,6 @@ struct SettingsWindowView: View {
                 }
             }
             .listStyle(.sidebar)
-            .searchable(text: $query, placement: .sidebar, prompt: "Find a setting")
                 .scrollContentBackground(.hidden)
             }
             .modifier(IvySidebarBackground())
