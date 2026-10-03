@@ -1,5 +1,7 @@
 # Ivy v1.1 Roadmap
 
+Current source audit and prioritized backlog: [remaining work](../../tasks/remaining.md). Historical phase checklists may predate the desktop UI and later integration fixes.
+
 v1.0 (Phases 1–7) shipped the core: menu-bar chat on Gemini REST, five SafetyGate-guarded macOS tools,
 ElevenLabs TTS, Gemini Live voice (Kore) with "Hey Ivy" barge-in and idle wake, ⌘⇧Space push-to-talk,
 Keychain credentials, persisted settings/history, hardened-runtime signing and notarization.
@@ -81,5 +83,6 @@ Found in a full code review; tests in `Tests/IvyTests/HardeningFollowUpTests.swi
 | REST Gemini key is sent in the `x-goog-api-key` header only, never in the URL | `URLSessionGeminiClient` |
 | Deleting the conversation from the header asks first | `IvyPopoverView` |
 
-Not changed (known): any HTTP 400 still maps to `invalidAPIKey` (many tests use 400 as their generic failure);
-AppleScript still runs on the main actor (`NSAppleScript` isn't thread-safe; moving it means an `osascript` process).
+Fixed in the 2026-10-03 integration batch: HTTP 400 now reports `invalidRequest` unless Google identifies an invalid key. Offline tests still use 400 as a generic request failure, without recommending credential replacement.
+
+Known follow-up: AppleScript still runs on the main actor (`NSAppleScript` isn't thread-safe; moving it means an `osascript` process).

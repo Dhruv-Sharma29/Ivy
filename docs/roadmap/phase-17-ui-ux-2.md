@@ -229,7 +229,7 @@ manual checklist passed.
 | Slice | Status | Where |
 |---|---|---|
 | 17a.1 Design tokens + base components | Partly done | `Sources/Ivy/DesignSystem/IvyTheme.swift` (leaf / moss / sprout light+dark, radii, fonts). **Not done:** `ImageRenderer` snapshot tests — the test target only links `IvyCore`, so view tests need a new target |
-| 17a.2 Main window + router | Done | `MainWindowController` (AppKit window, opens only on request: popover ⌘O / window button, or a proactive notification with a suggestion). `AppRouter` (IvyCore) is the single owner of the Dock decision: Dock icon while the window is open, or always with Settings › "Always show Ivy in the Dock". `ivy://conversation/<id>` and `ivy://new` are parsed but no URL scheme is registered yet |
+| 17a.2 Main window + router | Done | Native SwiftUI window with regular Dock presence, reopened through `MainWindowController`. macOS registers `ivy://conversation/<id>` and `ivy://new`; `AppRouter` reveals Chat without sending messages. Busy operations block switching, missing IDs show a notice, and unexpected URL parameters are rejected. |
 | 17a.3 Sidebar | Done | `SidebarView`: search, Pinned / Today / Yesterday / Previous 7 Days / Earlier (`ConversationGroup`), archived toggle, rename, pin, archive, export, delete (confirmed), ⌘N |
 | 17a.4 Chat pane + message blocks | Done | `MessageBlock` parser (IvyCore): prose as inline Markdown, fenced code with language label and Copy, diffs coloured per line. Confirmation cards as in the popover (⌘Return approves, Esc cancels). **Not done:** tool cards, collapsible tool output, "Apply…" on diffs |
 | 17a.5 Composer | Done (no attachments) | Reuses `MessageInputBar`; the mic starts Live in the active conversation; suggestions from notifications pre-fill it |

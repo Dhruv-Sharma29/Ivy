@@ -1,124 +1,156 @@
-# Ivy — Native macOS Pair-Programming & Voice Assistant
+# Ivy — Native macOS Personal Assistant
 
-Ivy is a native macOS pair-programming assistant powered by the Gemini Multimodal Live API, Gemini REST API, and ElevenLabs text-to-speech. Ivy features real-time bidirectional voice streaming, barge-in wake phrase interruption ("Hey Ivy"), global push-to-talk chords (`Command + Shift + Space`), and secure tool execution through the `InteractiveSafetyGate`.
+Ivy combines text chat, live voice, screen help and local Mac tools in a native SwiftUI app. It uses Gemini REST and Live APIs, with optional ElevenLabs text-to-speech. Risky tool actions require your explicit approval before execution.
 
----
+## Current status
+
+The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.0.0**, with an updated app and DMG in `dist/`.
+
+**This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The release launches on the development Mac, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
+
+See [remaining work](tasks/remaining.md) for implementation gaps, hardware testing and release requirements.
 
 ## Features
 
-- **Native Mac App**: Opens a resizable main window at launch, stays in the Dock, and provides a menu bar shortcut. Searchable conversations, Markdown/code replies, and a multiline composer.
-- **Multimodal Live Voice**: Ultra-low-latency real-time voice conversations via Gemini Live WebSocket API (`models/gemini-3.1-flash-live-preview`).
-- **Hey Ivy Interruption**: Local on-device speech recognition to interrupt AI speech mid-turn.
-- **Global Push-to-Talk**: Zero-configuration system hotkey (`Command + Shift + Space`) powered by Carbon Events.
-- **Interactive SafetyGate**: Human-in-the-loop approval card for all risky tool executions (`run_shell`, `file_op` writes, `run_applescript`, and `calendar_event`).
-- **Keychain Security**: All API keys stored in macOS Keychain (`kSecClassGenericPassword`, service `com.ivy.assistant`). Zero credentials in source code or plaintext settings.
-- **Hardened Runtime**: Signed with minimal entitlements and ready for Apple Notarization.
-
----
+- **Native workspace:** resizable main window, Dock presence, outline-leaf menu bar shortcut, Home, Library, Tasks and searchable Settings.
+- **Conversation history:** search, pinned conversations, export and an Archived section that expands when opened.
+- **Compact composer:** attachments, microphone and send controls. Return sends; Shift–Return inserts a newline at the cursor. Drafts are retained per conversation while the main view remains open.
+- **Live voice:** Gemini voice sessions, local “Hey Ivy” interruption and global push-to-talk. Hold **Command–Shift–Space** while speaking, then release; Ivy submits the captured speech and stays connected to answer. Silent presses cancel. Speech queued during microphone or connection startup is preserved.
+- **Screen help:** attach a screenshot, selected region, image or PDF. The screen-help shortcut can show a capture to an active Live session.
+- **Tasks and Mac tools:** plan multi-step work with `/agent <goal>`, review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
+- **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet.
+- **Secure credentials:** keys saved through Settings live in macOS Keychain, outside plaintext settings and conversation history. Voice, macros, plans and external links cannot approve risky actions.
+- **Conversation links:** `ivy://new` and `ivy://conversation/<UUID>` reveal Chat. Links never send messages or run tools; active requests, approvals, tasks and voice sessions block conversation switching.
 
 ## Requirements
 
-- **Operating System**: macOS 14.0 (Sonoma) or later (Apple Silicon & Intel)
-- **Toolchain**: Swift 6.0+ / Xcode 16.0+ Command Line Tools
-- **API Keys**:
-  - Google Gemini API Key (Required for text and Live voice)
-  - ElevenLabs API Key (Optional, for high-fidelity TTS playback)
+| Use | Requirement |
+|---|---|
+| Current packaged app | Apple silicon Mac; executable deployment target is macOS 14.0+ |
+| Build from source | Xcode with a Swift 6 toolchain and macOS SDK; this batch was verified with Swift 6.4 |
+| Text chat and Live voice | Gemini API key |
+| ElevenLabs Read Aloud | Optional ElevenLabs API key and voice configuration |
 
----
+The Swift package has no third-party package dependencies. Physical-device and cross-Mac acceptance checks remain listed in the backlog.
 
-## Getting Started
+## Install the current local build
 
-### 1. Development Build & Launch
+1. Open `dist/Ivy-1.0.0.dmg`.
+2. Drag **Ivy** onto the **Applications** shortcut.
+3. Launch Ivy from Applications.
+4. Open **Settings → API Keys** with **Command-comma** and save your Gemini key. Add ElevenLabs only if you want its Read Aloud playback.
 
-Run Ivy as a signed local application bundle:
+### “Apple could not verify…”
+
+The current DMG is Apple Development-signed and has not been notarized. Signature verification checks integrity; it does not establish that Gatekeeper will accept the download.
+
+If you trust this build and its source, dismiss the warning with **Done**, open **System Settings → Privacy & Security**, and choose **Open Anyway** for the blocked item. Authenticate and confirm **Open**. The app may require its own approval after the DMG opens. Follow [Apple’s opening instructions](https://support.apple.com/en-us/102445).
+
+Normal public distribution requires **Developer ID Application** signing, Apple notarization and a stapled ticket. An Apple Development certificate cannot replace that release process. See [release setup](docs/RELEASE.md).
+
+### “The application Ivy can’t be opened”
+
+This generic Finder message does not identify the cause. Record the affected Mac’s chip and macOS version, then launch the installed executable from Terminal to obtain the actual error:
+
+```bash
+/Applications/Ivy.app/Contents/MacOS/Ivy
+```
+
+Adjust the path if Ivy is installed elsewhere. Also check the installed copy’s signature:
+
+```bash
+codesign --verify --deep --strict --verbose=2 /Applications/Ivy.app
+```
+
+Include the error output when reporting a problem. Possible causes include an incompatible OS/runtime, a damaged copy or a signing failure; the reported recipient-Mac issue has not yet been diagnosed. Redact any personal information or credentials before sharing logs.
+
+## Develop locally
+
+From the repository root:
 
 ```bash
 ./scripts/run-ivy-app.sh
 ```
 
-This compiles Ivy in debug mode, constructs `.build/Ivy.app`, signs it with Hardened Runtime, and opens its main window.
+The script builds a debug app in `.build/Ivy.app`, signs it with an available Apple Development identity (or ad-hoc fallback), and launches it. It replaces any running Ivy process, so finish active work first. Diagnostics go to `~/Library/Logs/Ivy.log`.
 
-### 2. Configuring API Keys
+Use the signed app bundle for microphone, speech recognition and macOS permission testing. `swift run Ivy` is useful for development, but the project disables speech-recognition interruption under that launch path.
 
-1. Open Ivy. Its main window appears immediately.
-2. Press **Command-comma**, or click the **Gear** icon, then choose **API Keys** in Settings.
-3. Paste your Gemini API key and ElevenLabs API key.
-4. Click **Save** next to each field. The key is written directly to the macOS Keychain and cleared from view memory.
+Configure keys in Settings. For development, the launcher also forwards `GEMINI_API_KEY` and `ELEVENLABS_API_KEY` from its shell environment. Do not put real keys in source files, tracked configuration or commands saved in shell history.
 
-Alternatively, export them in your development shell before running `scripts/run-ivy-app.sh`:
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| Command–Shift–Space, held | Push-to-talk; release to submit |
+| Control–Option–Command–S | Screen help |
+| Control–Option–Command–K | Command bar |
+| Command–N | New conversation |
+| Command–F | Search conversations |
+| Command-comma | Settings |
+| Return / Shift–Return | Send / insert a newline |
+| Command–Return in an approval | Explicitly approve the displayed action |
+| Escape in an approval | Cancel |
+
+Global shortcuts can be disabled or configured in Settings. See the [keyboard map](docs/KEYBOARD.md) for additional commands and context.
+
+## Privacy and permissions
+
+Permissions are requested when a feature needs them. Idle wake listening and background features are opt-in. macOS privacy grants are separate from Ivy’s per-action safety approval.
+
+| Permission | Feature |
+|---|---|
+| Microphone | Live voice and push-to-talk |
+| Speech Recognition | Wake phrase and interruption |
+| Screen Recording | Screen/window capture |
+| Calendar / Reminders | Relevant EventKit tools |
+| Contacts | Confirmed contact lookups |
+| Automation | AppleScript and tools that control other apps |
+| Accessibility | Window movement or resizing |
+| Notifications | Notifications and proactive reminders |
+
+Saved conversation history excludes attached image data. Screen privacy indicators and temporary-file handling still have follow-ups in the backlog. See [permissions and entitlements](docs/PERMISSIONS_AND_SANDBOX.md) and [persistence and security](docs/PERSISTENCE_AND_SECURITY.md).
+
+## Build, test and package
+
 ```bash
-export GEMINI_API_KEY="your-gemini-key"
-export ELEVENLABS_API_KEY="your-elevenlabs-key"
-./scripts/run-ivy-app.sh
+swift build -Xswiftc -strict-concurrency=complete
+swift test --enable-code-coverage
+swift build -c release -Xswiftc -strict-concurrency=complete
+git diff --check
 ```
 
----
+Tests use isolated fixtures for network, credentials and audio. Native interface tests render previews in `/private/tmp/ivy-ui-review`; those tests do not establish behavior on a real microphone, AirPods or another Mac.
 
-## Production Release & Packaging
+The audited 2026-10-03 integration batch passed **1,159 core tests and 18 native interface tests**. Changed executable lines in that workspace were **98.7% covered**, which is a changed-line measure, not total project coverage. Hardware, accessibility, performance and release acceptance checks remain outstanding.
 
-To create a release-ready, codesigned application bundle and distributable DMG:
+To package from source:
 
 ```bash
 ./scripts/package-release.sh
 ```
 
-This produces:
-- `dist/Ivy.app` (Hardened Runtime, Developer ID / Development signed)
-- `dist/Ivy-1.0.0.dmg` (Mounted disk image with `/Applications` link)
+**The packaging script replaces the entire `dist/` directory.** Preserve any artifacts you need before running it. It creates `dist/Ivy.app` and `dist/Ivy-<version>.dmg`, selecting Developer ID, Apple Development or ad-hoc signing based on the available identity. Packaging alone does not notarize the app.
 
-### Notarization
-
-To submit to Apple Notary Service and staple the ticket:
+After installing a Developer ID Application certificate and configuring a notary credential profile:
 
 ```bash
+export CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 export NOTARY_PROFILE="your-stored-notary-profile"
 ./scripts/package-release.sh
 ```
 
-For complete release signing and notarization setup, see [docs/RELEASE.md](docs/RELEASE.md).
+The profile refers to credentials stored in Keychain. The configured pipeline submits to Apple and staples the ticket; verify the resulting release before distributing it. Setup details are in [docs/RELEASE.md](docs/RELEASE.md).
 
----
+## Project documentation
 
-## Permissions & Entitlements
+- [Remaining work](tasks/remaining.md) — current implementation and release backlog.
+- [v1.1 roadmap](docs/roadmap/README.md) — module plans and acceptance criteria.
+- [SPEC.md](SPEC.md) — behavior and architecture.
+- [CONSTRAINTS.md](CONSTRAINTS.md) — quality and safety requirements.
+- [Release guide](docs/RELEASE.md) — signing, packaging and notarization.
+- [Permissions](docs/PERMISSIONS_AND_SANDBOX.md) — privacy grants and entitlements.
+- [Persistence and security](docs/PERSISTENCE_AND_SECURITY.md) — credentials and saved data.
+- [Keyboard map](docs/KEYBOARD.md) — shortcut reference.
 
-Ivy requires the following macOS privacy permissions, requested strictly on-demand:
-
-| Permission | Trigger Condition | Usage Description |
-|---|---|---|
-| **Microphone** | First Gemini Live voice session or PTT activation | Voice conversations with Ivy |
-| **Speech Recognition** | Voice session connection | "Hey Ivy" wake phrase detection |
-| **Calendar** | User-confirmed `calendar_event` tool call | Scheduling calendar events on your behalf |
-| **Automation** | User-confirmed `run_applescript` tool call | Automating macOS applications |
-
-For details on the Hardened Runtime vs. App Sandbox architecture, see [docs/PERMISSIONS_AND_SANDBOX.md](docs/PERMISSIONS_AND_SANDBOX.md).
-
----
-
-## Testing & Quality Verification
-
-Ivy maintains 100% Swift 6 strict concurrency compliance and rigorous test coverage:
-
-```bash
-# Run the complete test suite, including native layout and composer checks:
-swift test
-
-# Verify Swift 6 strict concurrency:
-swift build -Xswiftc -strict-concurrency=complete
-
-# Verify formatting and git diff:
-git diff --check
-```
-
----
-
-## Architecture Documentation
-
-- [`SPEC.md`](SPEC.md) — Comprehensive technical specification
-- [`CONSTRAINTS.md`](CONSTRAINTS.md) — Quality bar, safety floors, and enforced metrics
-- [`docs/RELEASE.md`](docs/RELEASE.md) — Production release, signing, and notarization guide
-- [`docs/PERMISSIONS_AND_SANDBOX.md`](docs/PERMISSIONS_AND_SANDBOX.md) — macOS permissions and entitlements architecture
-- [`docs/PERSISTENCE_AND_SECURITY.md`](docs/PERSISTENCE_AND_SECURITY.md) — Keychain, settings, and conversation storage
-
-## UI verification
-
-`swift test --filter IvyUITests` checks composer send/newline/voice-stop behavior and renders isolated chat and settings fixtures in light and dark mode at compact and expanded widths. Review images are written to `/private/tmp/ivy-ui-review`. Fixtures never use your Keychain, register global hotkeys, start voice or contact Gemini.
+The original `tasks/plan.md` and `tasks/todo.md` are historical v1 checklists. Use the audited remaining-work tracker for current status.

@@ -256,6 +256,7 @@ public protocol GeminiClientProtocol: Sendable {
 - **Timeout**: 30 seconds request timeout
 - **Error Mapping**:
   - `invalidAPIKey` (HTTP 400/403 with `API_KEY_INVALID`)
+  - `invalidRequest` (HTTP 400 without an invalid-key reason; includes malformed bodies and unmet prerequisites). Preserve the server message, redact the supplied credential, and do not retry client errors.
   - `quotaExceeded` (HTTP 429)
   - `serverError(code, message)` (HTTP 5xx)
   - `decodingError(Error)`
@@ -267,6 +268,8 @@ public protocol GeminiClientProtocol: Sendable {
 
 ### Desktop app shell (revised 2026-10-02)
 
+- macOS registers `ivy://new` and `ivy://conversation/<UUID>` for navigation only. Links reveal Chat in the main window, preserve per-conversation drafts, and never send prompts or run tools. Extra parameters and action URLs are ignored. Active requests, approvals, tasks, voice sessions and attachment processing block switching with a visible notice; missing conversations leave the current chat intact.
+
 - Starting a live voice session opens Chat so its conversation and replies are visible.
 - The composer is a compact glass bar with a plus attachment menu, native multiline editor, microphone and circular send action. Its placeholder, short draft text and 36-point icon controls share a vertical center line, with neutral attachment and microphone icons, indigo send emphasis, and immediate hover/press feedback. Long drafts grow and scroll with equal vertical padding. Shift–Return inserts a newline at the current selection without sending; Return sends once, respecting blocked turns. No persistent keyboard hint is shown.
 - Ivy launches into a native SwiftUI `Window("Ivy", id: "main")`, with Dock and Command-Tab presence.
@@ -274,7 +277,7 @@ public protocol GeminiClientProtocol: Sendable {
 - Initial size: 1080 × 760 points; minimum content size: 560 × 480 points. Hidden title bar and toolbar remove the large top strip, while native window controls, resizing and full-screen support remain. A labeled New chat action is below the sidebar header; New Conversation remains in the File menu; Chat Instructions stays in the Conversation menu; Settings remains in the sidebar and Command-comma.
 - `NavigationSplitView`: conversation sidebar and chat detail. The native sidebar toggle supports a compact chat layout.
 - Menu bar extra: a small shortcut menu for opening Ivy, starting a conversation, ending voice, Settings and Quit.
-- Branding uses the professional paired-leaf app icon in the Dock, sidebar, empty state and Settings, with a simplified two-leaf monochrome template for the menu bar. Icon packaging reads the same PNG master used by the app.
+- Branding uses the professional paired-leaf app icon in the Dock, sidebar, empty state and Settings. The menu bar uses the outlined native leaf symbol, matching the companion's idle status icon, and keeps it visible across activity states. Icon packaging reads the same PNG master used by the app.
 - Standard File commands: New Conversation (Command-N) and Open Ivy (Command-O). Settings uses the native Settings scene (Command-comma).
 
 ### Conversation interface
@@ -287,11 +290,12 @@ public protocol GeminiClientProtocol: Sendable {
 - Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. Action buttons briefly pulse on click; Copy shows a checkmark and “Copied” for two seconds, resetting on repeated clicks. Read Aloud immediately shows cancellable “Preparing…” progress, then Stop Reading during playback. Reduce Motion suppresses movement while retaining status feedback. User messages use a subtle indigo-tinted bubble.
 - Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
+- Push-to-talk records while the shortcut is held. Releasing it stops microphone input, drains the last recorded frames and sends the Live API audio-stream-end marker. Ivy remains connected to answer, then closes after playback or a silent completed turn. Speech captured while connecting is submitted once the socket is ready. A silent press cancels; an existing hands-free session remains continuous. Repeated release never submits twice, and pressing again during the pending reply does not leave an open microphone.
 - Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
 - Draft text is retained separately for each conversation while the main view is alive.
 - Conversation instructions use a multiline sheet and show validation failures in place.
 - Storage notices and voice failures are visible. Confirmation state is shared with the existing safety gate; the UI never auto-approves an action.
-- Chat and live voice approvals use one centered native sheet, shared with the instructions presentation so sheets never stack. The request scrolls within a bounded area; Cancel and Do it remain visible at the minimum window size. Escape refuses the action, and only an explicit click or Command-Return approves it. Responses retain the request identity so an old sheet cannot answer a newer action.
+- Chat and live voice approvals use one centered native sheet, shared with the instructions presentation so sheets never stack. The sheet uses compact Ivy branding, a neutral action preview and the shared indigo accent, without a nested bordered card or orange approval badge. The request scrolls within a bounded area; compact Cancel and Do it controls remain visible at the minimum window size. Escape refuses the action, and only an explicit click or Command-Return approves it. Responses retain the request identity so an old sheet cannot answer a newer action.
 
 ### Settings
 

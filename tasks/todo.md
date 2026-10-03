@@ -1,5 +1,7 @@
 # Task List: Ivy Development Roadmap
 
+> Historical v1 checklist. Its unchecked Phase 5–7 items are not the current backlog. See [remaining.md](remaining.md) for the source-audited status and [the v1.1 roadmap](../docs/roadmap/README.md) for module acceptance criteria.
+
 ## Phase 1: Core Menu Bar Chat [Complete]
 
 ### Phase 1.1: Foundation & Project Setup
