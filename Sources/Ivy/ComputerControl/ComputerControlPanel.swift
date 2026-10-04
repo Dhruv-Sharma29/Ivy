@@ -342,3 +342,23 @@ public final class ComputerControlPanelController: ObservableObject {
         highlightWindow = nil
     }
 }
+
+extension ComputerControlPanelController: ComputerControlFeedbackManaging {
+    public func updateStatus(_ status: String) {
+        update(status: status)
+    }
+
+    public func updateTarget(element: UIElementSnapshot?, point: CGPoint?) {
+        update(status: feedbackState.statusText, targetFrame: element?.frame, targetPoint: point)
+    }
+
+    public func clearTarget() {
+        feedbackState.targetFrame = nil
+        feedbackState.targetPoint = nil
+        hideHighlight()
+    }
+
+    public func stop() {
+        stop(reason: "Stopped from control panel")
+    }
+}

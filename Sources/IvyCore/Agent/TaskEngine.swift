@@ -82,11 +82,13 @@ public final class TaskEngine: ObservableObject {
     private let now: () -> Date
     private var loop: Task<Void, Never>?
     private var activeSince: Date?
+    private var coordinator: ComputerControlCoordinator?
 
     public init(
         planner: TaskPlanning,
         dispatcher: ToolDispatcher,
         denyPendingConfirmation: @escaping () -> Void,
+        coordinator: ComputerControlCoordinator? = nil,
         store: TaskStore = InMemoryTaskStore(),
         fileExists: @escaping (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
         now: @escaping () -> Date = { Date() }
@@ -94,10 +96,15 @@ public final class TaskEngine: ObservableObject {
         self.planner = planner
         self.dispatcher = dispatcher
         self.denyPendingConfirmation = denyPendingConfirmation
+        self.coordinator = coordinator
         self.store = store
         self.fileExists = fileExists
         self.now = now
         history = store.recent()
+    }
+
+    public func setCoordinator(_ coordinator: ComputerControlCoordinator) {
+        self.coordinator = coordinator
     }
 
     private var tools: [FunctionDeclaration] {
@@ -136,9 +143,44 @@ public final class TaskEngine: ObservableObject {
         }
     }
 
+    /// Starts an adaptive desktop control task.
+    /// Initial review shows the goal, target application scope, and checkpoints — not fabricated future pixel coordinates.
+    public func startAdaptiveDesktop(
+        goal rawGoal: String,
+        scope: ComputerControlScope,
+        coordinator: ComputerControlCoordinator? = nil,
+        budget: TaskBudget = TaskBudget(maxSteps: 20, maxToolCalls: 40)
+    ) async {
+        let goal = rawGoal.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !goal.isEmpty, run?.isActive != true else { return }
+        if let coordinator {
+            self.coordinator = coordinator
+        }
+        let id = UUID()
+        let initialStep = TaskStep(
+            id: "1",
+            title: "Target \(scope.bundleIdentifier) and observe application window",
+            tool: "ui_observe",
+            arguments: ["bundle_id": AnyCodable(scope.bundleIdentifier)]
+        )
+        let plan = TaskPlan(
+            id: id,
+            goal: goal,
+            steps: [initialStep],
+            budget: budget,
+            mode: .adaptiveDesktop,
+            scope: scope
+        )
+        run = TaskRun(id: id, plan: plan, phase: .awaitingApproval, createdAt: now())
+    }
+
     public func approvePlan() {
         guard run?.phase == .awaitingApproval else { return }
-        startLoop()
+        if run?.plan.mode == .adaptiveDesktop {
+            startAdaptiveLoop()
+        } else {
+            startLoop()
+        }
     }
 
     /// Stops everything: the running tool is cancelled (a shell command and its children are killed), a card
@@ -147,6 +189,7 @@ public final class TaskEngine: ObservableObject {
         guard run?.isActive == true else { return }
         loop?.cancel()
         loop = nil
+        coordinator?.cancel()
         denyPendingConfirmation()
         if let steps = run?.plan.steps {
             for index in steps.indices where !steps[index].status.isFinished {
@@ -163,15 +206,23 @@ public final class TaskEngine: ObservableObject {
             cancel()
         case (.stepFailed(let id, let reason), .skip):
             setStatus(id, .skipped(reason))
-            startLoop()
+            resumeLoop()
         case (.stepFailed(let id, _), .retry):
             setStatus(id, .pending)
-            startLoop()
+            resumeLoop()
         case (.budget, .continue):
             run?.budgetExtensions += 1
-            startLoop()
+            resumeLoop()
         default:
             break // a choice that doesn't fit this pause: ignore it
+        }
+    }
+
+    private func resumeLoop() {
+        if run?.plan.mode == .adaptiveDesktop {
+            startAdaptiveLoop()
+        } else {
+            startLoop()
         }
     }
 
@@ -183,7 +234,11 @@ public final class TaskEngine: ObservableObject {
 
     /// Starts the same goal again: a new plan, approved again. Nothing from the earlier run is reused.
     public func rerun(_ previous: TaskRun) async {
-        await start(goal: previous.goal, budget: previous.plan.budget)
+        if previous.plan.mode == .adaptiveDesktop, let scope = previous.plan.scope {
+            await startAdaptiveDesktop(goal: previous.goal, scope: scope, budget: previous.plan.budget)
+        } else {
+            await start(goal: previous.goal, budget: previous.plan.budget)
+        }
     }
 
     // MARK: - Running
@@ -194,6 +249,67 @@ public final class TaskEngine: ObservableObject {
         let id = run?.id
         loop = Task { [weak self] in
             await self?.runSteps(id: id)
+        }
+    }
+
+    private func startAdaptiveLoop() {
+        loop?.cancel()
+        activeSince = now()
+        let id = run?.id
+        loop = Task { [weak self] in
+            await self?.runAdaptiveSteps(id: id)
+        }
+    }
+
+    private func runAdaptiveSteps(id: UUID?) async {
+        guard let current = run, current.id == id, let scope = current.plan.scope, let coordinator = coordinator else {
+            finish(.failed, report: "Adaptive desktop coordinator or scope not configured.")
+            return
+        }
+
+        run?.phase = .running(stepID: current.plan.steps.last?.id ?? "1")
+
+        let result = await coordinator.runLoop(
+            runID: current.id,
+            goal: current.goal,
+            scope: scope,
+            budget: current.plan.budget,
+            startTime: activeSince ?? now(),
+            existingStepCount: current.plan.steps.filter { $0.id != "1" && $0.tool != "ui_observe" }.count,
+            existingToolCalls: current.toolCalls,
+            onStepCreated: { [weak self] step in
+                guard let self, self.run?.id == id else { return }
+                self.run?.plan.steps.append(step)
+                self.run?.phase = .running(stepID: step.id)
+                self.persist()
+            },
+            onStepUpdated: { [weak self] step in
+                guard let self, self.run?.id == id else { return }
+                if let idx = self.run?.plan.steps.firstIndex(where: { $0.id == step.id }) {
+                    self.run?.plan.steps[idx] = step
+                }
+                self.persist()
+            },
+            onToolCallDispatched: { [weak self] in
+                guard let self, self.run?.id == id else { return }
+                self.run?.toolCalls += 1
+            },
+            isTaskCancelled: { [weak self] in
+                Task.isCancelled || self?.run?.id != id
+            }
+        )
+
+        guard run?.id == id, !Task.isCancelled else { return }
+
+        switch result {
+        case .succeeded(let summary):
+            finish(.succeeded, report: summary)
+        case .paused(let pause):
+            pauseRun(pause)
+        case .failed(let reason):
+            finish(.failed, report: reason)
+        case .cancelled:
+            finish(.cancelled, report: nil)
         }
     }
 

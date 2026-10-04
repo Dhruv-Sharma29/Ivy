@@ -88,17 +88,58 @@ public struct TaskStep: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// Mode in which the task is executed.
+public enum TaskExecutionMode: String, Codable, Sendable {
+    case sequential
+    case adaptiveDesktop
+}
+
 public struct TaskPlan: Codable, Identifiable, Equatable, Sendable {
     public let id: UUID
     public var goal: String
     public var steps: [TaskStep]
     public var budget: TaskBudget
+    public var mode: TaskExecutionMode
+    public var scope: ComputerControlScope?
 
-    public init(id: UUID = UUID(), goal: String, steps: [TaskStep], budget: TaskBudget = TaskBudget()) {
+    public init(
+        id: UUID = UUID(),
+        goal: String,
+        steps: [TaskStep],
+        budget: TaskBudget = TaskBudget(),
+        mode: TaskExecutionMode = .sequential,
+        scope: ComputerControlScope? = nil
+    ) {
         self.id = id
         self.goal = goal
         self.steps = steps
         self.budget = budget
+        self.mode = mode
+        self.scope = scope
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, goal, steps, budget, mode, scope
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.goal = try container.decode(String.self, forKey: .goal)
+        self.steps = try container.decode([TaskStep].self, forKey: .steps)
+        self.budget = try container.decode(TaskBudget.self, forKey: .budget)
+        self.mode = try container.decodeIfPresent(TaskExecutionMode.self, forKey: .mode) ?? .sequential
+        self.scope = try container.decodeIfPresent(ComputerControlScope.self, forKey: .scope)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(goal, forKey: .goal)
+        try container.encode(steps, forKey: .steps)
+        try container.encode(budget, forKey: .budget)
+        try container.encode(mode, forKey: .mode)
+        try container.encodeIfPresent(scope, forKey: .scope)
     }
 }
 

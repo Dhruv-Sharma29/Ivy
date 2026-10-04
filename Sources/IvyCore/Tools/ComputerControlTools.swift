@@ -9,7 +9,7 @@ public enum ComputerControlTools {
     public static func all(
         session: ComputerControlSession,
         driver: ComputerInputDriving = SystemComputerInputDriver(),
-        observationProvider: DesktopObservationProvider? = nil
+        observationProvider: (any DesktopObservationProviding)? = nil
     ) -> [IvyTool] {
         [
             UIClickTool(session: session, driver: driver, observationProvider: observationProvider),
@@ -52,12 +52,12 @@ public final class UIClickTool: IvyTool, Sendable {
 
     private let session: ComputerControlSession
     private let driver: ComputerInputDriving
-    private let observationProvider: DesktopObservationProvider?
+    private let observationProvider: (any DesktopObservationProviding)?
 
     public init(
         session: ComputerControlSession,
         driver: ComputerInputDriving = SystemComputerInputDriver(),
-        observationProvider: DesktopObservationProvider? = nil
+        observationProvider: (any DesktopObservationProviding)? = nil
     ) {
         self.session = session
         self.driver = driver
@@ -126,7 +126,13 @@ public final class UIClickTool: IvyTool, Sendable {
 
         let resolvedPoint: CGPoint
         do {
-            resolvedPoint = try ComputerActionValidator.resolveTarget(target, session: session, observation: nil)
+            let obs: DesktopObservation?
+            if case .elementID = target, let provider = observationProvider, let scope = session.state.currentScope {
+                obs = try? await provider.observe(session: session, scope: scope)
+            } else {
+                obs = nil
+            }
+            resolvedPoint = try ComputerActionValidator.resolveTarget(target, session: session, observation: obs)
         } catch {
             return .failure(error.localizedDescription)
         }
@@ -172,12 +178,12 @@ public final class UITypeTool: IvyTool, Sendable {
 
     private let session: ComputerControlSession
     private let driver: ComputerInputDriving
-    private let observationProvider: DesktopObservationProvider?
+    private let observationProvider: (any DesktopObservationProviding)?
 
     public init(
         session: ComputerControlSession,
         driver: ComputerInputDriving = SystemComputerInputDriver(),
-        observationProvider: DesktopObservationProvider? = nil
+        observationProvider: (any DesktopObservationProviding)? = nil
     ) {
         self.session = session
         self.driver = driver
@@ -215,6 +221,19 @@ public final class UITypeTool: IvyTool, Sendable {
         }
         guard let text = arguments["text"]?.stringValue else {
             return .failure("Missing required 'text' argument.")
+        }
+
+        // If target element is specified, focus it before typing
+        if let elementID = arguments["element_id"]?.stringValue {
+            let obs: DesktopObservation?
+            if let provider = observationProvider, let scope = session.state.currentScope {
+                obs = try? await provider.observe(session: session, scope: scope)
+            } else {
+                obs = nil
+            }
+            if let targetPoint = try? ComputerActionValidator.resolveTarget(.elementID(elementID), session: session, observation: obs) {
+                try? await driver.click(at: targetPoint, button: .left, clickCount: 1)
+            }
         }
 
         let token = session.currentToken
@@ -614,9 +633,9 @@ public final class UIObserveTool: IvyTool, Sendable {
     }
 
     private let session: ComputerControlSession
-    private let observationProvider: DesktopObservationProvider?
+    private let observationProvider: (any DesktopObservationProviding)?
 
-    public init(session: ComputerControlSession, observationProvider: DesktopObservationProvider? = nil) {
+    public init(session: ComputerControlSession, observationProvider: (any DesktopObservationProviding)? = nil) {
         self.session = session
         self.observationProvider = observationProvider
     }

@@ -34,6 +34,54 @@ public struct ComputerControlFeedbackState: Equatable, Sendable {
     }
 }
 
+/// Protocol for managing feedback panel updates and highlights.
+@MainActor
+public protocol ComputerControlFeedbackManaging: AnyObject {
+    func updateStatus(_ status: String)
+    func updateTarget(element: UIElementSnapshot?, point: CGPoint?)
+    func clearTarget()
+    func pause(reason: ComputerControlPauseReason)
+    func resume()
+    func stop()
+}
+
+/// Hermetic mock of ComputerControlFeedbackManaging for unit testing.
+@MainActor
+public final class MockComputerControlFeedbackManager: ComputerControlFeedbackManaging {
+    public private(set) var statusUpdates: [String] = []
+    public private(set) var targetUpdates: [(element: UIElementSnapshot?, point: CGPoint?)] = []
+    public private(set) var clearTargetCount = 0
+    public private(set) var pauseCount = 0
+    public private(set) var resumeCount = 0
+    public private(set) var stopCount = 0
+
+    public init() {}
+
+    public func updateStatus(_ status: String) {
+        statusUpdates.append(status)
+    }
+
+    public func updateTarget(element: UIElementSnapshot?, point: CGPoint?) {
+        targetUpdates.append((element, point))
+    }
+
+    public func clearTarget() {
+        clearTargetCount += 1
+    }
+
+    public func pause(reason: ComputerControlPauseReason) {
+        pauseCount += 1
+    }
+
+    public func resume() {
+        resumeCount += 1
+    }
+
+    public func stop() {
+        stopCount += 1
+    }
+}
+
 /// Protocol for detecting real physical mouse and keyboard inputs to pause autonomous control immediately.
 public protocol PhysicalTakeoverMonitoring: Sendable {
     /// Indicates whether global event monitoring is currently active.

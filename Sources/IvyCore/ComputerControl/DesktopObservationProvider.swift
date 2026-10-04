@@ -40,8 +40,77 @@ public enum DesktopObservationError: Error, LocalizedError, Equatable, Sendable 
     }
 }
 
+/// Protocol for capturing bounded desktop observations.
+public protocol DesktopObservationProviding: Sendable {
+    func observe(
+        session: ComputerControlSession,
+        scope: ComputerControlScope
+    ) async throws -> DesktopObservation
+}
+
+/// Mock implementation of DesktopObservationProviding for hermetic unit testing.
+public final class MockDesktopObservationProvider: DesktopObservationProviding, @unchecked Sendable {
+    private struct State {
+        var queuedObservations: [Result<DesktopObservation, Error>]
+        var defaultElements: [UIElementSnapshot]
+        var observedCalls: [(sessionID: UUID, scope: ComputerControlScope)]
+    }
+    private let lock: OSAllocatedUnfairLock<State>
+
+    public init(
+        queuedObservations: [Result<DesktopObservation, Error>] = [],
+        defaultElements: [UIElementSnapshot] = []
+    ) {
+        self.lock = OSAllocatedUnfairLock(initialState: State(
+            queuedObservations: queuedObservations,
+            defaultElements: defaultElements,
+            observedCalls: []
+        ))
+    }
+
+    public var observedCalls: [(sessionID: UUID, scope: ComputerControlScope)] {
+        lock.withLock { $0.observedCalls }
+    }
+
+    public func setDefaultElements(_ elements: [UIElementSnapshot]) {
+        lock.withLock { $0.defaultElements = elements }
+    }
+
+    public func enqueue(_ observation: DesktopObservation) {
+        lock.withLock { $0.queuedObservations.append(.success(observation)) }
+    }
+
+    public func enqueueFailure(_ error: Error) {
+        lock.withLock { $0.queuedObservations.append(.failure(error)) }
+    }
+
+    public func observe(session: ComputerControlSession, scope: ComputerControlScope) async throws -> DesktopObservation {
+        let queued = lock.withLock { state -> Result<DesktopObservation, Error>? in
+            state.observedCalls.append((sessionID: session.id, scope: scope))
+            guard !state.queuedObservations.isEmpty else { return nil }
+            return state.queuedObservations.removeFirst()
+        }
+        if let queued {
+            return try queued.get()
+        }
+        let tokenResult = session.issueToken()
+        let token: ObservationToken
+        switch tokenResult {
+        case .success(let t): token = t
+        case .failure(let err): throw err
+        }
+        let fallbackElements = lock.withLock { $0.defaultElements }
+        return DesktopObservation(
+            sessionID: session.id,
+            token: token,
+            scope: scope,
+            elements: fallbackElements
+        )
+    }
+}
+
 /// Coordinator capturing bounded, immutable accessibility snapshots for an authorized control scope.
-public final class DesktopObservationProvider: @unchecked Sendable {
+public final class DesktopObservationProvider: DesktopObservationProviding, @unchecked Sendable {
     private let traverser: AccessibilityTreeTraversing
     private let maxNodes: Int
     private let maxDepth: Int
