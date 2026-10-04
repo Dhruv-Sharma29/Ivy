@@ -79,17 +79,25 @@ public enum MouseButton: String, Equatable, Sendable, Codable {
     case middle
 }
 
-/// Target locator for an action: either a session-assigned element identifier or normalized coordinates.
+/// Target locator for an action: either a session-assigned element identifier, normalized screen coordinates, or screenshot visual coordinates.
 public enum TargetLocation: Equatable, Sendable, Codable {
     case elementID(String)
     case point(x: Double, y: Double, displayID: UInt32?)
+    case visualPoint(pixelX: Double, pixelY: Double, screenshotID: UUID)
 
     public var isValid: Bool {
         switch self {
         case .elementID(let id):
             return !id.trimmingCharacters(in: .whitespaces).isEmpty
-        case .point(let x, let y, _):
-            return x.isFinite && y.isFinite && x >= 0 && y >= 0 && x <= 20_000 && y <= 20_000
+        case .point(let x, let y, let displayID):
+            guard x.isFinite && y.isFinite else { return false }
+            if displayID == nil {
+                return x >= 0 && y >= 0 && x <= 20_000 && y <= 20_000
+            } else {
+                return x >= -20_000 && y >= -20_000 && x <= 20_000 && y <= 20_000
+            }
+        case .visualPoint(let px, let py, _):
+            return px.isFinite && py.isFinite && px >= 0 && py >= 0 && px <= 40_000 && py <= 40_000
         }
     }
 }
@@ -158,6 +166,38 @@ public struct UIElementSnapshot: Identifiable, Equatable, Sendable, Codable {
     }
 }
 
+/// Distinct observation types for accessibility tree inspection vs visual screenshot capture.
+public enum DesktopObservationKind: String, Equatable, Sendable, Codable {
+    case accessibilityTree = "accessibility_tree"
+    case screenshotVisual = "screenshot_visual"
+}
+
+/// Metadata and coordinate mapping for a visual screenshot observation.
+public struct ScreenshotMetadata: Equatable, Sendable, Codable {
+    public let screenshotID: UUID
+    public let windowID: UInt32?
+    public let displayID: UInt32?
+    public let dimensions: CGSize
+    public let transform: ScreenshotCoordinateTransform
+    public let createdAt: Date
+
+    public init(
+        screenshotID: UUID,
+        windowID: UInt32? = nil,
+        displayID: UInt32? = nil,
+        dimensions: CGSize,
+        transform: ScreenshotCoordinateTransform,
+        createdAt: Date = Date()
+    ) {
+        self.screenshotID = screenshotID
+        self.windowID = windowID
+        self.displayID = displayID
+        self.dimensions = dimensions
+        self.transform = transform
+        self.createdAt = createdAt
+    }
+}
+
 /// Scoped desktop observation containing accessible elements and optional visual frame metadata.
 public struct DesktopObservation: Equatable, Sendable {
     public let sessionID: UUID
@@ -165,21 +205,30 @@ public struct DesktopObservation: Equatable, Sendable {
     public let scope: ComputerControlScope
     public let elements: [UIElementSnapshot]
     public let screenshotID: UUID?
+    public let kind: DesktopObservationKind
+    public let visualMetadata: ScreenshotMetadata?
+    public let imageData: Data?
     public let timestamp: Date
 
     public init(
         sessionID: UUID,
         token: ObservationToken,
         scope: ComputerControlScope,
-        elements: [UIElementSnapshot],
+        elements: [UIElementSnapshot] = [],
         screenshotID: UUID? = nil,
+        kind: DesktopObservationKind = .accessibilityTree,
+        visualMetadata: ScreenshotMetadata? = nil,
+        imageData: Data? = nil,
         timestamp: Date = Date()
     ) {
         self.sessionID = sessionID
         self.token = token
         self.scope = scope
         self.elements = elements
-        self.screenshotID = screenshotID
+        self.screenshotID = screenshotID ?? visualMetadata?.screenshotID
+        self.kind = kind
+        self.visualMetadata = visualMetadata
+        self.imageData = imageData
         self.timestamp = timestamp
     }
 }

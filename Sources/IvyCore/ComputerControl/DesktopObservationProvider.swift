@@ -53,17 +53,20 @@ public final class MockDesktopObservationProvider: DesktopObservationProviding, 
     private struct State {
         var queuedObservations: [Result<DesktopObservation, Error>]
         var defaultElements: [UIElementSnapshot]
+        var defaultVisualMetadata: ScreenshotMetadata?
         var observedCalls: [(sessionID: UUID, scope: ComputerControlScope)]
     }
     private let lock: OSAllocatedUnfairLock<State>
 
     public init(
         queuedObservations: [Result<DesktopObservation, Error>] = [],
-        defaultElements: [UIElementSnapshot] = []
+        defaultElements: [UIElementSnapshot] = [],
+        defaultVisualMetadata: ScreenshotMetadata? = nil
     ) {
         self.lock = OSAllocatedUnfairLock(initialState: State(
             queuedObservations: queuedObservations,
             defaultElements: defaultElements,
+            defaultVisualMetadata: defaultVisualMetadata,
             observedCalls: []
         ))
     }
@@ -74,6 +77,10 @@ public final class MockDesktopObservationProvider: DesktopObservationProviding, 
 
     public func setDefaultElements(_ elements: [UIElementSnapshot]) {
         lock.withLock { $0.defaultElements = elements }
+    }
+
+    public func setDefaultVisualMetadata(_ metadata: ScreenshotMetadata?) {
+        lock.withLock { $0.defaultVisualMetadata = metadata }
     }
 
     public func enqueue(_ observation: DesktopObservation) {
@@ -99,12 +106,14 @@ public final class MockDesktopObservationProvider: DesktopObservationProviding, 
         case .success(let t): token = t
         case .failure(let err): throw err
         }
-        let fallbackElements = lock.withLock { $0.defaultElements }
+        let (fallbackElements, fallbackMeta) = lock.withLock { ($0.defaultElements, $0.defaultVisualMetadata) }
         return DesktopObservation(
             sessionID: session.id,
             token: token,
             scope: scope,
-            elements: fallbackElements
+            elements: fallbackElements,
+            kind: fallbackMeta != nil ? .screenshotVisual : .accessibilityTree,
+            visualMetadata: fallbackMeta
         )
     }
 }

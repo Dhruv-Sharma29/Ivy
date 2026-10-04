@@ -241,8 +241,41 @@ public final class ComputerControlCoordinator: ObservableObject {
                     }
                 }
 
-                // Inject observation token into arguments
                 var finalArgs = call.args
+
+                // Verify visual target freshness and translate pixel coordinates if present
+                if let visual = observation.visualMetadata {
+                    if call.args["x"] != nil || call.args["pixel_x"] != nil {
+                        do {
+                            try visual.transform.verifyWindowStability(currentWindowFrame: visual.transform.windowFrame)
+                        } catch {
+                            session.pause(reason: .staleTarget)
+                            feedbackController?.pause(reason: .staleTarget)
+                            let reason = error.localizedDescription
+                            taskStep.status = .failed("Visual target window moved or invalidated: \(reason)")
+                            onStepUpdated(taskStep)
+                            return .paused(.stepFailed(stepID: stepID, reason: reason))
+                        }
+                    }
+
+                    if let px = call.args["pixel_x"]?.doubleValue,
+                       let py = call.args["pixel_y"]?.doubleValue {
+                        do {
+                            let globalPt = try visual.transform.pixelToGlobalPoint(pixelPoint: CGPoint(x: px, y: py))
+                            finalArgs["x"] = AnyCodable(globalPt.x)
+                            finalArgs["y"] = AnyCodable(globalPt.y)
+                        } catch {
+                            session.pause(reason: .staleTarget)
+                            feedbackController?.pause(reason: .staleTarget)
+                            let reason = error.localizedDescription
+                            taskStep.status = .failed("Visual coordinate transform failed: \(reason)")
+                            onStepUpdated(taskStep)
+                            return .paused(.stepFailed(stepID: stepID, reason: reason))
+                        }
+                    }
+                }
+
+                // Inject observation token into arguments
                 if finalArgs["token"] == nil {
                     finalArgs["token"] = AnyCodable(observation.token.id.uuidString)
                 }

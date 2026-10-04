@@ -18,12 +18,31 @@ public enum ComputerActionValidator {
     /// Prohibited control scalar ranges (null bytes and unhandled control characters).
     private static let allowedControlScalars: Set<Unicode.Scalar> = ["\n", "\t", "\r"]
 
-    /// Validates that target coordinates are finite, non-negative, and within screen limits.
-    public static func validatePoint(_ point: CGPoint) throws {
-        guard point.x.isFinite && point.y.isFinite &&
-              point.x >= 0 && point.y >= 0 &&
-              point.x <= maxCoordinate && point.y <= maxCoordinate else {
+    /// Validates that target coordinates are finite and within screen/display limits.
+    public static func validatePoint(
+        _ point: CGPoint,
+        allowedBounds: CGRect? = nil,
+        allowNegativeOrigin: Bool = false
+    ) throws {
+        guard point.x.isFinite && point.y.isFinite else {
             throw ComputerInputError.invalidCoordinates(x: point.x, y: point.y)
+        }
+        if let allowedBounds {
+            let expanded = allowedBounds.insetBy(dx: -1.0, dy: -1.0)
+            guard expanded.contains(point) else {
+                throw ComputerInputError.invalidCoordinates(x: point.x, y: point.y)
+            }
+            return
+        }
+        if allowNegativeOrigin {
+            guard abs(point.x) <= maxCoordinate && abs(point.y) <= maxCoordinate else {
+                throw ComputerInputError.invalidCoordinates(x: point.x, y: point.y)
+            }
+        } else {
+            guard point.x >= 0 && point.y >= 0 &&
+                  point.x <= maxCoordinate && point.y <= maxCoordinate else {
+                throw ComputerInputError.invalidCoordinates(x: point.x, y: point.y)
+            }
         }
     }
 
@@ -64,10 +83,33 @@ public enum ComputerActionValidator {
         }
 
         switch target {
-        case .point(let x, let y, _):
+        case .point(let x, let y, let displayID):
             let pt = CGPoint(x: x, y: y)
-            try validatePoint(pt)
+            let allowNegative = displayID != nil
+            if let visual = observation?.visualMetadata {
+                try validatePoint(pt, allowedBounds: visual.transform.windowFrame, allowNegativeOrigin: allowNegative)
+            } else {
+                try validatePoint(pt, allowNegativeOrigin: allowNegative)
+            }
             return pt
+
+        case .visualPoint(let px, let py, let shotID):
+            guard let observation, let visualMeta = observation.visualMetadata, visualMeta.screenshotID == shotID else {
+                throw ComputerInputError.targetNotFound("screenshot_\(shotID.uuidString.prefix(8))")
+            }
+            do {
+                return try visualMeta.transform.pixelToGlobalPoint(pixelPoint: CGPoint(x: px, y: py))
+            } catch {
+                if let xfErr = error as? ScreenshotTransformError {
+                    switch xfErr {
+                    case .coordinatesOutOfBounds(let ox, let oy), .pointOutsideWindow(let ox, let oy, _):
+                        throw ComputerInputError.invalidCoordinates(x: ox, y: oy)
+                    default:
+                        throw ComputerInputError.invalidArgument(xfErr.localizedDescription)
+                    }
+                }
+                throw ComputerInputError.invalidArgument(error.localizedDescription)
+            }
 
         case .elementID(let id):
             guard let observation else {
@@ -84,7 +126,8 @@ public enum ComputerActionValidator {
             }
 
             let center = CGPoint(x: element.frame.midX, y: element.frame.midY)
-            try validatePoint(center)
+            let allowNegative = element.frame.origin.x < 0 || element.frame.origin.y < 0
+            try validatePoint(center, allowNegativeOrigin: allowNegative)
             return center
         }
     }
