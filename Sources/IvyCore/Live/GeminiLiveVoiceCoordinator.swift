@@ -125,7 +125,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     /// Background tasks currently owned by a session. Must be 0 whenever the coordinator is idle (leak invariant).
     var activeTaskCount: Int {
-        [captureTask, eventTask, drainTask, toolExecutionTask, setupWatchdogTask, wakeWatchdogTask, reconnectTask]
+        [captureTask, eventTask, drainTask, toolExecutionTask, setupWatchdogTask, wakeWatchdogTask, reconnectTask,
+         pushToTalkReleaseWatchdogTask]
             .filter { $0 != nil }.count
     }
 
@@ -139,6 +140,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     private var pushToTalkHeardSpeech = false
     private var pushToTalkReleasePending = false
     private var pushToTalkInputClosed = false
+    private var pushToTalkPressID: UUID?
+    private var pushToTalkReleaseWatchdogTask: Task<Void, Never>?
+    private let pushToTalkPoll: @Sendable () async throws -> Void
     /// Started by the idle "Hey Ivy" wake word: ends after one answered turn, or after silence.
     public private(set) var wasSessionStartedByWakeWord: Bool = false
     private let wakeSilenceTimeout: Duration
@@ -197,6 +201,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         toolDispatcher: ToolDispatcher? = nil,
         setupTimeout: Duration = .seconds(15),
         wakeSilenceTimeout: Duration = .seconds(8),
+        pushToTalkPoll: @escaping @Sendable () async throws -> Void = {
+            try await Task.sleep(for: .milliseconds(50))
+        },
         maxReconnectAttempts: Int = 0,
         reconnectBaseDelay: Duration = .milliseconds(500),
         reconnectOfflineGrace: Duration = .seconds(30),
@@ -210,6 +217,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         self.hotkeyManager = hotkeyManager
         self.setupTimeout = setupTimeout
         self.wakeSilenceTimeout = wakeSilenceTimeout
+        self.pushToTalkPoll = pushToTalkPoll
         self.maxReconnectAttempts = maxReconnectAttempts
         self.reconnectBaseDelay = reconnectBaseDelay
         self.reconnectOfflineGrace = reconnectOfflineGrace
@@ -311,11 +319,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public func beginPushToTalk() async {
         // A released one-shot request owns the connection until its reply finishes.
         guard !(wasSessionStartedByPushToTalk && !isPushToTalkActive && state.isLive) else { return }
-        guard !isPushToTalkActive else {
+        guard !isPushToTalkActive, pushToTalkPressID == nil else {
             // Idempotent: already active, duplicate key-down ignored
             return
         }
         isPushToTalkActive = true
+        let pressID = UUID()
+        pushToTalkPressID = pressID
+        watchPushToTalkRelease(pressID: pressID)
 
         switch state {
         case .idle, .error:
@@ -331,6 +342,37 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             // Active session or transition in progress; do not start duplicate or interrupt speaking
             break
         }
+    }
+
+    /// Carbon/flagsChanged can miss key-up. Inspect only while a registered shortcut is held.
+    private func watchPushToTalkRelease(pressID: UUID) {
+        guard let hotkeyManager, hotkeyManager.isRegistered else { return }
+        let poll = pushToTalkPoll
+        pushToTalkReleaseWatchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await poll()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard let self, self.pushToTalkPressID == pressID else { return }
+                    self.cancelPushToTalkReleaseWatchdog()
+                    await self.tearDown(then: .error("Couldn't monitor push-to-talk release: \(error.localizedDescription)"))
+                    return
+                }
+                guard !Task.isCancelled, let self, self.pushToTalkPressID == pressID else { return }
+                if !hotkeyManager.isRegistered || hotkeyManager.isShortcutHeld == false {
+                    await self.endPushToTalk()
+                    return
+                }
+            }
+        }
+    }
+
+    private func cancelPushToTalkReleaseWatchdog() {
+        pushToTalkPressID = nil
+        pushToTalkReleaseWatchdogTask?.cancel()
+        pushToTalkReleaseWatchdogTask = nil
     }
 
     /// Starts a session because the idle "Hey Ivy" wake word fired. Like "Hey Siri", it answers one request and
@@ -397,11 +439,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     /// Releases the microphone and submits the utterance; the connection stays open for Ivy's reply.
     public func endPushToTalk() async {
-        guard isPushToTalkActive else {
+        guard isPushToTalkActive || pushToTalkPressID != nil else {
             // Idempotent: already inactive, duplicate key-up ignored
             return
         }
         isPushToTalkActive = false
+        cancelPushToTalkReleaseWatchdog()
 
         guard wasSessionStartedByPushToTalk, let token = currentSessionToken else { return }
         // The server may start its reply or request approval before the shortcut is released.
@@ -462,6 +505,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     deinit {
+        pushToTalkReleaseWatchdogTask?.cancel()
         captureTask?.cancel()
         eventTask?.cancel()
         drainTask?.cancel()
@@ -639,6 +683,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     private func tearDown(then finalState: VoiceSessionState) async {
+        isPushToTalkActive = false
+        if case .error = finalState, pushToTalkPressID != nil, hotkeyManager?.isRegistered == true {
+            // Keep only the hold check after a failure. Key-repeat cannot reconnect before release.
+        } else {
+            cancelPushToTalkReleaseWatchdog()
+        }
         pushToTalkInputClosed = false
         pushToTalkReleasePending = false
         pushToTalkHeardSpeech = false

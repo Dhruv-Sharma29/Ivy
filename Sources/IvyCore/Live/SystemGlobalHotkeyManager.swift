@@ -50,6 +50,23 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
         state.withLock { $0.registeredShortcut }
     }
 
+    public var isShortcutHeld: Bool? {
+        #if os(macOS)
+        guard let shortcut = state.withLock({ $0.isRegistered ? $0.registeredShortcut : nil }) else { return nil }
+        let keyIsDown: Bool
+        if let key = shortcut.keyCode {
+            guard let code = CGKeyCode(exactly: key) else { return false }
+            keyIsDown = CGEventSource.keyState(.combinedSessionState, key: code)
+        } else {
+            keyIsDown = true
+        }
+        return Self.shortcutHeld(shortcut, keyIsDown: keyIsDown,
+                                 flags: CGEventSource.flagsState(.combinedSessionState))
+        #else
+        return nil
+        #endif
+    }
+
     public func register(
         shortcut: HotkeyShortcut,
         onKeyDown: @escaping @Sendable () -> Void,
@@ -102,6 +119,17 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
     }
 
     #if os(macOS)
+    /// A keyed hold ends when either its key or a required modifier is released.
+    static func shortcutHeld(_ shortcut: HotkeyShortcut, keyIsDown: Bool, flags: CGEventFlags) -> Bool {
+        guard shortcut.keyCode == nil || keyIsDown else { return false }
+        var held: HotkeyModifiers = []
+        if flags.contains(.maskCommand) { held.insert(.command) }
+        if flags.contains(.maskShift) { held.insert(.shift) }
+        if flags.contains(.maskAlternate) { held.insert(.option) }
+        if flags.contains(.maskControl) { held.insert(.control) }
+        return held == shortcut.modifiers
+    }
+
     /// Exact match on the four chord modifiers, so e.g. Command + Option + Control does not trigger Option + Control.
     static func chordHeld(_ flags: NSEvent.ModifierFlags, required: HotkeyModifiers) -> Bool {
         var held: HotkeyModifiers = []

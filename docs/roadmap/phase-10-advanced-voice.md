@@ -1,5 +1,12 @@
 # Phase 10 — Advanced Voice Experience
 
+> **PTT release recovery — 2026-10-04:** A press-bound 50-ms physical key/modifier check recovers a
+> missing Carbon/flagsChanged key-up. It ends only the PTT hold, preserves replies and approvals, and
+> stops on release/explicit Stop. Connection failures retain only this hold check until release, blocking
+> repeat-driven reconnections. Stop resets the hold so a later press can start normally. Offline regression
+> fixtures cover held/released state, connection buffering, early replies, approval, shortcut removal
+> and polling failures; real keyboard/TCC behavior still requires the manual release check.
+
 ## Goal
 Talking to Ivy should feel like talking to a person: it notices when you've finished, stops the instant you
 cut in, hears "Hey Ivy" reliably, shows that it's listening, and survives device switches and sleep — while
@@ -120,6 +127,10 @@ Voice commands can never approve, and "yes/confirm/do it" is never a command.
 Latency targets met on fixtures and on-device; all slices accepted; manual checklist passed.
 
 ## Manual checklist
+- [ ] From another app, hold Command–Shift–Space, speak and release Space first; repeat releasing a
+  modifier first. PTT capture closes, the companion changes from Listening to Thinking/Speaking, and
+  Ivy finishes its reply. Repeat with silence, during an early reply and while approval is pending.
+- [ ] Stop a held PTT session, then release and press again; no stuck Listening or blocked next request.
 - [ ] Pause mid-sentence for ~1 s — Ivy waits; finish — Ivy answers.
 - [ ] "Hey Ivy" mid-answer on speakers and on headphones — stops within a beat.
 - [ ] "Hey Ivy, what's the weather like?" in one breath from idle — answered.
@@ -141,6 +152,12 @@ Latency targets met on fixtures and on-device; all slices accepted; manual check
 | 10.8 Voice commands | Done, with a deviation | stop, cancel, end/goodbye, mute/unmute, repeat that. See below. |
 
 Tests: `Tests/IvyTests/Phase10VoiceTests.swift` (28 tests). Everything above is verified with fakes only.
+
+PTT recovery follow-up verification (2026-10-04): 81 targeted hotkey/release/socket tests passed; the
+full rerun passed 1,188 core plus 24 native interface tests (about 35 seconds combined). The first full
+run exposed a key-repeat regression and an unsynchronized new fixture; both were corrected before the
+passing rerun. Changed executable-line coverage for the current working tree was 119/134 (88.81%);
+the PTT-only changed lines were 72/86 (83.72%). This does not replace the real-keyboard checklist.
 
 ### Deviations
 - **Commands are read from the Live input transcript, not recognised on-device first.** The in-session

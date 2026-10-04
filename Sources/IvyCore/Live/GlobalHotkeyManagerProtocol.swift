@@ -92,6 +92,9 @@ public protocol GlobalHotkeyManaging: Sendable {
     /// Currently registered shortcut, if any.
     var registeredShortcut: HotkeyShortcut? { get }
 
+    /// Physical hold state, independent of key-up delivery; nil if the driver cannot inspect it.
+    var isShortcutHeld: Bool? { get }
+
     /// Registers a global hotkey with separate key-down and key-up callbacks.
     func register(
         shortcut: HotkeyShortcut,
@@ -104,6 +107,8 @@ public protocol GlobalHotkeyManaging: Sendable {
 }
 
 extension GlobalHotkeyManaging {
+    public var isShortcutHeld: Bool? { nil }
+
     /// Convenience registration using the default shortcut (Command + Shift + Space).
     public func register(
         onKeyDown: @escaping @Sendable () -> Void,
@@ -123,6 +128,7 @@ public final class MockGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked Sen
         var registrationCount: Int = 0
         var unregisterCount: Int = 0
         var mockErrorOnRegister: HotkeyError? = nil
+        var shortcutHeld: Bool? = nil
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -139,6 +145,15 @@ public final class MockGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked Sen
 
     public var registeredShortcut: HotkeyShortcut? {
         state.withLock { $0.registeredShortcut }
+    }
+
+    public var isShortcutHeld: Bool? {
+        state.withLock { $0.isRegistered ? $0.shortcutHeld : nil }
+    }
+
+    /// Changes hardware state without delivering a callback, to simulate a lost key-up event.
+    public func setShortcutHeld(_ held: Bool) {
+        state.withLock { $0.shortcutHeld = held }
     }
 
     public var registrationCount: Int {
@@ -167,6 +182,7 @@ public final class MockGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked Sen
             }
             s.isRegistered = true
             s.registeredShortcut = shortcut
+            s.shortcutHeld = nil
             s.onKeyDown = onKeyDown
             s.onKeyUp = onKeyUp
             s.registrationCount += 1
@@ -177,6 +193,7 @@ public final class MockGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked Sen
         state.withLock { s in
             s.isRegistered = false
             s.registeredShortcut = nil
+            s.shortcutHeld = nil
             s.onKeyDown = nil
             s.onKeyUp = nil
             s.unregisterCount += 1
@@ -185,13 +202,19 @@ public final class MockGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked Sen
 
     /// Simulates a physical global key-down event.
     public func simulateKeyDown() {
-        let handler = state.withLock { $0.onKeyDown }
+        let handler = state.withLock { s in
+            s.shortcutHeld = true
+            return s.onKeyDown
+        }
         handler?()
     }
 
     /// Simulates a physical global key-up event.
     public func simulateKeyUp() {
-        let handler = state.withLock { $0.onKeyUp }
+        let handler = state.withLock { s in
+            s.shortcutHeld = false
+            return s.onKeyUp
+        }
         handler?()
     }
 }

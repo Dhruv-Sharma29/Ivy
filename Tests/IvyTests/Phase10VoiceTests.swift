@@ -1,6 +1,9 @@
 import Testing
 import Foundation
 import os
+#if os(macOS)
+import CoreGraphics
+#endif
 @testable import IvyCore
 
 // MARK: - Fixtures and fakes
@@ -1029,4 +1032,213 @@ struct PushToTalkSubmissionTests {
         #expect(session.audioInputEndCount == 0)
         await c.stopSession()
     }
+}
+
+/// Tests advance release polling explicitly, without relying on real keyboard events or elapsed time.
+private final class PushToTalkPollClock: @unchecked Sendable {
+    private struct State {
+        var ticks = 0
+        var completedPolls = 0
+        var failure: LiveError?
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    var completedPolls: Int { state.withLock { $0.completedPolls } }
+    func advance() { state.withLock { $0.ticks += 1 } }
+    func fail() { state.withLock { $0.failure = .serverError("Fixture polling failure") } }
+
+    func poll() async throws {
+        while true {
+            try Task.checkCancellation()
+            let ready = try state.withLock { s in
+                if let failure = s.failure { throw failure }
+                guard s.ticks > 0 else { return false }
+                s.ticks -= 1
+                s.completedPolls += 1
+                return true
+            }
+            if ready { return }
+            await Task.yield()
+        }
+    }
+}
+
+@Suite("Push-to-talk recovers a missed shortcut release")
+@MainActor
+struct PushToTalkReleaseRecoveryTests {
+    @Test("Lost key-up closes the mic, preserves replies/approval and submits at most once",
+          arguments: ["silence", "speech", "reply", "approval"])
+    func missedRelease(stage: String) async throws {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let player = MockLiveAudioPlayer(autoDrain: false)
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture, audioPlayer: player,
+            wakeWordDetector: MockWakeWordDetector(), hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening })
+        if stage != "silence" {
+            capture.simulateAudioChunk(loud)
+            #expect(await waitUntil { session.sentAudioChunks == [loud] })
+        }
+        if stage == "reply" {
+            session.simulateEvent(.audioChunk(Data([1, 2])))
+            #expect(await waitUntil { c.state == .speaking })
+        } else if stage == "approval" {
+            session.simulateEvent(.toolCall(FunctionCall(name: "run_shell",
+                args: ["command": "echo fixture"], id: "lost-release-approval")))
+            #expect(await waitUntil { c.state == .toolConfirmation })
+        }
+        // Polling a genuinely held shortcut must not release it prematurely.
+        clock.advance()
+        #expect(await waitUntil { clock.completedPolls == 1 })
+        #expect(c.isPushToTalkActive && capture.isCapturing)
+        hotkey.setShortcutHeld(false) // hardware is released; callback is deliberately missing
+        clock.advance()
+        #expect(await waitUntil { !c.isPushToTalkActive && !capture.isCapturing })
+        if stage == "silence" {
+            #expect(await waitUntil { c.state == .idle })
+        } else {
+            #expect(await waitUntil { c.state == (stage == "speech" ? .thinking : stage == "reply" ? .speaking : .toolConfirmation) })
+            #expect(session.isConnected)
+        }
+        #expect(session.audioInputEndCount == (stage == "speech" ? 1 : 0))
+        hotkey.simulateKeyUp() // a delayed callback is harmless
+        await c.endPushToTalk()
+        #expect(session.audioInputEndCount == (stage == "speech" ? 1 : 0))
+        if stage == "approval" {
+            #expect(c.pendingConfirmation != nil, "physical release cannot approve or dismiss a tool")
+            c.respondToPendingConfirmation(approved: false)
+            #expect(await waitUntil { session.sentToolResponses.count == 1 })
+        }
+        if stage != "silence" {
+            if stage != "reply" {
+                session.simulateEvent(.audioChunk(Data([1, 2])))
+                #expect(await waitUntil { c.state == .speaking })
+            }
+            session.simulateEvent(.turnComplete)
+            player.finishPlayback()
+            #expect(await waitUntil { c.state == .idle })
+        }
+        #expect(!capture.isCapturing && !session.isConnected && c.activeTaskCount == 0)
+        await c.shutdown()
+    }
+
+    @Test("Lost release during connection preserves buffered speech and closes input before reply")
+    func connectingRelease() async throws {
+        let session = GatedLiveSession()
+        let capture = MockAudioCapture()
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector(),
+            hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.setShortcutHeld(true)
+        let start = Task { await c.beginPushToTalk() }
+        #expect(await waitUntil { session.isWaitingToConnect })
+        capture.simulateAudioChunk(loud)
+        hotkey.setShortcutHeld(false)
+        clock.advance()
+        #expect(await waitUntil { !capture.isCapturing && !c.isPushToTalkActive })
+        session.open()
+        await start.value
+        #expect(await waitUntil { c.state == .thinking && session.inner.audioInputEndCount == 1 })
+        #expect(session.inner.sentAudioChunks == [loud] && session.inner.audioInputEndCount == 1)
+        session.inner.simulateEvent(.turnComplete)
+        #expect(await waitUntil { c.state == .idle && c.activeTaskCount == 0 })
+        await c.shutdown()
+    }
+
+    @Test("Stop resets the held state so the next press works even after a missing release")
+    func stopThenPress() async throws {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector(),
+            hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening })
+        await c.stopSession()
+        #expect(!c.isPushToTalkActive && c.activeTaskCount == 0)
+        hotkey.setShortcutHeld(false)
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening && c.isPushToTalkActive })
+        #expect(capture.startCaptureCallCount == 2)
+        hotkey.setShortcutHeld(false)
+        clock.advance()
+        #expect(await waitUntil { c.state == .idle })
+        #expect(!capture.isCapturing && c.activeTaskCount == 0)
+        await c.shutdown()
+    }
+
+    @Test("Removing the shortcut or a polling failure releases all voice resources", arguments: [true, false])
+    func monitorCleanup(unregister: Bool) async throws {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector(),
+            hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening })
+        if unregister {
+            c.unregisterHotkey()
+            #expect(hotkey.isShortcutHeld == nil)
+            clock.advance()
+            #expect(await waitUntil { c.state == .idle })
+        } else {
+            clock.fail()
+            #expect(await waitUntil { if case .error = c.state { return true }; return false })
+        }
+        #expect(!c.isPushToTalkActive && !capture.isCapturing && !session.isConnected && c.activeTaskCount == 0)
+        await c.shutdown()
+    }
+
+    @Test("Socket failure ignores key repeat and a lost release unlocks a fresh press")
+    func failedHold() async throws {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector(),
+            hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening })
+        session.simulateError(LiveError.sessionClosed)
+        #expect(await waitUntil { if case .error = c.state { return !capture.isCapturing }; return false })
+        for _ in 0..<5 { await c.beginPushToTalk() }
+        #expect(capture.startCaptureCallCount == 1 && !session.isConnected)
+        hotkey.setShortcutHeld(false)
+        clock.advance()
+        #expect(await waitUntil { c.activeTaskCount == 0 })
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening && capture.startCaptureCallCount == 2 })
+        hotkey.simulateKeyUp()
+        #expect(await waitUntil { c.state == .idle && c.activeTaskCount == 0 })
+        await c.shutdown()
+    }
+
+    #if os(macOS)
+    @Test("Shortcut inspection detects key-first and modifier-first release without extra permission")
+    func physicalChordState() {
+        let ptt = HotkeyShortcut.defaultPushToTalk
+        #expect(SystemGlobalHotkeyManager.shortcutHeld(ptt, keyIsDown: true, flags: [.maskCommand, .maskShift]))
+        #expect(!SystemGlobalHotkeyManager.shortcutHeld(ptt, keyIsDown: false, flags: [.maskCommand, .maskShift]))
+        #expect(!SystemGlobalHotkeyManager.shortcutHeld(ptt, keyIsDown: true, flags: [.maskShift]))
+        #expect(!SystemGlobalHotkeyManager.shortcutHeld(ptt, keyIsDown: true, flags: [.maskCommand]))
+        #expect(SystemGlobalHotkeyManager.shortcutHeld(ptt, keyIsDown: true, flags: [.maskCommand, .maskShift, .maskAlphaShift]))
+        #expect(SystemGlobalHotkeyManager.shortcutHeld(.optionControlChord, keyIsDown: false, flags: [.maskAlternate, .maskControl]))
+        #expect(!SystemGlobalHotkeyManager.shortcutHeld(.optionControlChord, keyIsDown: true, flags: [.maskAlternate]))
+        #expect(!SystemGlobalHotkeyManager.shortcutHeld(.optionControlChord, keyIsDown: true, flags: [.maskAlternate, .maskControl, .maskShift]))
+    }
+    #endif
 }
