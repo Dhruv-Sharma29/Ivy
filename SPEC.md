@@ -472,3 +472,22 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
   uses temporary stores with a visible warning, without loading/migrating original data. Keychain is excluded.
 - Marketing version 1.1.0; build 1 is the original release, build 2 adds the screen-guidance follow-up.
   Friend-testing packaging preserves old DMGs; notarization remains deferred.
+
+---
+
+## 13. Computer Control Architecture (Phase 19+)
+
+Ivy provides an adaptive, user-authorized computer control subsystem for executing tasks in foreground macOS applications:
+1. **Explicit Session Authorization**:
+   - Desktop control requires explicit user consent scoped to a specific target application and window.
+   - The session model enforces strict validity tokens; expired, stopped, or paused sessions cannot emit input events.
+   - Screen capture and accessibility inspection are active only while an authorized session is executing.
+2. **SafetyGate Invariants**:
+   - All synthetic input actions (`ui_click`, `ui_type`, `ui_key`, `ui_scroll`, `ui_move`, `ui_drag`) default to risky and require exact SafetyGate confirmation or explicit session bounds.
+   - Physical user input (mouse movement, key press) or focus change automatically pauses the session and yields control immediately.
+   - Secure text fields, password prompts, credential files, and prohibited system dialogs are strictly excluded from inspection and control.
+3. **Observation & Target Verification**:
+   - Element inspection uses bounded, asynchronous Accessibility (`AXUIElement`) traversal with strict node and depth limits.
+   - Dynamic targets are re-verified immediately prior to execution (freshness threshold: 5 seconds). Stale targets require re-observation.
+   - Visual feedback highlights intended target coordinates before event emission.
+
