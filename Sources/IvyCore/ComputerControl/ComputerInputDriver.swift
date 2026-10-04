@@ -193,8 +193,19 @@ public final class SystemComputerInputDriver: ComputerInputDriving, Sendable {
             state.withLock { $0.isMouseDown = false }
         }
 
-        if let dragEvent = CGEvent(mouseEventSource: nil, mouseType: dragType, mouseCursorPosition: end, mouseButton: cgButton) {
-            dragEvent.post(tap: .cghidEventTap)
+        // Bounded path interpolation: emit intermediate drag events
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        let steps = max(2, min(20, Int(distance / 25.0)))
+        for step in 1...steps {
+            try Task.checkCancellation()
+            let progress = CGFloat(step) / CGFloat(steps)
+            let intermediatePoint = CGPoint(
+                x: start.x + (end.x - start.x) * progress,
+                y: start.y + (end.y - start.y) * progress
+            )
+            if let dragEvent = CGEvent(mouseEventSource: nil, mouseType: dragType, mouseCursorPosition: intermediatePoint, mouseButton: cgButton) {
+                dragEvent.post(tap: .cghidEventTap)
+            }
         }
         #endif
     }
@@ -543,9 +554,28 @@ public final class MockComputerInputDriver: ComputerInputDriving, @unchecked Sen
             s.recordedEvents.append(.move(point: start))
         }
 
+        defer {
+            state.withLock { s in
+                s.isMouseDown = false
+            }
+        }
+
+        let distance = hypot(end.x - start.x, end.y - start.y)
+        let steps = max(2, min(20, Int(distance / 25.0)))
+        for step in 1...steps {
+            try Task.checkCancellation()
+            let progress = CGFloat(step) / CGFloat(steps)
+            let intermediatePoint = CGPoint(
+                x: start.x + (end.x - start.x) * progress,
+                y: start.y + (end.y - start.y) * progress
+            )
+            state.withLock { s in
+                s.currentCursorPosition = intermediatePoint
+            }
+        }
+
         state.withLock { s in
             s.currentCursorPosition = end
-            s.isMouseDown = false
             s.recordedEvents.append(.drag(start: start, end: end, button: button))
         }
     }

@@ -173,6 +173,30 @@ public final class ComputerControlSession: @unchecked Sendable {
         }
     }
 
+    /// Transitions or expands authorized scope to a new target application after user review.
+    public func transitionScope(to newScope: ComputerControlScope) -> Result<ObservationToken, ComputerControlSessionError> {
+        guard newScope.isPermittedApp else {
+            return .failure(.prohibitedApplication(newScope.bundleIdentifier))
+        }
+        guard newScope.isAuthorized else {
+            return .failure(.unauthorizedScope)
+        }
+        return lock.withLock { state -> Result<ObservationToken, ComputerControlSessionError> in
+            let goal: String
+            switch state.state {
+            case .active(let g, _, _), .paused(let g, _, _):
+                goal = g
+            default:
+                return .failure(.sessionNotActive)
+            }
+            state.revision += 1
+            let token = ObservationToken(sessionID: self.id, revision: state.revision, now: self.clock())
+            state.currentToken = token
+            state.state = .active(goal: goal, scope: newScope, token: token)
+            return .success(token)
+        }
+    }
+
     /// Stops or cancels the session.
     public func stop(reason: String = "User stopped session") {
         lock.withLock { state in

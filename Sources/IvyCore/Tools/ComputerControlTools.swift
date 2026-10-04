@@ -169,7 +169,8 @@ public final class UITypeTool: IvyTool, Sendable {
             parameters: ToolParameters(
                 properties: [
                     "text": ToolProperty(type: "STRING", description: "Text string to type into the focused field."),
-                    "element_id": ToolProperty(type: "STRING", description: "Optional element ID to focus before typing.")
+                    "element_id": ToolProperty(type: "STRING", description: "Optional element ID to focus before typing."),
+                    "replace": ToolProperty(type: "BOOLEAN", description: "If true, explicitly selects and replaces existing text in the target field.")
                 ],
                 required: ["text"]
             )
@@ -198,10 +199,12 @@ public final class UITypeTool: IvyTool, Sendable {
         let text = arguments["text"]?.stringValue ?? ""
         let preview = text.count > 40 ? "\(text.prefix(40))..." : text
         let app = session.state.currentScope?.bundleIdentifier ?? "active application"
+        let isReplace = arguments["replace"]?.boolValue == true
+        let replaceNotice = isReplace ? " (Replacing existing text)" : ""
         return ToolConfirmation(
-            title: "Type Text",
-            prompt: "Ivy is about to type \(text.count) characters into \(app). Do it or chicken out?",
-            detail: "Action: Type Text\nLength: \(text.count) characters\nPreview: \"\(preview)\"\nApplication: \(app)"
+            title: isReplace ? "Replace Text" : "Type Text",
+            prompt: "Ivy is about to type \(text.count) characters into \(app)\(replaceNotice). Do it or chicken out?",
+            detail: "Action: \(isReplace ? "Replace Text" : "Type Text")\nLength: \(text.count) characters\nPreview: \"\(preview)\"\nReplace Existing: \(isReplace)\nApplication: \(app)"
         )
     }
 
@@ -236,6 +239,11 @@ public final class UITypeTool: IvyTool, Sendable {
             }
         }
 
+        // If replace is requested, explicitly select existing text before typing
+        if arguments["replace"]?.boolValue == true {
+            try await driver.pressKey(key: "a", modifiers: ["cmd"])
+        }
+
         let token = session.currentToken
         let action = ComputerControlAction(kind: .type, text: text, token: token)
         let recordResult = session.recordAction(action)
@@ -245,7 +253,8 @@ public final class UITypeTool: IvyTool, Sendable {
 
         do {
             try await driver.type(text: text)
-            return .success("Typed \(text.count) characters into the active application.")
+            let actionDesc = arguments["replace"]?.boolValue == true ? "Replaced existing text with" : "Typed"
+            return .success("\(actionDesc) \(text.count) characters into the active application.")
         } catch {
             return .failure("Typing failed: \(error.localizedDescription)")
         }

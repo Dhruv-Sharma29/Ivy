@@ -23,6 +23,7 @@ public final class ComputerControlCoordinator: ObservableObject {
     public let dispatcher: ToolDispatcher
     public let observationProvider: any DesktopObservationProviding
     public weak var feedbackController: (any ComputerControlFeedbackManaging)?
+    public let driver: (any ComputerInputDriving)?
 
     public private(set) var isCancelled: Bool = false
     public private(set) var history: [ComputerActionHistoryItem] = []
@@ -33,13 +34,15 @@ public final class ComputerControlCoordinator: ObservableObject {
         decisionProvider: ComputerDecisionProviding,
         dispatcher: ToolDispatcher,
         observationProvider: any DesktopObservationProviding,
-        feedbackController: (any ComputerControlFeedbackManaging)? = nil
+        feedbackController: (any ComputerControlFeedbackManaging)? = nil,
+        driver: (any ComputerInputDriving)? = nil
     ) {
         self.session = session
         self.decisionProvider = decisionProvider
         self.dispatcher = dispatcher
         self.observationProvider = observationProvider
         self.feedbackController = feedbackController
+        self.driver = driver
     }
 
     /// Stops the active loop and invalidates session tokens.
@@ -48,6 +51,11 @@ public final class ComputerControlCoordinator: ObservableObject {
         session.stop(reason: "Execution stopped by user")
         feedbackController?.clearTarget()
         feedbackController?.stop()
+        if let driver {
+            Task {
+                await driver.releaseAllHeldInputs()
+            }
+        }
     }
 
     /// Pauses the active loop without losing completed history.
@@ -239,6 +247,26 @@ public final class ComputerControlCoordinator: ObservableObject {
                             return .paused(.stepFailed(stepID: stepID, reason: reason))
                         }
                     }
+                }
+
+                // Cross-application scope review check
+                if let targetApp = call.args["bundle_id"]?.stringValue,
+                   targetApp != scope.bundleIdentifier {
+                    let newScope = ComputerControlScope(bundleIdentifier: targetApp, isAuthorized: false)
+                    guard newScope.isPermittedApp else {
+                        session.pause(reason: .permissionRevoked)
+                        feedbackController?.pause(reason: .permissionRevoked)
+                        taskStep.status = .failed("Targeting prohibited application '\(targetApp)'.")
+                        onStepUpdated(taskStep)
+                        return .paused(.stepFailed(stepID: stepID, reason: "Targeting prohibited application '\(targetApp)'."))
+                    }
+
+                    session.pause(reason: .scopeReviewRequired)
+                    feedbackController?.pause(reason: .scopeReviewRequired)
+                    let reason = "Targeting new application '\(targetApp)' requires explicit scope authorization."
+                    taskStep.status = .failed(reason)
+                    onStepUpdated(taskStep)
+                    return .paused(.stepFailed(stepID: stepID, reason: reason))
                 }
 
                 var finalArgs = call.args

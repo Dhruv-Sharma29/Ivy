@@ -32,9 +32,11 @@ public struct ComputerControlScope: Equatable, Sendable, Codable {
             "com.apple.securityagent",
             "com.apple.coreauthui",
             "com.apple.keychain-access",
+            "com.apple.keychainaccess",
             "com.apple.passwords",
             "com.apple.systempreferences",
-            "com.apple.systemsettings"
+            "com.apple.systemsettings",
+            "com.apple.loginwindow"
         ]
         return !prohibited.contains(bundleIdentifier.lowercased())
     }
@@ -241,6 +243,7 @@ public enum ComputerControlPauseReason: String, Equatable, Sendable, Codable {
     case budgetExhausted = "Action limit or timeout reached"
     case staleTarget = "Target elements changed or moved"
     case userRequested = "Session paused by user"
+    case scopeReviewRequired = "Cross-application action requires scope review"
 }
 
 /// Lifecycle states of a computer control session.
