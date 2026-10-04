@@ -170,6 +170,7 @@ public final class IvyAppEnvironment {
         }
         proactive.onRead = { [weak voice] text in voice?.togglePlayback(for: ChatMessage(role: .model, text: text)) }
         self.liveCoordinator = makeLiveCoordinator(credentials, settings.settings)
+        liveCoordinator.toolDispatcher.activity.destination = brain.toolDispatcher.activity
         // Voice sessions become part of the written conversation (text only).
         liveCoordinator.onTranscript = { [weak brain] text, fromUser, interrupted in
             brain?.appendVoiceTranscript(text, fromUser: fromUser, interrupted: interrupted)
@@ -274,7 +275,24 @@ public final class IvyAppEnvironment {
     }
 
     /// The app target supplies the on-screen overlay that draws `point_at` highlights.
-    public static func production(annotationPresenter: AnnotationPresenting = NoAnnotationPresenter()) -> IvyAppEnvironment {
+    public static func production(annotationPresenter: AnnotationPresenting = NoAnnotationPresenter(),
+                                  credentials: CredentialProvider = KeychainCredentialProvider(),
+                                  prepareBackup: () throws -> Void = { try ReleaseDataBackup().prepare() }) -> IvyAppEnvironment {
+        do { try prepareBackup() }
+        catch {
+            // No existing store is opened: loading itself can migrate or quarantine data.
+            var settings = IvySettings.defaults
+            settings.persistConversationHistory = false
+            settings.restoreLastConversation = false
+            settings.pushToTalkEnabled = false
+            settings.onboardingCompleted = true
+            let environment = IvyAppEnvironment(settingsStore: TemporarySettingsStore(settings),
+                credentials: credentials, conversationStore: TemporaryConversationStore()) { credentials, settings in
+                GeminiLiveVoiceCoordinator(credentials: credentials, echoCancellation: settings.echoCancellation)
+            }
+            environment.brain.reportStorageNotice("The upgrade backup failed. Existing data is untouched; this session uses temporary history and settings. Quit Ivy, resolve the backup error and reopen to retry. " + error.localizedDescription)
+            return environment
+        }
         let relay = ProactiveRelay()
         let memory = PersonalizationRelay()
         let profileStore = FilePersonalizationStore()
@@ -284,7 +302,7 @@ public final class IvyAppEnvironment {
         let deliverer = SystemProactiveDeliverer()
         let environment = IvyAppEnvironment(
             settingsStore: UserDefaultsSettingsStore(),
-            credentials: KeychainCredentialProvider(),
+            credentials: credentials,
             conversationStore: FileConversationStore(),
             proactiveStore: FileProactiveStore(),
             proactiveDeliverer: deliverer,

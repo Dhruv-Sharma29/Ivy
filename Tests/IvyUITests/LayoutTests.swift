@@ -574,6 +574,50 @@ struct LayoutTests {
         return 0.2126 * linear(rgb.redComponent) + 0.7152 * linear(rgb.greenComponent) + 0.0722 * linear(rgb.blueComponent)
     }
 
+    @Test("tool cards, diff drafts, screen-attach bar and pointer render as native controls")
+    func releaseControls() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let activity = ToolActivity()
+        let running = activity.begin(FunctionCall(name: "file_op", args: ["action": "read", "path": "notes.txt"]))
+        let succeeded = activity.begin(FunctionCall(name: "open_app", args: ["name": "Safari"]))
+        activity.complete(succeeded, response: FunctionResponse(name: "open_app", response: ["success": true, "result": "Opened Safari"]))
+        let failed = activity.begin(FunctionCall(name: "file_op", args: ["action": "write", "path": "notes.txt"]))
+        activity.complete(failed, response: FunctionResponse(name: "file_op", response: ["success": false, "error": "Cancelled by you"]))
+        #expect(activity.records.first?.id == running)
+        let diff = "--- a/notes.txt\n+++ b/notes.txt\n@@ -1 +1 @@\n-old\n+new\n context"
+        let cards = VStack(alignment: .leading, spacing: 16) {
+            ForEach(activity.records) { ToolCardView(execution: $0, initiallyExpanded: true) }
+            MessageBlocksView(text: "Proposed change:\n```diff\n" + diff + "\n```", onApplyDiff: { _ in })
+        }.padding(24)
+        let environment = IvyAppEnvironment(settingsStore: LayoutSettingsStore(),
+            credentials: FixedCredentialProvider([.geminiAPIKey: "fixture"]),
+            conversationStore: FileConversationStore(directory: directory.appendingPathComponent("release-history-" + UUID().uuidString)), geminiClient: LayoutOfflineClient()) { _, _ in
+            GeminiLiveVoiceCoordinator(session: MockGeminiLiveSession(), audioCapture: MockAudioCapture(), audioPlayer: MockLiveAudioPlayer())
+        }
+        let session = CommandBarSession(brain: environment.brain, tray: environment.attachments, tasks: environment.tasks, live: environment.liveCoordinator)
+        let geometry = try #require(AnnotationGeometry(screen: CGRect(x: -800, y: 0, width: 800, height: 600),
+                                                      target: CGRect(x: -600, y: 200, width: 180, height: 100)))
+        let proposal = DiffDraftProposal(diff: diff)
+        #expect(proposal.draft() != nil)
+        proposal.path = ""
+        #expect(proposal.draft() == nil)
+        for scheme in [ColorScheme.light, .dark] {
+            try await snapshot(cards, scheme: scheme, size: NSSize(width: 700, height: 920), url: directory.appendingPathComponent("release-tool-cards-\(scheme).png"))
+            try await snapshot(DiffDraftSheet(proposal: proposal, onDraft: { _ in }, onCancel: {}),
+                scheme: scheme, size: NSSize(width: 500, height: 320), url: directory.appendingPathComponent("release-diff-sheet-\(scheme).png"))
+            try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,
+                tray: environment.attachments, live: environment.liveCoordinator, session: session, onClose: {}, onContinueInWindow: {}),
+                scheme: scheme, size: NSSize(width: 580, height: 320), url: directory.appendingPathComponent("release-command-bar-\(scheme).png"))
+            try await snapshot(AnnotationView(label: "Export menu", geometry: geometry).background(IvyTheme.canvas),
+                scheme: scheme, size: NSSize(width: 800, height: 600), url: directory.appendingPathComponent("release-pointer-\(scheme).png"))
+            try await snapshot(ChatFeedView(messages: [ChatMessage(role: .user, text: "Read notes"), ChatMessage(role: .model, text: "Done.")],
+                activity: activity, voice: environment.voiceManager, onApplyDiff: nil),
+                scheme: scheme, size: NSSize(width: 600, height: 560), url: directory.appendingPathComponent("release-tool-timeline-\(scheme).png"))
+        }
+        await environment.shutdown()
+    }
+
     private func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, url: URL,
                                    increasedContrast: Bool = false, expectsWindowMaterial: Bool? = nil,
                                    expectsApproval: Bool = false) async throws {

@@ -473,8 +473,8 @@ struct Phase4CGlobalHotkeyTests {
         await coordinator.shutdown()
     }
 
-    @Test("18. Microphone capture is stopped exactly once upon key-up")
-    func testMicrophoneCaptureStoppedExactlyOnce() async throws {
+    @Test("18. Key-up closes capture and session teardown releases audio resources")
+    func testMicrophoneCaptureAndEngineStopped() async throws {
         let mockSession = MockGeminiLiveSession()
         let mockCapture = MockAudioCapture(isPermissionGranted: true)
         let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
@@ -502,7 +502,7 @@ struct Phase4CGlobalHotkeyTests {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
 
-        #expect(mockCapture.stopCaptureCallCount == 1)
+        #expect(mockCapture.stopCaptureCallCount == 2)
         #expect(!mockCapture.isCapturing)
 
         await coordinator.shutdown()
@@ -544,7 +544,7 @@ struct Phase4CGlobalHotkeyTests {
         }
         #expect(coordinator.state == .idle)
         #expect(mockCapture.startCaptureCallCount == 1)
-        #expect(mockCapture.stopCaptureCallCount == 1)
+        #expect(mockCapture.stopCaptureCallCount == 2)
 
         await coordinator.shutdown()
     }
@@ -591,7 +591,7 @@ struct Phase4CGlobalHotkeyTests {
 
         #expect(coordinator.state == .idle)
         #expect(mockCapture.startCaptureCallCount == 2)
-        #expect(mockCapture.stopCaptureCallCount == 2)
+        #expect(mockCapture.stopCaptureCallCount == 4)
 
         await coordinator.shutdown()
     }
@@ -629,7 +629,7 @@ struct Phase4CGlobalHotkeyTests {
 
         #expect(coordinator.state == .idle)
         #expect(mockCapture.startCaptureCallCount == 1)
-        #expect(mockCapture.stopCaptureCallCount == 1)
+        #expect(mockCapture.stopCaptureCallCount == 2)
 
         await coordinator.shutdown()
     }
@@ -669,7 +669,7 @@ struct Phase4CGlobalHotkeyTests {
 
         #expect(coordinator.state == .idle)
         #expect(mockCapture.startCaptureCallCount == 1)
-        #expect(mockCapture.stopCaptureCallCount == 1)
+        #expect(mockCapture.stopCaptureCallCount == 2)
 
         await coordinator.shutdown()
     }

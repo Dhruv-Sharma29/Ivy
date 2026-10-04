@@ -291,6 +291,7 @@ public protocol GeminiClientProtocol: Sendable {
 - Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
 - Push-to-talk records while the shortcut is held. Releasing it stops microphone input, drains the last recorded frames and sends the Live API audio-stream-end marker. Ivy remains connected to answer, then closes after playback or a silent completed turn. Speech captured while connecting is submitted once the socket is ready. A silent press cancels; an existing hands-free session remains continuous. Repeated release never submits twice, and pressing again during the pending reply does not leave an open microphone.
+  Release also closes capture if the server has already started its reply or requested approval, without cancelling either or submitting the same utterance again. Push-to-talk replies use an output-only audio engine so playback cannot reopen the microphone. Session teardown always releases capture-engine resources, including an engine restarted after its input stream closed. Opt-in idle wake listening remains a separate microphone user.
 - Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
 - Draft text is retained separately for each conversation while the main view is alive.
 - Conversation instructions use a multiline sheet and show validation failures in place.
@@ -419,3 +420,15 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 - [ ] Sending a message sends the turn history + Ivy system prompt to `gemini-3.8-flash`.
 - [ ] Model responds in Ivy's distinctive sarcastic tone and appears in the chat scroll.
 - [ ] Error states (invalid key, network offline) display helpful, in-character alerts.
+
+### v1.1 release integration (2026-10-03)
+- Display-only, session-scoped tool cards show redacted arguments, status and bounded output in chat;
+  raw tool payloads never enter persisted history or request context. Chat/tasks/Live share display events.
+- Diff Apply opens a target sheet and appends a reviewable file_op proposal to the existing composer;
+  the actual write still requires SafetyGate approval and the full updated file, not a diff as content.
+- Command Bar local ⌘⇧S attaches the front non-Ivy window to the shared reviewed tray. Capture does not send;
+  submission is blocked by active voice/tasks, capture work or pending approvals.
+- point_at draws a click-through screen-edge arrow, highlight and label on the relevant display.
+- Before production stores load, v1.1 secures a one-time v1.0 durable-data/settings backup. Backup failure
+  uses temporary stores with a visible warning, without loading/migrating original data. Keychain is excluded.
+- Marketing version 1.1.0, build 1. Friend-testing packaging preserves old DMGs; notarization remains deferred.

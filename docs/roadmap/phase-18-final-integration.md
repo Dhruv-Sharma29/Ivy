@@ -1,3 +1,5 @@
+> **Friend-testing status — 2026-10-03:** v1.1.0 build 1 metadata, pre-load rollback backups, native tool/diff/screen controls and the changelog are implemented. Five full regressions passed (1,173 core + 19 UI tests per run), strict build passed without warnings, and changed executable-line coverage is 91.4% (458/501). Packaging produces a development-signed local testing DMG and keeps v1.0 for rollback. Notarization/public publishing are deferred at the user's request. Hardware, second-Mac installation/upgrade and performance acceptance checks below remain open.
+
 # Phase 18 — v1.1 Final Integration & Release
 
 ## Goal
@@ -74,7 +76,7 @@ Instruments Leaks run: 30 Live sessions, 20 tasks, 50 captures — no leaks.
 
 ## Exit criteria (release gate)
 - [ ] All phase exit criteria met; open issues triaged (none blocking).
-- [ ] 5× green test runs, zero warnings, coverage target met.
+- [x] 5× green test runs, zero warnings, coverage target met (2026-10-03 friend-testing build).
 - [ ] Security and performance audit tables signed off.
 - [ ] Upgrade + clean-install tests passed.
 - [ ] Notarized, stapled, verified DMG; checksum published.

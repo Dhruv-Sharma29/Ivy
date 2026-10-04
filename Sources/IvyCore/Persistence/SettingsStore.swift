@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 
 /// Non-secret user preferences. Credentials never go here — they live in the Keychain.
 public struct IvySettings: Codable, Equatable, Sendable {
@@ -286,4 +287,12 @@ public final class SettingsModel: ObservableObject {
         self.store = store
         self.settings = store.load()
     }
+}
+
+/// Used when startup cannot secure a rollback backup; no writes touch the existing preferences.
+public final class TemporarySettingsStore: SettingsStore, Sendable {
+    private let value: OSAllocatedUnfairLock<IvySettings>
+    public init(_ settings: IvySettings = .defaults) { value = OSAllocatedUnfairLock(initialState: settings) }
+    public func load() -> IvySettings { value.withLock { $0 } }
+    public func save(_ settings: IvySettings) throws { value.withLock { $0 = settings } }
 }

@@ -1,9 +1,26 @@
 import Testing
 import Foundation
+import AVFoundation
+import os
 @testable import IvyCore
+
+/// Exercises shutdown without starting an engine or requesting microphone access.
+private final class ShutdownTrackingEngine: AVAudioEngine, @unchecked Sendable {
+    private let stops = OSAllocatedUnfairLock(initialState: 0)
+    var stopCount: Int { stops.withLock { $0 } }
+    override func stop() { stops.withLock { $0 += 1 } }
+}
 
 @Suite("Phase 4B - Live Audio Engine & Abstraction Tests")
 struct LiveAudioEngineTests {
+    @Test("Capture shutdown stops a shared engine even after its microphone stream was already closed")
+    func repeatedCaptureShutdownReleasesEngine() async {
+        let engine = ShutdownTrackingEngine()
+        let capture = SystemAudioCapture(audioEngine: engine)
+        await capture.stopCapture()
+        await capture.stopCapture()
+        #expect(engine.stopCount == 2)
+    }
 
     @Test("MockAudioCapture starts capture when permission is granted and streams chunks")
     func testAudioCaptureStreaming() async throws {

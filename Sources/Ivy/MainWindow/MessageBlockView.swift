@@ -4,6 +4,8 @@ import IvyCore
 /// One reply in the main window: prose as Markdown, code and diffs as monospaced blocks with Copy.
 struct MessageBlocksView: View {
     let text: String
+    var onApplyDiff: ((String) -> Void)? = nil
+    @State private var proposal: DiffDraftProposal?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -19,7 +21,9 @@ struct MessageBlocksView: View {
                         Text(code).font(IvyTheme.codeFont)
                     }
                 case .diff(let diff):
-                    CodeBlockView(label: "diff", text: diff) {
+                    CodeBlockView(label: "diff", text: diff, onApply: onApplyDiff == nil ? nil : {
+                        proposal = DiffDraftProposal(diff: diff)
+                    }) {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(diff.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
                                 Text(String(line).isEmpty ? " " : String(line))
@@ -32,6 +36,10 @@ struct MessageBlocksView: View {
                     }
                 }
             }
+        }
+        .sheet(item: $proposal) { item in
+            DiffDraftSheet(proposal: item, onDraft: { draft in onApplyDiff?(draft); proposal = nil },
+                           onCancel: { proposal = nil })
         }
     }
 
@@ -65,6 +73,7 @@ struct MessageBlocksView: View {
 private struct CodeBlockView<Content: View>: View {
     let label: String
     let text: String
+    var onApply: (() -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -74,6 +83,11 @@ private struct CodeBlockView<Content: View>: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
+                if let onApply {
+                    Button("Apply…", action: onApply)
+                        .buttonStyle(.borderless).frame(minHeight: 28)
+                        .help("Draft a file_op change in the composer")
+                }
                 MessageCopyButton(text: text, accessibilityTitle: "Copy \(label)")
                 .buttonStyle(.borderless)
                 .font(.caption.weight(.medium))
@@ -96,5 +110,29 @@ private struct CodeBlockView<Content: View>: View {
             RoundedRectangle(cornerRadius: IvyTheme.codeRadius, style: .continuous)
                 .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
         )
+    }
+}
+
+struct DiffDraftSheet: View {
+    @ObservedObject var proposal: DiffDraftProposal
+    let onDraft: (String) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Draft a file change").font(.title2.weight(.semibold))
+            Text("Choose the target. Ivy will read the file and request approval before writing. Nothing is sent yet.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextField("File path", text: $proposal.path).textFieldStyle(.roundedBorder)
+            if let error = proposal.error { Text(error).foregroundStyle(.red) }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel, action: onCancel)
+                Button("Add to Composer") {
+                    if let draft = proposal.draft() { onDraft(draft) }
+                }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24).frame(width: 440).ivyWindowBackground().ivyGlassButtonStyle()
     }
 }

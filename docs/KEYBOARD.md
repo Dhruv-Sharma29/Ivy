@@ -40,3 +40,9 @@ Global shortcuts avoid ⌘⇧S and ⌘K on purpose: as global hotkeys they would
 | Return | Ask (the reply appears in the bar) |
 | ⌘Return | Continue in the window |
 | Esc | Close |
+
+## Floating Command Bar
+
+Open with **⌃⌥⌘K**. While the bar is focused, **⌘⇧S** (or its screen button) attaches the front
+non-Ivy window to the preview tray. It stays unsent until Return submits the message; remove it or
+continue in Ivy's main window to review it there. This is a local shortcut, so other apps keep Save As.

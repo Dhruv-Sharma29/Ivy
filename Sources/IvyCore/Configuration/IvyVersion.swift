@@ -3,7 +3,7 @@ import Foundation
 /// Single source of truth for Ivy's application and release metadata.
 public enum IvyVersion: Sendable {
     /// Semantic marketing version of the application.
-    public static let marketingVersion = "1.0.0"
+    public static let marketingVersion = "1.1.0"
 
     /// Sequential build number.
     public static let buildNumber = "1"

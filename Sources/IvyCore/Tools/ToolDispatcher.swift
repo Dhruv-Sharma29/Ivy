@@ -5,6 +5,7 @@ public final class ToolDispatcher: Sendable {
     public let registry: ToolRegistry
     public let safetyGate: SafetyGateProtocol
     public let permissions: PermissionManaging
+    public let activity = ToolActivity()
 
     public init(
         registry: ToolRegistry,
@@ -18,6 +19,13 @@ public final class ToolDispatcher: Sendable {
 
     /// Dispatches a single FunctionCall and produces a FunctionResponse.
     public func dispatch(_ call: FunctionCall) async -> FunctionResponse {
+        let id = await activity.begin(call)
+        let response = await execute(call)
+        await activity.complete(id, response: response)
+        return response
+    }
+
+    private func execute(_ call: FunctionCall) async -> FunctionResponse {
         guard let tool = registry.tool(named: call.name) else {
             return FunctionResponse(
                 name: call.name,

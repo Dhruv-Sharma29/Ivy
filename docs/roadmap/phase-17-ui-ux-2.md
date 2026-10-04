@@ -1,3 +1,5 @@
+> **v1.1 integration — 2026-10-03:** Session-only collapsible tool cards now show masked arguments/status/output; diff Apply drafts a reviewed file_op proposal; the Command Bar previews front-window captures via local ⌘⇧S; point_at draws a display-local screen-edge arrow. These controls retain explicit submission/action approval and memory-only screen attachments.
+
 > **Desktop shell revision — 2026-10-02:** The user's request supersedes the original menu-bar-first activation design below. Ivy now uses a native SwiftUI main Window, opens at launch and stays in the Dock after closing it. The menu bar is a shortcut menu. Settings uses searchable sidebar navigation. Legacy implementation status below is retained as history; the current UI contract is in SPEC.md §5. Native render checks and composer regressions live in `Tests/IvyUITests`.
 
 # Phase 17 — Ivy UI/UX 2.0: a real Ivy app

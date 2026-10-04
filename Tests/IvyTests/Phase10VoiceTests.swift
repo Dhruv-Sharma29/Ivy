@@ -833,6 +833,79 @@ struct Phase10CommandTests {
 @Suite("Push-to-talk release submits a voice request")
 @MainActor
 struct PushToTalkSubmissionTests {
+    @Test("PTT replies use output-only playback; hands-free sessions keep echo-cancelled playback", arguments: [true, false])
+    func selectsPlaybackEngine(pushToTalk: Bool) async {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let continuousPlayer = MockLiveAudioPlayer()
+        let outputOnlyPlayer = MockLiveAudioPlayer()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: continuousPlayer, pushToTalkAudioPlayer: outputOnlyPlayer,
+            wakeWordDetector: MockWakeWordDetector())
+        if pushToTalk {
+            await c.beginPushToTalk()
+            capture.simulateAudioChunk(loud)
+            await c.endPushToTalk()
+            #expect(!capture.isCapturing)
+        } else {
+            await c.startSession()
+        }
+        let reply = Data([1, 2])
+        session.simulateEvent(.audioChunk(reply))
+        #expect(await waitUntil { (pushToTalk ? outputOnlyPlayer : continuousPlayer).playedChunks == [reply] })
+        #expect((pushToTalk ? continuousPlayer : outputOnlyPlayer).playedChunks.isEmpty)
+        #expect(capture.isCapturing == !pushToTalk)
+        await c.stopSession()
+        #expect((pushToTalk ? outputOnlyPlayer : continuousPlayer).isStopped)
+    }
+
+    @Test("Release during an early reply or approval closes capture without cancelling the reply", arguments: [false, true])
+    func releaseDuringReply(awaitsApproval: Bool) async {
+        let (c, session, capture, player, _) = makeCoordinator(autoDrain: false)
+        await c.beginPushToTalk()
+        capture.simulateAudioChunk(loud)
+        #expect(await waitUntil { session.sentAudioChunks == [loud] })
+        if awaitsApproval {
+            session.simulateEvent(.toolCall(FunctionCall(name: "run_shell", args: ["command": "echo fixture"], id: "early-approval")))
+            #expect(await waitUntil { c.state == .toolConfirmation })
+        } else {
+            session.simulateEvent(.audioChunk(Data([1, 2])))
+            #expect(await waitUntil { c.state == .speaking })
+        }
+
+        await c.endPushToTalk()
+        #expect(!capture.isCapturing)
+        #expect(!c.isPushToTalkActive)
+        #expect(session.isConnected)
+        #expect(session.audioInputEndCount == 0) // The server already started answering this utterance.
+        if awaitsApproval {
+            #expect(c.pendingConfirmation != nil)
+            c.respondToPendingConfirmation(approved: false)
+            #expect(await waitUntil { session.sentToolResponses.count == 1 })
+            session.simulateEvent(.audioChunk(Data([1, 2])))
+            #expect(await waitUntil { c.state == .speaking })
+        }
+        session.simulateEvent(.turnComplete)
+        player.finishPlayback()
+        #expect(await waitUntil { c.state == .idle })
+        #expect(!session.isConnected && !capture.isCapturing)
+        #expect(c.activeTaskCount == 0)
+    }
+
+    @Test("Ending a released request stops audio hardware again after playback may have restarted it")
+    func releasedRequestCleanup() async {
+        let (c, session, capture, _, _) = makeCoordinator()
+        await c.beginPushToTalk()
+        capture.simulateAudioChunk(loud)
+        await c.endPushToTalk()
+        #expect(capture.stopCaptureCallCount == 1)
+        session.simulateEvent(.audioChunk(Data([1, 2])))
+        #expect(await waitUntil { c.state == .speaking })
+        await c.stopSession()
+        #expect(capture.stopCaptureCallCount == 2)
+        #expect(c.state == .idle && !session.isConnected)
+    }
+
     @Test("Release while capture is returning its stream drains speech or cancels silence", arguments: [true, false])
     func releaseDuringCaptureStartup(hasSpeech: Bool) async {
         let session = MockGeminiLiveSession()
@@ -846,7 +919,7 @@ struct PushToTalkSubmissionTests {
         #expect(!c.isPushToTalkActive)
         await capture.resumeStart()
         await start.value
-        #expect(!capture.inner.isCapturing && capture.inner.stopCaptureCallCount == 1)
+        #expect(!capture.inner.isCapturing && capture.inner.stopCaptureCallCount == (hasSpeech ? 1 : 2))
         #expect(c.state == (hasSpeech ? .thinking : .idle))
         #expect(session.audioInputEndCount == (hasSpeech ? 1 : 0))
         #expect(session.sentAudioChunks == (hasSpeech ? [loud] : []))
@@ -880,7 +953,7 @@ struct PushToTalkSubmissionTests {
         player.finishPlayback()
         #expect(await waitUntil { c.state == .idle })
         #expect(!session.isConnected)
-        #expect(capture.stopCaptureCallCount == 1)
+        #expect(capture.stopCaptureCallCount == 2)
         await c.beginPushToTalk()
         #expect(c.state == .listening)
         await c.endPushToTalk() // silent press still cancels immediately

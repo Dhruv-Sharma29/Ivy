@@ -100,6 +100,16 @@ struct ChatPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let notice = brain.storageNotice {
+                HStack(alignment: .top) {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                    Spacer()
+                    Button("Dismiss") { brain.dismissStorageNotice() }
+                }
+                .font(.callout)
+                .padding(12)
+                .ivyGlass(cornerRadius: 10)
+            }
             if currentDestination == .home, let library {
                 IvyHomeView(library: library, brain: brain, tasks: tasks,
                             onPrompt: { inputText = $0; onShowChat?() }, onOpenConversation: { onShowChat?() },
@@ -251,36 +261,26 @@ struct ChatPaneView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    if let notice = brain.storageNotice {
-                        HStack(alignment: .top) {
-                            Label(notice, systemImage: "exclamationmark.triangle")
-                            Spacer()
-                            Button("Dismiss") { brain.dismissStorageNotice() }
-                        }
-                        .font(.callout)
-                        .padding(12)
-                        .ivyGlass(cornerRadius: 10)
-                    }
                     if brain.messages.isEmpty {
                         emptyState
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 28) {
-                            ForEach(brain.messages) { message in
-                                MessageRowView(message: message, voiceManager: voiceManager)
-                                    .id(message.id)
+                    }
+                    LazyVStack(alignment: .leading, spacing: 28) {
+                        ChatFeedView(messages: brain.messages, activity: brain.toolDispatcher.activity,
+                                     voice: voiceManager, onApplyDiff: { draft in
+                            inputText = DiffDraft.appending(draft, to: inputText)
+                            onShowChat?()
+                        })
+                        if brain.retryableMessage != nil {
+                            Button { Task { await brain.retryLastFailed() } } label: {
+                                Label("Try Again", systemImage: "arrow.clockwise")
                             }
-                            if brain.retryableMessage != nil {
-                                Button { Task { await brain.retryLastFailed() } } label: {
-                                    Label("Try Again", systemImage: "arrow.clockwise")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(isBlocked)
-                            }
-                            if brain.isThinking && brain.pendingConfirmation == nil {
-                                HStack(spacing: 10) {
-                                    ProgressView().controlSize(.small)
-                                    Text("Thinking…").foregroundStyle(.secondary)
-                                }
+                            .buttonStyle(.bordered)
+                            .disabled(isBlocked)
+                        }
+                        if brain.isThinking && brain.pendingConfirmation == nil {
+                            HStack(spacing: 10) {
+                                ProgressView().controlSize(.small)
+                                Text("Thinking…").foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -420,6 +420,7 @@ enum ChatSheet: Identifiable {
 struct MessageRowView: View {
     let message: ChatMessage
     @ObservedObject var voiceManager: VoicePlaybackManager
+    var onApplyDiff: ((String) -> Void)? = nil
     @State private var readClickCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -451,7 +452,7 @@ struct MessageRowView: View {
                     }
                 }
             } else {
-                MessageBlocksView(text: message.text)
+                MessageBlocksView(text: message.text, onApplyDiff: onApplyDiff)
                 HStack(spacing: 8) {
                     MessageCopyButton(text: message.text)
                     if !message.isError {

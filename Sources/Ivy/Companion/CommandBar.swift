@@ -51,7 +51,8 @@ final class CommandBarController: NSObject, NSWindowDelegate {
         panel.delegate = self
         let e = environment
         panel.contentView = NSHostingView(rootView: CommandBarView(
-            brain: e.brain, library: e.library, tasks: e.tasks,
+            brain: e.brain, library: e.library, tasks: e.tasks, tray: e.attachments, live: e.liveCoordinator,
+            session: CommandBarSession(brain: e.brain, tray: e.attachments, tasks: e.tasks, live: e.liveCoordinator),
             onClose: { [weak self] in self?.close() },
             onContinueInWindow: { [weak self] in
                 self?.close()
@@ -64,26 +65,25 @@ final class CommandBarController: NSObject, NSWindowDelegate {
 
 /// Type a request, Return to ask (the reply appears here), ⌘Return to continue in the window, Esc to close.
 /// It's an ordinary chat message: risky tools still raise their card (shown in the window).
-private struct CommandBarView: View {
+struct CommandBarView: View {
     @ObservedObject var brain: IvyBrain
     @ObservedObject var library: ConversationLibrary
     @ObservedObject var tasks: TaskEngine
+    @ObservedObject var tray: AttachmentTray
+    @ObservedObject var live: GeminiLiveVoiceCoordinator
+    @ObservedObject var session: CommandBarSession
     let onClose: () -> Void
     let onContinueInWindow: () -> Void
 
-    @State private var text = ""
-    @State private var askedID: UUID?
     @FocusState private var focused: Bool
 
     private var reply: ChatMessage? {
-        guard let askedID, let index = brain.messages.firstIndex(where: { $0.id == askedID }) else { return nil }
+        guard let askedID = session.askedID, let index = brain.messages.firstIndex(where: { $0.id == askedID }) else { return nil }
         return brain.messages[(index + 1)...].first { $0.role == .model }
     }
 
     private var blocked: String? {
-        if brain.pendingConfirmation != nil { return "Ivy is waiting for your approval in its window." }
-        if tasks.run?.isActive == true { return "A task is running. Watch it in Ivy's window." }
-        return nil
+        session.blocked
     }
 
     var body: some View {
@@ -95,14 +95,24 @@ private struct CommandBarView: View {
                     .frame(width: 20, height: 20)
                     .foregroundStyle(IvyTheme.leaf)
                     .accessibilityHidden(true)
-                TextField("Ask Ivy…", text: $text)
+                TextField("Ask Ivy…", text: $session.text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 18))
                     .focused($focused)
                     .onSubmit(ask)
+                Button {
+                    Task { await session.captureFrontWindow() }
+                } label: { Image(systemName: "rectangle.dashed.badge.record") }
+                .frame(minWidth: 28, minHeight: 28)
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .help("Attach front window (⌘⇧S)")
+                .accessibilityLabel("Attach front window")
+                .accessibilityIdentifier("ivy.commandBar.screen")
+                .disabled(brain.isThinking || blocked != nil)
                 if brain.isThinking { ProgressView().controlSize(.small) }
             }
 
+            AttachmentBar(tray: tray)
             if let blocked {
                 HStack {
                     Text(blocked).font(.system(size: 12)).foregroundStyle(.orange)
@@ -119,7 +129,7 @@ private struct CommandBarView: View {
                     Spacer()
                     Button("Continue in Window", action: onContinueInWindow).keyboardShortcut(.return, modifiers: [.command])
                 }
-            } else if askedID == nil, !brain.isThinking {
+            } else if session.askedID == nil, !brain.isThinking {
                 let recent = Array(library.list().prefix(5))
                 if !recent.isEmpty {
                     Text("Recent").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
@@ -151,19 +161,9 @@ private struct CommandBarView: View {
     }
 
     private func ask() {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, blocked == nil, !brain.isThinking else { return }
-        if trimmed.lowercased().hasPrefix("/agent ") {
-            text = ""
-            onContinueInWindow()
-            Task { await tasks.start(goal: String(trimmed.dropFirst("/agent ".count))) }
-            return
-        }
-        text = ""
+        let plansTask = session.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("/agent ")
         Task {
-            await brain.send(trimmed)
-            // The new user message is the last one sent with this text.
-            askedID = brain.messages.last { $0.role == .user }?.id
+            if await session.send(), plansTask { onContinueInWindow() }
         }
     }
 }

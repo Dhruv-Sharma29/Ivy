@@ -4,11 +4,11 @@ Ivy combines text chat, live voice, screen help and local Mac tools in a native 
 
 ## Current status
 
-The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.0.0**, with an updated app and DMG in `dist/`.
+The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 1)**, with an updated app and DMG in `dist/`.
 
-**This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The release launches on the development Mac, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
+**This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The v1.1 artifact has passed packaging and signature checks, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
 
-See [remaining work](tasks/remaining.md) for implementation gaps, hardware testing and release requirements.
+See [remaining work](tasks/remaining.md) for hardware testing and release requirements, and [CHANGELOG.md](CHANGELOG.md) for the v1.1 additions.
 
 ## Features
 
@@ -16,11 +16,45 @@ See [remaining work](tasks/remaining.md) for implementation gaps, hardware testi
 - **Conversation history:** search, pinned conversations, export and an Archived section that expands when opened.
 - **Compact composer:** attachments, microphone and send controls. Return sends; Shift–Return inserts a newline at the cursor. Drafts are retained per conversation while the main view remains open.
 - **Live voice:** Gemini voice sessions, local “Hey Ivy” interruption and global push-to-talk. Hold **Command–Shift–Space** while speaking, then release; Ivy submits the captured speech and stays connected to answer. Silent presses cancel. Speech queued during microphone or connection startup is preserved.
-- **Screen help:** attach a screenshot, selected region, image or PDF. The screen-help shortcut can show a capture to an active Live session.
+  Push-to-talk replies use output-only playback, so releasing the shortcut closes the microphone even if Ivy has already started answering or is waiting for approval. If idle “Hey Ivy” listening is enabled, that separate feature continues using the microphone.
+- **Tool feedback:** collapsible live tool cards with status, masked arguments and expandable output; diff **Apply…** drafts a file change for review without executing it.
+- **Screen help:** attach a screenshot, selected region, image or PDF. The screen-help shortcut can show a capture to an active Live session. Inside the floating Command Bar, **Command–Shift–S** attaches the front window for review and explicit send.
+- **Screen pointer:** Ivy can draw a temporary arrow and labelled highlight to show where a button, menu or other area is on the screen you shared.
 - **Tasks and Mac tools:** plan multi-step work with `/agent <goal>`, review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
 - **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet.
 - **Secure credentials:** keys saved through Settings live in macOS Keychain, outside plaintext settings and conversation history. Voice, macros, plans and external links cannot approve risky actions.
 - **Conversation links:** `ivy://new` and `ivy://conversation/<UUID>` reveal Chat. Links never send messages or run tools; active requests, approvals, tasks and voice sessions block conversation switching.
+
+## Understanding Ivy's feedback
+
+### Tool cards: see what Ivy is doing
+
+A tool is an action Ivy uses to help you, such as reading a file or opening an app. A tool card appears
+in the chat timeline when that action starts. Click its disclosure arrow to expand or collapse the details.
+
+| Card detail | Meaning | Example |
+|---|---|---|
+| Tool name | The action being used | `file_op` |
+| Arguments | Inputs supplied to the action | Read `notes.txt` |
+| Status | Whether the action is running, succeeded or failed | Succeeded |
+| Output | The result or error returned by the action | File contents, or “file not found” |
+
+Use these cards to check progress, understand a failure and see which action produced a result.
+A running card may be waiting for your approval; approve or cancel in the separate approval sheet.
+Expanding a card does not approve or rerun anything. Credential fields are masked and long details are
+clipped with a truncation notice. Detailed cards last for the current session/conversation; saved history
+keeps condensed tool notes rather than the raw arguments and output.
+
+### Annotation arrow: find something on your screen
+
+Share a window using screen help or the attachment controls, then ask something like **“Where is the
+Export button?”** When Ivy uses its `point_at` tool, an arrow points from the screen edge toward a
+highlighted area, with a short label. The overlay disappears after about six seconds or when replaced
+by another highlight.
+
+This makes screen guidance easier to follow than a written description alone. It uses the last screenshot
+you shared; it does not take another capture or click the target. The overlay lets your clicks pass through,
+so you can interact with the app yourself. If the window moved since the screenshot, share it again.
 
 ## Requirements
 
@@ -35,7 +69,7 @@ The Swift package has no third-party package dependencies. Physical-device and c
 
 ## Install the current local build
 
-1. Open `dist/Ivy-1.0.0.dmg`.
+1. Open `dist/Ivy-1.1.0.dmg`.
 2. Drag **Ivy** onto the **Applications** shortcut.
 3. Launch Ivy from Applications.
 4. Open **Settings → API Keys** with **Command-comma** and save your Gemini key. Add ElevenLabs only if you want its Read Aloud playback.
@@ -46,7 +80,7 @@ The current DMG is Apple Development-signed and has not been notarized. Signatur
 
 If you trust this build and its source, dismiss the warning with **Done**, open **System Settings → Privacy & Security**, and choose **Open Anyway** for the blocked item. Authenticate and confirm **Open**. The app may require its own approval after the DMG opens. Follow [Apple’s opening instructions](https://support.apple.com/en-us/102445).
 
-Normal public distribution requires **Developer ID Application** signing, Apple notarization and a stapled ticket. An Apple Development certificate cannot replace that release process. See [release setup](docs/RELEASE.md).
+For the standard verified public download flow, use **Developer ID Application** signing, Apple notarization and a stapled ticket. An Apple Development certificate cannot replace that release process. See [release setup](docs/RELEASE.md).
 
 ### “The application Ivy can’t be opened”
 
@@ -85,6 +119,7 @@ Configure keys in Settings. For development, the launcher also forwards `GEMINI_
 | Command–Shift–Space, held | Push-to-talk; release to submit |
 | Control–Option–Command–S | Screen help |
 | Control–Option–Command–K | Command bar |
+| Command–Shift–S inside the command bar | Attach the front window for review; does not send it |
 | Command–N | New conversation |
 | Command–F | Search conversations |
 | Command-comma | Settings |
@@ -122,7 +157,7 @@ git diff --check
 
 Tests use isolated fixtures for network, credentials and audio. Native interface tests render previews in `/private/tmp/ivy-ui-review`; those tests do not establish behavior on a real microphone, AirPods or another Mac.
 
-The audited 2026-10-03 integration batch passed **1,159 core tests and 18 native interface tests**. Changed executable lines in that workspace were **98.7% covered**, which is a changed-line measure, not total project coverage. Hardware, accessibility, performance and release acceptance checks remain outstanding.
+The latest 2026-10-03 verification passed **five consecutive runs of 1,173 core tests and 19 native interface tests** (each complete run under 60 seconds). Changed executable lines in this release were **91.4% covered** (458/501), which is a changed-line measure, not total project coverage. The strict incremental build passed without warnings in 0.17 seconds. Hardware, accessibility, performance and release acceptance checks remain outstanding.
 
 To package from source:
 
@@ -130,7 +165,7 @@ To package from source:
 ./scripts/package-release.sh
 ```
 
-**The packaging script replaces the entire `dist/` directory.** Preserve any artifacts you need before running it. It creates `dist/Ivy.app` and `dist/Ivy-<version>.dmg`, selecting Developer ID, Apple Development or ad-hoc signing based on the available identity. Packaging alone does not notarize the app.
+**The packaging script stages and verifies new artifacts before replacing the app and current-version DMG. Older DMGs are retained for rollback.** It creates `dist/Ivy.app` and `dist/Ivy-<version>.dmg`, selecting Developer ID, Apple Development or ad-hoc signing based on the available identity. Packaging alone does not notarize the app.
 
 After installing a Developer ID Application certificate and configuring a notary credential profile:
 

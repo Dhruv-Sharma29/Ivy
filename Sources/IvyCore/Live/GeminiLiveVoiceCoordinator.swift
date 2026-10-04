@@ -83,7 +83,12 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     public let session: GeminiLiveSession
     public let audioCapture: AudioCaptureProtocol
-    public let audioPlayer: LiveAudioPlayerProtocol
+    private let continuousAudioPlayer: LiveAudioPlayerProtocol
+    private let pushToTalkAudioPlayer: LiveAudioPlayerProtocol?
+    public var audioPlayer: LiveAudioPlayerProtocol {
+        if wasSessionStartedByPushToTalk, let pushToTalkAudioPlayer { return pushToTalkAudioPlayer }
+        return continuousAudioPlayer
+    }
     public let wakeWordDetector: WakeWordDetectorProtocol
     public let hotkeyManager: GlobalHotkeyManaging?
     public let toolDispatcher: ToolDispatcher
@@ -186,6 +191,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         session: GeminiLiveSession,
         audioCapture: AudioCaptureProtocol,
         audioPlayer: LiveAudioPlayerProtocol,
+        pushToTalkAudioPlayer: LiveAudioPlayerProtocol? = nil,
         wakeWordDetector: WakeWordDetectorProtocol = SystemWakeWordDetector(),
         hotkeyManager: GlobalHotkeyManaging? = nil,
         toolDispatcher: ToolDispatcher? = nil,
@@ -198,7 +204,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     ) {
         self.session = session
         self.audioCapture = audioCapture
-        self.audioPlayer = audioPlayer
+        self.continuousAudioPlayer = audioPlayer
+        self.pushToTalkAudioPlayer = pushToTalkAudioPlayer
         self.wakeWordDetector = wakeWordDetector
         self.hotkeyManager = hotkeyManager
         self.setupTimeout = setupTimeout
@@ -269,6 +276,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             session: client,
             audioCapture: capture,
             audioPlayer: player,
+            // PTT closes input on release. Its reply uses an output-only engine so playback cannot
+            // reopen the microphone or be cut off when capture stops during an early reply.
+            pushToTalkAudioPlayer: SystemLiveAudioPlayer(),
             wakeWordDetector: detector,
             hotkeyManager: hotkeyManager,
             toolDispatcher: dispatcher,
@@ -390,7 +400,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         isPushToTalkActive = false
 
         guard wasSessionStartedByPushToTalk, let token = currentSessionToken else { return }
-        guard state == .listening || state == .connecting || isReconnecting else { return }
+        // The server may start its reply or request approval before the shortcut is released.
+        // A one-shot session still releases its microphone in those states.
         pushToTalkInputClosed = true
         // Capture may be returning its stream on another executor. Its startup path completes release
         // once the consumer exists, so already queued speech isn't mistaken for a silent press.
@@ -405,7 +416,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         await inputTask?.value
         guard currentSessionToken == token else { return }
         isHearingUser = false
-        if !pushToTalkHeardSpeech {
+        if !pushToTalkHeardSpeech && (state == .listening || state == .connecting || isReconnecting) {
             await stopSession()
             return
         }
@@ -624,7 +635,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     private func tearDown(then finalState: VoiceSessionState) async {
-        let inputAlreadyClosed = pushToTalkInputClosed
         pushToTalkInputClosed = false
         pushToTalkReleasePending = false
         pushToTalkHeardSpeech = false
@@ -666,7 +676,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         lastReplyAudio = []
 
         teardownsInFlight += 1
-        if !inputAlreadyClosed { await audioCapture.stopCapture() }
+        // Playback shares the capture engine and may have restarted it after PTT release.
+        // Always release the engine at session end, even when the input stream is already closed.
+        await audioCapture.stopCapture()
         await stopPlayback()
         await wakeWordDetector.reset()
         await session.disconnect()

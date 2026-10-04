@@ -14,8 +14,6 @@ struct AnnotationOverlay: AnnotationPresenting {
 final class AnnotationOverlayController {
     static let shared = AnnotationOverlayController()
     static let duration: Duration = .seconds(6)
-    private static let labelHeight: CGFloat = 30
-    private static let padding: CGFloat = 8
 
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
@@ -24,9 +22,11 @@ final class AnnotationOverlayController {
         hideTask?.cancel()
         panel?.orderOut(nil)
 
-        // Room around the highlight for the stroke, and above it for the label.
-        let frame = CGRect(x: rect.minX - Self.padding, y: rect.minY - Self.padding,
-                           width: max(rect.width, 160) + Self.padding * 2, height: rect.height + Self.padding * 2 + Self.labelHeight)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) })
+                ?? NSScreen.screens.first(where: { $0.frame.intersects(rect) }),
+              let geometry = AnnotationGeometry(screen: screen.frame, target: rect) else { return }
+        let frame = screen.frame
         let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -34,8 +34,7 @@ final class AnnotationOverlayController {
         panel.level = .statusBar
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.contentView = NSHostingView(rootView: AnnotationView(
-            label: label, highlight: CGSize(width: rect.width, height: rect.height), padding: Self.padding, labelHeight: Self.labelHeight))
+        panel.contentView = NSHostingView(rootView: AnnotationView(label: label, geometry: geometry))
         panel.orderFrontRegardless()
         NSAccessibility.post(element: panel, notification: .announcementRequested,
                              userInfo: [.announcement: "Ivy is pointing at \(label)", .priority: NSAccessibilityPriorityLevel.high.rawValue])
@@ -50,35 +49,50 @@ final class AnnotationOverlayController {
     }
 }
 
-private struct AnnotationView: View {
+struct AnnotationView: View {
     let label: String
-    let highlight: CGSize
-    let padding: CGFloat
-    let labelHeight: CGFloat
+    let geometry: AnnotationGeometry
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        ZStack(alignment: .topLeading) {
+            AnnotationArrow(geometry: geometry)
+                .stroke(IvyTheme.leaf, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .shadow(color: .black.opacity(0.35), radius: 2)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(IvyTheme.leaf, lineWidth: 3)
+                .background(RoundedRectangle(cornerRadius: 8).fill(IvyTheme.leaf.opacity(0.12)))
+                .frame(width: geometry.highlight.width, height: geometry.highlight.height)
+                .scaleEffect(pulse ? 1.03 : 1)
+                .position(x: geometry.highlight.midX, y: geometry.highlight.midY)
             Text(label)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .lineLimit(1)
+                .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(Capsule().fill(IvyTheme.moss))
-                .frame(height: labelHeight, alignment: .bottomLeading)
-                .padding(.leading, padding)
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(IvyTheme.leaf, lineWidth: 3)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(IvyTheme.leaf.opacity(0.12)))
-                .frame(width: highlight.width, height: highlight.height)
-                .scaleEffect(pulse ? 1.03 : 1)
-                .padding(padding)
+                .frame(width: geometry.labelWidth, height: 28, alignment: .leading)
+                .offset(x: geometry.labelOrigin.x, y: geometry.labelOrigin.y)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.6).repeatCount(3, autoreverses: true)) { pulse = true }
+        }
+    }
+}
+
+struct AnnotationArrow: Shape {
+    let geometry: AnnotationGeometry
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: geometry.start)
+            path.addLine(to: geometry.end)
+            path.move(to: geometry.headA)
+            path.addLine(to: geometry.end)
+            path.addLine(to: geometry.headB)
         }
     }
 }

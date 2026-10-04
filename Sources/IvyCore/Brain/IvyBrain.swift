@@ -441,6 +441,7 @@ public final class IvyBrain: ObservableObject {
     }
 
     private func show(_ other: Conversation) {
+        toolDispatcher.activity.reset()
         messages = other.chatMessages
         toolNotes = other.messages.filter { $0.kind == .toolNote }
         voiceKinds = Dictionary(uniqueKeysWithValues: other.messages
@@ -459,6 +460,8 @@ public final class IvyBrain: ObservableObject {
         snapshot.updatedAt = snapshot.messages.last?.timestamp ?? snapshot.createdAt
         return snapshot
     }
+
+    public func reportStorageNotice(_ notice: String) { storageNotice = notice }
 
     public func dismissStorageNotice() {
         storageNotice = nil

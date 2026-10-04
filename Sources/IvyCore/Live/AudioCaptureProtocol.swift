@@ -329,20 +329,22 @@ public final class SystemAudioCapture: AudioCaptureProtocol, @unchecked Sendable
 
     /// Stops capture; with an id, only if that capture is still the live one.
     private func stopCapture(only captureId: UUID?) async {
-        let (wasCapturing, continuation) = state.withLock { s -> (Bool, AsyncThrowingStream<Data, Error>.Continuation?) in
-            if let captureId, s.captureId != captureId { return (false, nil) }
+        let (shouldStopEngine, wasCapturing, continuation) = state.withLock { s -> (Bool, Bool, AsyncThrowingStream<Data, Error>.Continuation?) in
+            if let captureId, s.captureId != captureId { return (false, false, nil) }
             let was = s.isCapturing
             s.isCapturing = false
             s.captureId = nil
             let cont = s.continuation
             s.continuation = nil
-            return (was, cont)
+            return (true, was, cont)
         }
 
+        guard shouldStopEngine else { return } // A stale stream must not stop a newer capture or playback.
         if wasCapturing {
             audioEngine.inputNode.removeTap(onBus: 0)
-            audioEngine.stop()
         }
+        // The shared player may have restarted the engine after the microphone stream finished.
+        audioEngine.stop()
         continuation?.finish()
     }
 }
