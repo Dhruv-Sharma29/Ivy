@@ -63,6 +63,11 @@ public final class ComputerControlSession: @unchecked Sendable {
         lock.withLock { $0.state.currentScope }
     }
 
+    /// Current observation token, if active.
+    public var currentToken: ObservationToken? {
+        lock.withLock { $0.currentToken }
+    }
+
     /// Requests and activates a session with explicit user consent.
     public func start(goal: String, scope: ComputerControlScope) -> Result<ObservationToken, ComputerControlSessionError> {
         guard scope.isPermittedApp else {
@@ -134,6 +139,11 @@ public final class ComputerControlSession: @unchecked Sendable {
                 return .failure(.sessionNotActive)
             }
         }
+    }
+
+    /// Records and validates an executed or proposed action against session budgets and tokens.
+    public func recordAction(_ action: ComputerControlAction) -> Result<Void, ComputerControlSessionError> {
+        validateAction(action)
     }
 
     /// Pauses the session (e.g. user takeover or window focus loss).
