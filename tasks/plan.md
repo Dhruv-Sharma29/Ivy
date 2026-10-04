@@ -2,6 +2,10 @@
 
 > Historical v1 plan. The Phase 5–7 status table below predates the current implementation. Use [remaining.md](remaining.md) and [the v1.1 roadmap](../docs/roadmap/README.md) for current work.
 
+> Current expansion plan (2026-10-04): [Computer Control](../docs/roadmap/phase-19-computer-control.md)
+> and [Assistant Workspace](../docs/roadmap/phase-20-assistant-workspace.md) cover the complete requested
+> feature set, with dependencies, acceptance checks and an explicit implemented/planned distinction.
+
 ## Overview
 Ivy is a native macOS menu bar assistant built with Swift and SwiftUI that connects directly to the Gemini 3.8 Flash REST API and Gemini Multimodal Live WebSocket API. Ivy possesses a distinct sarcastic persona, handles conversational back-and-forth, executes local macOS tools under strict user-confirmation safety gates, and provides real-time bidirectional voice conversations with "Hey Ivy" interruption and global push-to-talk.
 

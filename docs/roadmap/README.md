@@ -4,8 +4,10 @@ Current source audit and prioritized backlog: [remaining work](../../tasks/remai
 
 Planned next capabilities: [Phase 19 — Computer Control](phase-19-computer-control.md) and
 [Phase 20 — Assistant Workspace](phase-20-assistant-workspace.md). Together they cover Mac input,
-adaptive tasks, a floating panel, generated files, routines, dictation, specialists, a compact overview,
-walkthroughs and connectors. Phase 20 specifies the combined build order. These features are planned,
+adaptive tasks, a floating panel, generated files, routines, screen-aware dictation, goal interviews,
+specialist memory, concurrent work, daily suggestions, spatial selection/drawing, anchored companion
+arrows, a compact overview, tracked walkthroughs and multi-account connectors. Phase 20 provides the
+complete capability matrix, fifteen workstreams and combined build order. These features are planned,
 not shipped; the first milestone is reviewed Calculator/TextEdit control with a shared floating panel.
 
 v1.0 (Phases 1–7) shipped the core: menu-bar chat on Gemini REST, five SafetyGate-guarded macOS tools,
@@ -34,9 +36,11 @@ screen-aware, agentic, and with a proper app window of its own.
 | Phase | Plan | Goal |
 | --- | --- | --- |
 | 19 | [Computer Control](phase-19-computer-control.md) | Scoped Mac clicking/typing, adaptive execution, verification and cancellation. |
-| 20 | [Assistant Workspace](phase-20-assistant-workspace.md) | Eight selected Ivy additions, with shared foundations and milestone releases. |
+| 20 | [Assistant Workspace](phase-20-assistant-workspace.md) | Fifteen workstreams covering personal assistants, concurrent work, spatial guidance and connected task UI. |
 
-Both phases are unimplemented. Their numbering does not assign a release version or alter the existing DMG.
+Phase 19 remains planned. Phase 20 has one optional floating-pointer visual/settings slice included in
+the latest 2026-10-04 local app/DMG rebuild; its complete workstreams remain open. Phase numbering does not
+assign a release version. New surfaces follow [Ivy's own interface requirement](phase-20-assistant-workspace.md#ivys-own-interface--design-requirement).
 
 ## Recommended order
 

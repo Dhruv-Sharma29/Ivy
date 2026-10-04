@@ -6,14 +6,27 @@ Ivy combines text chat, live voice, screen help and local Mac tools in a native 
 
 The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 2)**, with an updated app and DMG in `dist/`.
 
-The working tree also contains an initial Ivy UI refresh: shared rounded cards in Home,
+The local package includes the initial Ivy UI refresh: shared rounded cards in Home,
 Library, Tasks and Settings, roomier navigation, and a floating quick-chat bar with draft suggestions
-and explicit Send/Open/Close controls. This newer UI is **not yet packaged in the build-2 DMG**.
+and explicit Send/Open/Close controls. The DMG was rebuilt on **2026-10-04** with compact companion
+confirmations and push-to-talk missed-release recovery. Quit the running Ivy and replace it with this
+updated app before testing the fix; older packages remain in `dist/Previous-Builds/`.
 See [the UI refresh report](tasks/ui-refresh.md) for the changes and verification limits.
+
+**Included in the latest 2026-10-04 app/DMG rebuild:** an optional folded-leaf floating pointer.
+Open **Settings → Pointer → Follow my cursor**, then choose a color. It defaults off and requires the
+Ivy companion to be enabled. It is click-through and never moves or clicks your mouse; disabling it,
+Reduce Motion and sleep stop following.
 
 **This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The v1.1 artifact has passed packaging and signature checks, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
 
 See [remaining work](tasks/remaining.md) for hardware testing and release requirements, and [CHANGELOG.md](CHANGELOG.md) for the v1.1 additions.
+
+The [next-feature plan](docs/roadmap/phase-20-assistant-workspace.md) covers computer control, screen-aware
+dictation, personal/specialist assistants, concurrent jobs, daily suggestions, generated files, routines,
+multi-account connectors, spatial guidance and a compact overview. These expanded capabilities are
+planned apart from the pointer visual above; the roadmap includes their dependencies and acceptance
+checks, plus an explicit Ivy design direction for original layouts, leaf branding and copy.
 
 ## Features
 
@@ -22,11 +35,13 @@ See [remaining work](tasks/remaining.md) for hardware testing and release requir
 - **Compact composer:** attachments, microphone and send controls. Return sends; Shift–Return inserts a newline at the cursor. Drafts are retained per conversation while the main view remains open.
 - **Live voice:** Gemini voice sessions, local “Hey Ivy” interruption and global push-to-talk. Hold **Command–Shift–Space** while speaking, then release; Ivy submits the captured speech and stays connected to answer. Silent presses cancel. Speech queued during microphone or connection startup is preserved.
   Push-to-talk replies use output-only playback, so releasing the shortcut closes the microphone even if Ivy has already started answering or is waiting for approval. If idle “Hey Ivy” listening is enabled, that separate feature continues using the microphone.
+  A physical-key check while the shortcut is held also recovers missed release events. Releasing Space
+  or a required modifier stops PTT capture; Stop resets the shortcut state for the next request.
 - **Tool feedback:** collapsible live tool cards with status, masked arguments and expandable output; diff **Apply…** drafts a file change for review without executing it.
 - **Screen help:** attach a screenshot, selected region, image or PDF. The screen-help shortcut can show a capture to an active Live session. Inside the floating Command Bar, **Command–Shift–S** attaches the front window for review and explicit send.
 - **Screen pointer:** Ivy can draw a temporary arrow and labelled highlight to show where a button, menu or other area is on the screen you shared.
 - **Tasks and Mac tools:** plan multi-step work with `/agent <goal>`, review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
-- **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet. Pending tool actions also show a review card above the companion with **Do it / Cancel** controls.
+- **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet. Pending tool actions replace the companion's status pill with the action reason and **Do it / Cancel** controls.
 - **Secure credentials:** keys saved through Settings live in macOS Keychain, outside plaintext settings and conversation history. Voice, macros, plans and external links cannot approve risky actions.
 - **Conversation links:** `ivy://new` and `ivy://conversation/<UUID>` reveal Chat. Links never send messages or run tools; active requests, approvals, tasks and voice sessions block conversation switching.
 
@@ -45,7 +60,7 @@ in the chat timeline when that action starts. Click its disclosure arrow to expa
 | Output | The result or error returned by the action | File contents, or “file not found” |
 
 Use these cards to check progress, understand a failure and see which action produced a result.
-A running card may be waiting for your approval; review its action preview and choose **Do it** or **Cancel** in the approval sheet or above the companion. Both answer the same pending request. Dragging, opening or hiding the companion never approves an action.
+A running card may be waiting for your approval. The small confirmation shows only the action reason and **Cancel / Do it**. Hover over the reason to see the original request. The approval sheet and companion answer the same pending request. Hovering, dragging, opening or hiding the companion never approves an action.
 Expanding a card does not approve or rerun anything. Credential fields are masked and long details are
 clipped with a truncation notice. Detailed cards last for the current session/conversation; saved history
 keeps condensed tool notes rather than the raw arguments and output.
@@ -90,7 +105,7 @@ The Swift package has no third-party package dependencies. Physical-device and c
 
 ### “Apple could not verify…”
 
-The current DMG is Apple Development-signed and has not been notarized. Signature verification checks integrity; it does not establish that Gatekeeper will accept the download.
+The current DMG contains an ad-hoc signed testing app and has not been notarized. Signature verification checks integrity; it does not establish that Gatekeeper will accept the download.
 
 If you trust this build and its source, dismiss the warning with **Done**, open **System Settings → Privacy & Security**, and choose **Open Anyway** for the blocked item. Authenticate and confirm **Open**. The app may require its own approval after the DMG opens. Follow [Apple’s opening instructions](https://support.apple.com/en-us/102445).
 

@@ -11,10 +11,11 @@ verify the result and return control immediately when stopped. Example: “Open 
 shopping list.” A visual pointer explains the target; native input performs the action.
 
 Target the current native macOS app first. Windows requires a separate application and driver and is
-not part of this implementation. The eight complementary workspace features are now planned in
+not part of this implementation. The full complementary workspace feature set is planned in
 [Phase 20 — Assistant Workspace](phase-20-assistant-workspace.md), which includes the combined build
 order. Phase 19 supplies shared input/observation/session foundations; Phase 20 adds the floating task
-panel, files, routines, dictation, specialists, compact overview, walkthroughs and connectors.
+panel, files, routines, screen-aware dictation, specialist creation/memory, concurrent workers, daily
+suggestions, a compact overview, spatial questions, richer drawing, anchored arrows and connectors.
 
 ## Baseline and dependencies
 
@@ -217,7 +218,9 @@ All items start unchecked. Each slice requires its own meaningful offline tests 
 
 Within computer control: 19.1 → 19.2 → 19.3 → 19.4 → 19.5 → 19.6 → 19.7 → 19.8 → 19.9 → 19.10.
 Use Phase 20's combined milestone order when building the whole selected feature set. Slice 19.4 and
-20.1 share one panel; dictation/walkthroughs reuse the driver/observations rather than duplicate them.
+20.1 share one panel; dictation, walkthroughs and spatial/drawing features reuse the driver/observations
+rather than duplicate them. Phase 20.11 permits parallel independent jobs but retains one exclusive
+desktop-input lane; multiple assistants must never compete for the cursor, keyboard or focused app.
 Do not enable broad model-driven control before scope validation, cancellation and the panel work.
 
 ### First milestone

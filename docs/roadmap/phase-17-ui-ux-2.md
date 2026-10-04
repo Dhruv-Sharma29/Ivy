@@ -11,8 +11,9 @@ The main window uses a hidden title bar and hidden toolbar to remove the large t
 
 The pixel companion is freely draggable through a native mouse surface on its visible content. Four points of movement distinguishes a drag from a click; only a click opens Ivy. Free placement is persisted relative to the display's usable area, replacing corner snapping. Clamping uses the measured character, status and caption bounds rather than transparent panel margins, so Ivy can reach every edge; caption size changes preserve relative placement. Idle sways and blinks; dragging adds a modest bob and tilt, retaining real activity poses. Reduce Motion keeps all poses still while allowing normal user-controlled dragging.
 
-Pending tool approvals now show a compact review card above the companion with the action title,
-scrollable prompt/preview and **Do it / Cancel**. It mirrors the exact chat/task or Live request shown
+Pending tool approvals replace the companion's status pill below the character with a 240×96-point
+bubble showing only the action reason and **Cancel / Do it**. Hovering the reason reveals the original
+request; the main-window confirmation is 280×100 points. It mirrors the exact chat/task or Live request shown
 in the main-window sheet; Live takes precedence if both are pending. Rendering, opening, hiding and
 dragging never approve. Approval buttons remain outside the native drag surface; stale responses are
 ignored and each new request resets button state. The panel grows for review, clamps all visible

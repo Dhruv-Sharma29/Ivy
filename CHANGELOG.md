@@ -2,18 +2,39 @@
 
 ## Unreleased
 
+- Included in the latest local app/DMG rebuild: optional folded-leaf floating pointer, native Pointer settings,
+  persisted Blue/Green/Amber/Red choices and bounded following beside the system cursor. Default off;
+  click-through and non-activating, with no computer input or extra permissions. Disable/Reduce Motion,
+  sleep/inactive session, unavailable displays and shutdown stop sampling. Existing arrows/approvals remain separate.
+- The workspace plan now requires Ivy's own task-first layouts, leaf/status notch overview, grouped
+  settings, original icons/copy/assets and design review against existing Ivy surfaces at every milestone.
+- The 2026-10-04 floating-pointer package refresh retains version 1.1.0 (build 2), preserves the
+  preceding app/DMG under `dist/Previous-Builds/Floating-Pointer-2026-10-04-lA9sSo/`, and passes release
+  compilation, app signature, mounted-binary comparison, DMG integrity and SHA-256 checks.
+
+- Push-to-talk checks the physical shortcut while held, recovering a missed key-up without leaving
+  Listening or the microphone active. Release preserves the pending reply/tool approval, and Stop
+  resets the held state so another press works. Connection failures keep only the hold check until
+  release to prevent repeat-driven reconnections; release and explicit Stop cancel it completely.
+
 Local friend-testing package: **1.1.0 (build 2)**. The local `v1.1.0` tag remains the original build 1;
 these follow-up changes have not been published to GitHub.
 
-- Unpackaged companion approval card: pending chat/task and Live tool requests show a bounded action
-  preview with **Do it / Cancel** above the character. These controls answer the same request as the
+- Companion approval card: pending chat/task and Live tool requests show a small action title
+  with **Cancel / Do it** in a 240×96-point bubble below the character, replacing the Needs approval
+  status pill. The main-window confirmation is 280×100 points. Both show only the action reason and
+  two buttons; hovering reveals the original request. These controls answer the same request as the
   main-window sheet; stale or repeated responses are ignored. The character remains draggable without
   intercepting review controls, and the panel grows and shrinks around its visible content.
 
-- Unpackaged UI follow-up: compact branded Home and Command Bar headers, shared 20-point card corners,
+- UI follow-up: compact branded Home and Command Bar headers, shared 20-point card corners,
   icon wells, roomier navigation and clearer group spacing across Home, Library, Tasks and Settings.
   Command Bar suggestions fill a draft; its new Send/Open/Close controls retain the existing safety checks.
   This initial UI refresh has passed layout checks; native glass still needs an in-app visual check.
+
+- The local build-2 app/DMG was rebuilt on 2026-10-04 with these UI and PTT fixes using ad-hoc Hardened
+  Runtime signing. The previous package is retained under `dist/Previous-Builds/`; no GitHub publication
+  or notarization was performed. Real-keyboard verification remains a manual check.
 
 - Screen guidance now instructs Ivy to inspect shared images and use `point_at` for visible UI targets,
   with fresh-capture guidance when no usable screen image is available.

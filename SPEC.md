@@ -300,11 +300,18 @@ public protocol GeminiClientProtocol: Sendable {
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
 - Push-to-talk records while the shortcut is held. Releasing it stops microphone input, drains the last recorded frames and sends the Live API audio-stream-end marker. Ivy remains connected to answer, then closes after playback or a silent completed turn. Speech captured while connecting is submitted once the socket is ready. A silent press cancels; an existing hands-free session remains continuous. Repeated release never submits twice, and pressing again during the pending reply does not leave an open microphone.
   Release also closes capture if the server has already started its reply or requested approval, without cancelling either or submitting the same utterance again. Push-to-talk replies use an output-only audio engine so playback cannot reopen the microphone. Session teardown always releases capture-engine resources, including an engine restarted after its input stream closed. Opt-in idle wake listening remains a separate microphone user.
+  While a registered PTT shortcut is held, a 50-ms release watchdog checks its actual key/modifier state
+  independently of Carbon/flagsChanged callbacks. Releasing the key or a required modifier, or removing
+  the shortcut, closes PTT input even if key-up is lost. The watchdog is press-identity-bound and stops
+  on release or explicit Stop; it never polls during idle or ordinary hands-free listening. A connection
+  failure releases voice resources but retains the hold check until release, preventing key-repeat from
+  reconnecting. Stop resets the held state so a missed callback cannot block the next press. The check
+  never answers an approval or cancels a reply.
 - Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
 - Draft text is retained separately for each conversation while the main view is alive.
 - Conversation instructions use a multiline sheet and show validation failures in place.
 - Storage notices and voice failures are visible. Confirmation state is shared with the existing safety gate; the UI never auto-approves an action.
-- Chat and live voice approvals use one centered native sheet, shared with the instructions presentation so sheets never stack. The sheet uses compact Ivy branding, a neutral action preview and the shared indigo accent, without a nested bordered card or orange approval badge. The request scrolls within a bounded area; compact Cancel and Do it controls remain visible at the minimum window size. Escape refuses the action, and only an explicit click or Command-Return approves it. Responses retain the request identity so an old sheet cannot answer a newer action.
+- Chat and live voice approvals use one centered native sheet, shared with the instructions presentation so sheets never stack. The 280×100-point sheet shows only the action reason (request title) and Cancel / Do it. Hovering the reason reveals the original request without running it. Escape refuses the action, and only an explicit click or Command-Return approves it. Responses retain the request identity so an old sheet cannot answer a newer action.
 
 ### Settings
 
@@ -320,12 +327,22 @@ public protocol GeminiClientProtocol: Sendable {
 - The old `alwaysShowInDock` preference is decoded for compatibility; it no longer controls desktop app presence.
 
 ### On-screen companion (revised 2026-10-02)
+- Optional floating pointer (2026-10-04): Settings → Pointer enables a separate 32-point original
+  folded-leaf vector beside the ordinary macOS cursor, with Blue, Green, Amber and Red choices. It defaults off
+  for new and existing users. Following requires the companion master switch, uses bounded smoothing,
+  flips its offset near display edges and snaps on large jumps/display transitions. The transparent
+  non-activating panel is click-through on all Spaces and full-screen desktops. It synthesizes no input,
+  does not request accessibility permission and does not imply computer-control tools are available.
+  Off, master-disable, Reduce Motion, sleep/inactive session, missing display geometry and app shutdown
+  hide it and cancel sampling. Display/wake/accessibility preference changes can restore enabled follow
+  mode. Settings persist independently; existing point_at arrows and approval panels remain separate.
 - The optional floating companion is a transparent, chunky pixel-art Ivy with dark hair, an ivy-leaf clip and a charcoal outfit. Character artwork stays in the companion; the main workspace retains its professional design.
 - Real idle, listening, thinking, speaking, working, approval and error states choose distinct poses. Idle includes occasional blinking and a brief greeting on appearance; thinking has a skeptical side-eye, working uses a tablet, and approval folds her arms. Speaking reacts to output audio without inventing speech or progress.
 - Cached sprite frames animate at a modest update rate, with visible idle breathing, blinking and gentle sway. Dragging adds a small lift, bob and tilt; non-idle activity poses remain recognizable and speaking still follows actual audio. Reduce Motion pauses the timeline and uses a static pose even during dragging; status text, captions and real task progress remain available.
 - Drag the character or status pill freely; a four-point threshold distinguishes dragging from clicking. A drag never opens the app. Dropped positions are remembered relative to their display and clamped by visible content bounds, allowing the character and status pill to reach the screen edges despite the panel's transparent margins. Bounds adapt when captions change size; a main-display fallback handles a saved display disappearing. There is no automatic corner snap. The panel is non-activating; a normal click opens Ivy and right-click provides Open Ivy, end voice, stop task and hide actions. Animation stops while hidden. All approvals remain in the existing confirmation flow.
-- A pending chat/task or Live tool approval also appears above the companion as a compact review card
-  with its title, scrollable prompt/action preview and Do it / Cancel buttons. It mirrors the same
+- A pending chat/task or Live tool approval replaces the companion's status pill below the character
+  with only its action reason and Do it / Cancel buttons in a 240×96-point bubble. The original request
+  is available on hover, keeping long commands out of the default bubble. It mirrors the same
   identity-bound request as the main-window sheet; it never creates or approves another request.
   Showing, dragging, hiding or clicking the character does not approve. Buttons stay outside the drag
   surface, and repeated/stale responses are ignored. The panel grows while reviewing and returns to its
