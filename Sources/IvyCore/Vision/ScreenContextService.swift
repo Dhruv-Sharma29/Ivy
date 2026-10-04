@@ -57,11 +57,24 @@ public struct SystemScreenContext: ScreenContextCapturing {
     }
 
     public func capture(_ target: CaptureTarget) async throws -> CapturedScreen {
-        switch target {
-        case .display: return try await captureDisplay()
-        case .frontWindow: return try await captureFrontWindow()
-        case .region: return try await captureRegion()
+        do {
+            switch target {
+            case .display: return try await captureDisplay()
+            case .frontWindow: return try await captureFrontWindow()
+            case .region: return try await captureRegion()
+            }
+        } catch {
+            throw Self.userFacingError(error)
         }
+    }
+
+    /// Match the framework's error identity, not its localized technical wording.
+    public static func userFacingError(_ error: Error) -> Error {
+        let cocoa = error as NSError
+        if cocoa.domain == SCStreamErrorDomain, cocoa.code == SCStreamError.Code.userDeclined.rawValue {
+            return VisionError.screenPermissionDenied
+        }
+        return error
     }
 
     private func captureDisplay() async throws -> CapturedScreen {

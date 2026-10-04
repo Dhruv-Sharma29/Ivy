@@ -11,10 +11,24 @@ struct AttachmentBar: View {
         if tray.lastError != nil || tray.isWorking || !tray.attachments.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 if let error = tray.lastError {
-                    HStack {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(error).font(.callout).foregroundStyle(.primary)
-                        Spacer()
-                        Button("Dismiss") { tray.dismissError() }.buttonStyle(.plain).font(.system(size: 11))
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 12) {
+                            if tray.needsScreenPermission {
+                                Button("Open Settings") {
+                                    if let url = PermissionType.screenRecording.settingsURL { NSWorkspace.shared.open(url) }
+                                }
+                                .accessibilityIdentifier("ivy.capture.open-settings")
+                            }
+                            if tray.canRetryCapture {
+                                Button("Retry Capture") { Task { await tray.retryCapture() } }
+                                    .disabled(tray.isWorking)
+                                    .accessibilityIdentifier("ivy.capture.retry")
+                            }
+                            Button("Dismiss") { tray.dismissError() }.buttonStyle(.plain).font(.system(size: 11))
+                        }
+                        .controlSize(.small)
                     }
                 }
                 HStack(spacing: 8) {

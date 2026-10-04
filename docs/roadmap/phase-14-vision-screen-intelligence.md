@@ -58,7 +58,7 @@ ScreenContextService (@MainActor)
 ### Screen-aware assistance (feeds Phase 17b)
 - The model can return `annotations` via a `point_at` tool: `{ rect | ocrTextAnchor, label }` in screenshot
   coordinates; `AnnotationOverlay` maps them back to screen coordinates (display scale, multi-monitor) and draws
-  a highlight + label for 6 s (heyclicky-style "draws on your screen"). Pure display: `point_at` is **safe**
+  a highlight + label for 6 s. Pure display: `point_at` is **safe**
   and cannot click or type.
 
 ## Work breakdown

@@ -278,6 +278,7 @@ struct Phase14TrayTests {
         await env.liveCoordinator.startSession()
         await env.handleScreenHelp()
         #expect(session.sentImages.count == 1)
+        #expect(session.sentImageContexts.first?.contains("screenshot_id=") == true)
         #expect(env.attachments.attachments.isEmpty)
         #expect(opened == 1)
         await env.liveCoordinator.stopSession()
@@ -307,10 +308,13 @@ struct Phase14TrayTests {
 /// Records the history of every request.
 private final class HistoryRecordingClient: GeminiClientProtocol, @unchecked Sendable {
     private let state = OSAllocatedUnfairLock(initialState: [[ChatMessage]]())
+    private let receivedPrompts = OSAllocatedUnfairLock(initialState: [String]())
     var histories: [[ChatMessage]] { state.withLock { $0 } }
+    var prompts: [String] { receivedPrompts.withLock { $0 } }
     func generateContent(history: [ChatMessage], systemPrompt: String, apiKey: String) async throws -> String { "ok" }
     func generateContent(history: [ChatMessage], systemPrompt: String, tools: [ToolDeclarationWrapper]?, apiKey: String) async throws -> ModelTurnResponse {
         state.withLock { $0.append(history) }
+        receivedPrompts.withLock { $0.append(systemPrompt) }
         return ModelTurnResponse(text: "It's a build error.")
     }
 }
@@ -347,6 +351,7 @@ struct Phase14RequestTests {
         let request = try JSONDecoder().decode(GeminiRequest.self, from: body)
         let parts = try #require(request.contents.first?.parts)
         #expect(parts.first?.text == "What's wrong?")
+        #expect(parts.contains { $0.text == attachment.modelContext })
         #expect(parts.contains { $0.inlineData == InlineData(mimeType: "image/jpeg", data: Data([0xFF, 0xD8, 0xFF, 0xD9])) })
         #expect(parts.contains { $0.text?.contains("Text recognised in the screenshot of Xcode:\nerror: missing return") == true })
     }
@@ -361,6 +366,7 @@ struct Phase14RequestTests {
         await brain.send("And how do I fix it?")
 
         let first = try #require(client.histories.first?.last)
+        #expect(client.prompts.first?.contains(ScreenPointingGuidance.instructions) == true)
         #expect(first.attachments == [attachment])
         let second = try #require(client.histories.last)
         #expect(second.allSatisfy { $0.attachments.isEmpty })
