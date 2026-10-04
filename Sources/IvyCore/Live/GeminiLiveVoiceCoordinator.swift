@@ -100,6 +100,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public var onTranscript: ((String, Bool, Bool) -> Void)?
     /// Receives every tool a voice session ran, with its result, so the conversation can remember it.
     public var onToolResult: ((FunctionCall, FunctionResponse) -> Void)?
+    /// Invoked when a voice user issues a stop or cancel command to halt active desktop/multi-step tasks.
+    public var onStopRequested: (@MainActor () -> Void)?
     private var heardText = ""
     private var spokenText = ""
 
@@ -1123,11 +1125,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         switch command {
         case .endSession:
             await stopSession()
+            await MainActor.run { onStopRequested?() }
             return true
         case .stop:
+            await MainActor.run { onStopRequested?() }
             break
         case .cancel:
             cancelPendingConfirmation()
+            await MainActor.run { onStopRequested?() }
         case .mute:
             isMuted = true
         case .unmute:

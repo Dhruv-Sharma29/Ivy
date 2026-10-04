@@ -672,3 +672,88 @@ public final class UIObserveTool: IvyTool, Sendable {
         }
     }
 }
+
+// MARK: - control_app
+
+/// Tool enabling the assistant (via chat or voice) to plan an adaptive desktop control task.
+/// It dispatches through SafetyGate and sets the task into `awaitingApproval`; it cannot execute autonomously.
+public final class ControlAppTool: IvyTool, Sendable {
+    public let name = "control_app"
+    public let description = "Requests an adaptive computer control task on a target application. The task is planned and requires explicit user review and confirmation before any action is executed."
+    public let group = ToolGroup.system
+    public let safetyClassification = ToolSafetyClassification.risky
+
+    public var declaration: FunctionDeclaration {
+        FunctionDeclaration(
+            name: name,
+            description: description,
+            parameters: ToolParameters(
+                properties: [
+                    "bundle_id": ToolProperty(type: "STRING", description: "Target application bundle identifier, e.g. 'com.apple.TextEdit'."),
+                    "goal": ToolProperty(type: "STRING", description: "Goal or instructions for the desktop control task.")
+                ],
+                required: ["bundle_id", "goal"]
+            )
+        )
+    }
+
+    private let onStartTask: @Sendable (String, ComputerControlScope) async -> TaskStartResult
+    private let isDesktopActive: @Sendable () -> Bool
+
+    public init(
+        onStartTask: @escaping @Sendable (String, ComputerControlScope) async -> TaskStartResult,
+        isDesktopActive: @escaping @Sendable () -> Bool = { false }
+    ) {
+        self.onStartTask = onStartTask
+        self.isDesktopActive = isDesktopActive
+    }
+
+    public func requiredPermissions(for arguments: [String: AnyCodable]) -> [PermissionType] {
+        [.accessibility]
+    }
+
+    public func confirmation(for arguments: [String: AnyCodable]) -> ToolConfirmation? {
+        let bundleID = arguments["bundle_id"]?.stringValue ?? "target app"
+        let goal = arguments["goal"]?.stringValue ?? "desktop task"
+        return ToolConfirmation(
+            title: "Control Application",
+            prompt: "Plan a desktop control session to operate \(bundleID) for: \"\(goal)\"?",
+            detail: "Application: \(bundleID)\nGoal: \(goal)\nNotice: Actions will be executed step-by-step with safety checks."
+        )
+    }
+
+    public func validate(arguments: [String: AnyCodable]) throws {
+        guard let bundleID = arguments["bundle_id"]?.stringValue, !bundleID.isEmpty else {
+            throw ToolError.missingArgument("bundle_id")
+        }
+        guard let goal = arguments["goal"]?.stringValue, !goal.isEmpty else {
+            throw ToolError.missingArgument("goal")
+        }
+        let scope = ComputerControlScope(bundleIdentifier: bundleID)
+        guard scope.isPermittedApp else {
+            throw ToolError.invalidArgument("Application '\(bundleID)' is a restricted system surface.")
+        }
+    }
+
+    public func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
+        guard !isDesktopActive() else {
+            return .failure("A desktop control session is already active. Only one desktop session can control the cursor and keyboard at a time.")
+        }
+        guard let bundleID = arguments["bundle_id"]?.stringValue,
+              let goal = arguments["goal"]?.stringValue else {
+            return .failure("Missing bundle_id or goal argument.")
+        }
+        let scope = ComputerControlScope(bundleIdentifier: bundleID, isAuthorized: true)
+        guard scope.isPermittedApp else {
+            return .failure("Control of '\(bundleID)' is prohibited for security.")
+        }
+
+        let startResult = await onStartTask(goal, scope)
+        switch startResult {
+        case .started:
+            return .success("Desktop control task planned for \(bundleID): \"\(goal)\". Please review and approve the task in Ivy's window.")
+        case .rejected(let reason):
+            return .failure("Could not start desktop task: \(reason)")
+        }
+    }
+}

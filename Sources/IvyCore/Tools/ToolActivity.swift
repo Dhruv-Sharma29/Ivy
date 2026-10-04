@@ -11,20 +11,44 @@ public struct ToolExecution: Identifiable, Equatable, Sendable {
     public var status: Status
     public var output: String?
 
-    public static func displayJSON(_ values: [String: AnyCodable]) -> String {
-        func mask(_ value: AnyCodable) -> AnyCodable {
+    public static func displayJSON(_ values: [String: AnyCodable], toolName: String? = nil) -> String {
+        func maskKeyAndValue(key: String, value: AnyCodable) -> AnyCodable {
+            let lower = key.lowercased()
+            if toolName == "ui_type" && lower == "text" {
+                if let str = value.stringValue {
+                    let redacted = SecretRedactor.redact(str)
+                    return .string(redacted.contains("[REDACTED") ? redacted : "[redacted: \(str.count) chars]")
+                }
+                return .string("[redacted text]")
+            }
+            if lower.contains("imagedata") || lower.contains("screenshot") || lower.contains("axtree") || lower.contains("elements") {
+                return .string("[redacted observation payload]")
+            }
             switch value {
             case .dictionary(let entries):
-                return .dictionary(entries.mapValues(mask).mapWithSensitiveKeys())
-            case .array(let values): return .array(values.map(mask))
-            case .string(let text): return .string(SecretRedactor.redact(text))
-            default: return value
+                var sanitized: [String: AnyCodable] = [:]
+                for (k, v) in entries {
+                    sanitized[k] = maskKeyAndValue(key: k, value: v)
+                }
+                return .dictionary(sanitized.mapWithSensitiveKeys())
+            case .array(let items):
+                return .array(items.map { maskKeyAndValue(key: key, value: $0) })
+            case .string(let text):
+                return .string(SecretRedactor.redact(text))
+            default:
+                return value
             }
         }
+
+        var sanitizedTop: [String: AnyCodable] = [:]
+        for (k, v) in values {
+            sanitizedTop[k] = maskKeyAndValue(key: k, value: v)
+        }
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         do {
-            let data = try encoder.encode(mask(.dictionary(values)))
+            let data = try encoder.encode(sanitizedTop.mapWithSensitiveKeys())
             let text = String(decoding: data, as: UTF8.self)
             return text.count > 12_000 ? String(text.prefix(12_000)) + "\n… (truncated)" : text
         } catch {
@@ -55,7 +79,7 @@ public final class ToolActivity: ObservableObject {
 
     public func begin(_ call: FunctionCall, now: Date = Date()) -> UUID {
         if let destination { return destination.begin(call, now: now) }
-        let record = ToolExecution(id: UUID(), name: call.name, arguments: ToolExecution.displayJSON(call.args),
+        let record = ToolExecution(id: UUID(), name: call.name, arguments: ToolExecution.displayJSON(call.args, toolName: call.name),
                                    startedAt: now, status: .running, output: nil)
         records.append(record)
         if records.count > 100 { records.removeFirst(records.count - 100) }
@@ -65,8 +89,9 @@ public final class ToolActivity: ObservableObject {
     public func complete(_ id: UUID, response: FunctionResponse) {
         if let destination { destination.complete(id, response: response); return }
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        let toolName = records[index].name
         records[index].status = response.response["success"]?.boolValue == true ? .succeeded : .failed
-        records[index].output = ToolExecution.displayJSON(response.response)
+        records[index].output = ToolExecution.displayJSON(response.response, toolName: toolName)
     }
 
     public func reset() {

@@ -178,6 +178,11 @@ public final class IvyAppEnvironment {
         liveCoordinator.onToolResult = { [weak brain] call, response in
             brain?.recordToolNote(call: call, response: response)
         }
+        liveCoordinator.onStopRequested = { [weak tasks] in
+            if tasks?.run?.isActive == true {
+                tasks?.cancel()
+            }
+        }
         liveCoordinator.loneIvyInterrupts = settings.settings.loneIvyBargeIn
         // Opt-in only: with the setting off (the default) launch never opens the microphone.
         let wakeWord = WakeWordController(listener: wakeWordListener, coordinator: liveCoordinator)

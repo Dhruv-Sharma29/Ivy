@@ -19,7 +19,7 @@ public final class AttachmentTray: ObservableObject {
     /// Bumped on every capture, for the "Ivy saw your screen" feedback.
     @Published public private(set) var captureCount = 0
 
-    private let capturer: ScreenContextCapturing
+    public let capturer: ScreenContextCapturing
     private let pipeline: VisionPipeline
     private let policy: () -> VisionPolicy
     /// Told which screenshot Ivy was actually shown (on send), for `point_at`.

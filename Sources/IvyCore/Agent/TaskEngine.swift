@@ -61,6 +61,22 @@ public enum TaskPauseChoice: Sendable {
     case stop
 }
 
+/// Result of attempting to start or plan a task.
+public enum TaskStartResult: Equatable, Sendable {
+    case started(UUID)
+    case rejected(reason: String)
+
+    public var isStarted: Bool {
+        if case .started = self { return true }
+        return false
+    }
+
+    public var rejectionReason: String? {
+        if case .rejected(let reason) = self { return reason }
+        return nil
+    }
+}
+
 /// Plans, shows, and runs multi-step tasks. Every step is an ordinary tool call through the given dispatcher,
 /// so SafetyGate is unchanged and authoritative: approving a plan approves the order; each risky step still
 /// gets its own card with its exact arguments. Plan text, step titles and model output can never approve.
@@ -107,6 +123,15 @@ public final class TaskEngine: ObservableObject {
         self.coordinator = coordinator
     }
 
+    /// True if an adaptive desktop control session is currently running, awaiting approval, or paused.
+    /// Exclusivity guarantee: only one desktop session may control the cursor and keyboard at any time.
+    public var isDesktopControlActive: Bool {
+        if run?.isActive == true && run?.plan.mode == .adaptiveDesktop {
+            return true
+        }
+        return false
+    }
+
     private var tools: [FunctionDeclaration] {
         dispatcher.registry.allTools.filter { !PlanValidator.forbiddenTools.contains($0.name) }.map(\.declaration)
     }
@@ -114,9 +139,16 @@ public final class TaskEngine: ObservableObject {
     // MARK: - Lifecycle
 
     /// Asks for a plan and shows it for approval. Nothing runs yet.
-    public func start(goal rawGoal: String, budget: TaskBudget = TaskBudget()) async {
+    @discardableResult
+    public func start(goal rawGoal: String, budget: TaskBudget = TaskBudget()) async -> TaskStartResult {
         let goal = rawGoal.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !goal.isEmpty, run?.isActive != true else { return }
+        guard !goal.isEmpty else { return .rejected(reason: "Goal cannot be empty.") }
+        guard run?.isActive != true else {
+            if isDesktopControlActive {
+                return .rejected(reason: "A desktop control session is currently active. Stop or finish the desktop session before planning another task.")
+            }
+            return .rejected(reason: "A task is already running in Ivy. Stop or finish the current task before starting a new one.")
+        }
         let id = UUID()
         run = TaskRun(id: id, plan: TaskPlan(goal: goal, steps: [], budget: budget), phase: .planning, createdAt: now())
 
@@ -124,35 +156,48 @@ public final class TaskEngine: ObservableObject {
         for attempt in 0..<2 {
             do {
                 let raw = try await planner.plan(goal: goal, context: context, tools: tools)
-                guard run?.id == id, run?.phase == .planning else { return }
+                guard run?.id == id, run?.phase == .planning else { return .rejected(reason: "Task planning was superseded or cancelled.") }
                 let steps = try PlannerOutput.parse(raw).steps()
                 let valid = try PlanValidator.validate(steps, registry: dispatcher.registry, budget: budget)
                 run?.plan.steps = valid
                 run?.phase = .awaitingApproval
-                return
+                return .started(id)
             } catch PlanValidationError.empty {
                 finish(.failed, report: "I can't do that with the tools I have. Try asking in chat instead.")
-                return
+                return .rejected(reason: "I can't do that with the tools I have. Try asking in chat instead.")
             } catch let error as PlanValidationError where attempt == 0 {
                 context = "The previous plan was rejected: \(error.localizedDescription) Produce a corrected plan."
             } catch {
-                guard run?.id == id else { return }
+                guard run?.id == id else { return .rejected(reason: "Task planning was cancelled.") }
                 finish(.failed, report: "I couldn't make a usable plan: \(error.localizedDescription)")
-                return
+                return .rejected(reason: "I couldn't make a usable plan: \(error.localizedDescription)")
             }
         }
+        return .rejected(reason: "Task planning failed after retry.")
     }
 
     /// Starts an adaptive desktop control task.
     /// Initial review shows the goal, target application scope, and checkpoints — not fabricated future pixel coordinates.
+    @discardableResult
     public func startAdaptiveDesktop(
         goal rawGoal: String,
         scope: ComputerControlScope,
         coordinator: ComputerControlCoordinator? = nil,
         budget: TaskBudget = TaskBudget(maxSteps: 20, maxToolCalls: 40)
-    ) async {
+    ) async -> TaskStartResult {
         let goal = rawGoal.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !goal.isEmpty, run?.isActive != true else { return }
+        guard !goal.isEmpty else {
+            return .rejected(reason: "Goal cannot be empty.")
+        }
+        guard !isDesktopControlActive else {
+            return .rejected(reason: "A desktop control session is already active. Only one desktop session can control the cursor and keyboard at a time.")
+        }
+        guard run?.isActive != true else {
+            return .rejected(reason: "A task is already running in Ivy. Stop or finish the current task before starting a new one.")
+        }
+        guard scope.isPermittedApp else {
+            return .rejected(reason: "Control of '\(scope.bundleIdentifier)' is prohibited for security.")
+        }
         if let coordinator {
             self.coordinator = coordinator
         }
@@ -172,6 +217,7 @@ public final class TaskEngine: ObservableObject {
             scope: scope
         )
         run = TaskRun(id: id, plan: plan, phase: .awaitingApproval, createdAt: now())
+        return .started(id)
     }
 
     public func approvePlan() {
@@ -307,7 +353,7 @@ public final class TaskEngine: ObservableObject {
         case .paused(let pause):
             pauseRun(pause)
         case .failed(let reason):
-            finish(.failed, report: reason)
+            finish(.failed, report: Self.report(current, outcome: .failed, stoppingReason: reason))
         case .cancelled:
             finish(.cancelled, report: nil)
         }
@@ -504,21 +550,74 @@ public final class TaskEngine: ObservableObject {
         }
     }
 
+    /// Structured partial-result report describing completed steps, stopping point, and outcome.
+    public static func partialReport(for run: TaskRun) -> String {
+        let steps = run.plan.steps
+        let done = steps.filter { $0.status == .succeeded }.count
+        let statusDescription: String
+        switch run.phase {
+        case .paused(let pause):
+            switch pause {
+            case .stepFailed(let stepID, let reason):
+                let title = steps.first(where: { $0.id == stepID })?.title ?? "Step \(stepID)"
+                statusDescription = "Paused at \(title): \(reason)"
+            case .budget(let budgetReason):
+                statusDescription = "Paused on budget: \(budgetReason)"
+            }
+        case .running(let stepID):
+            let title = steps.first(where: { $0.id == stepID })?.title ?? "Step \(stepID)"
+            statusDescription = "Running: currently on \(title)"
+        case .awaitingApproval:
+            statusDescription = "Awaiting your approval to start"
+        case .planning:
+            statusDescription = "Planning task"
+        case .finished(let outcome):
+            return report(run, outcome: outcome)
+        }
+
+        let lines = steps.map { step -> String in
+            let mark = step.status == .succeeded ? "✓" : (step.status == .pending || step.status == .cancelled ? "–" : "✗")
+            return "\(mark) \(step.title) — \(describe(step.status))"
+        }
+        var text = "Task in progress: \(run.goal)\nStatus: \(statusDescription)\n\(done) of \(steps.count) steps completed."
+        if !lines.isEmpty {
+            text += "\n" + lines.joined(separator: "\n")
+        }
+        if done > 0 {
+            text += "\nCompleted steps were not undone."
+        }
+        return text
+    }
+
+    /// Current task's partial-result report, or 'No active task.' if none exists.
+    public var partialReport: String {
+        guard let run else { return "No active task." }
+        return Self.partialReport(for: run)
+    }
+
     /// Plain, factual summary: what ran, what didn't. Nothing is claimed that a step didn't report.
-    static func report(_ run: TaskRun, outcome: TaskOutcome) -> String {
+    public static func report(_ run: TaskRun, outcome: TaskOutcome, stoppingReason: String? = nil) -> String {
         let steps = run.plan.steps
         let done = steps.filter { $0.status == .succeeded }.count
         let head: String
         switch outcome {
         case .succeeded: head = "Task done: \(run.goal)"
-        case .failed: head = "Task stopped with problems: \(run.goal)"
+        case .failed:
+            if let reason = stoppingReason {
+                head = "Task stopped with problems: \(run.goal) — \(reason)"
+            } else {
+                head = "Task stopped with problems: \(run.goal)"
+            }
         case .cancelled: head = "Task stopped by you: \(run.goal)"
         }
         let lines = steps.map { step -> String in
             let mark = step.status == .succeeded ? "✓" : (step.status == .pending || step.status == .cancelled ? "–" : "✗")
             return "\(mark) \(step.title) — \(describe(step.status))"
         }
-        var text = head + "\n\(done) of \(steps.count) steps completed.\n" + lines.joined(separator: "\n")
+        var text = head + "\n\(done) of \(steps.count) steps completed."
+        if !lines.isEmpty {
+            text += "\n" + lines.joined(separator: "\n")
+        }
         if outcome != .succeeded, done > 0 { text += "\nCompleted steps were not undone." }
         return text
     }

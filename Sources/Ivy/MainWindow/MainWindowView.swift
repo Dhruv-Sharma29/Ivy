@@ -356,6 +356,27 @@ struct ChatPaneView: View {
             Task { await tasks.start(goal: goal) }
             return
         }
+        // "/desktop <goal>" plans an adaptive desktop control task.
+        if trimmed.lowercased().hasPrefix("/desktop ") {
+            let commandText = String(trimmed.dropFirst("/desktop ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard tasks.run?.isActive != true, !brain.isThinking, brain.pendingConfirmation == nil else { return }
+            inputText = ""
+            drafts[brain.conversationID] = ""
+            let (bundleID, goal) = CommandBarSession.parseDesktopCommand(commandText)
+            Task {
+                let targetApp: String
+                if let bundleID {
+                    targetApp = bundleID
+                } else if let front = await attachments.capturer.frontmostOtherApp() {
+                    targetApp = front
+                } else {
+                    targetApp = "com.apple.finder"
+                }
+                let scope = ComputerControlScope(bundleIdentifier: targetApp, isAuthorized: true)
+                await tasks.startAdaptiveDesktop(goal: goal, scope: scope)
+            }
+            return
+        }
         // One approval surface at a time: chat waits while a task is active.
         guard tasks.run?.isActive != true else { return }
         guard !trimmed.isEmpty || !attachments.attachments.isEmpty, !brain.isThinking, brain.pendingConfirmation == nil,

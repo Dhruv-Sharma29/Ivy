@@ -78,6 +78,60 @@ public struct TaskStep: Codable, Identifiable, Equatable, Sendable {
         self.onFailure = onFailure
     }
 
+    enum CodingKeys: String, CodingKey {
+        case id, title, tool, arguments, dependsOn, verification, onFailure, status, output, attempts
+    }
+
+    /// Returns a redacted copy of tool arguments safe for disk persistence, logs, and exports.
+    /// Raw `ui_type` text and observation payloads (screenshots, AX trees, tokens) are never persisted unmasked.
+    public static func persistedArguments(for tool: String, arguments: [String: AnyCodable]) -> [String: AnyCodable] {
+        var persisted = arguments
+        if tool == "ui_type" {
+            if let text = arguments["text"]?.stringValue {
+                let redactedText = SecretRedactor.redact(text)
+                persisted["text"] = AnyCodable(redactedText.contains("[REDACTED") ? redactedText : "[redacted: \(text.count) chars]")
+            }
+        }
+        for (key, _) in persisted {
+            let lower = key.lowercased()
+            if lower.contains("imagedata") || lower.contains("screenshot") || lower.contains("axtree") || lower.contains("elements") {
+                persisted[key] = AnyCodable("[redacted observation payload]")
+            } else if lower.contains("token") || lower.contains("password") || lower.contains("secret") || lower.contains("credential") {
+                persisted[key] = AnyCodable(SecretRedactor.placeholder)
+            }
+        }
+        return persisted
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(tool, forKey: .tool)
+        let safeArgs = Self.persistedArguments(for: tool, arguments: arguments)
+        try container.encode(safeArgs, forKey: .arguments)
+        try container.encode(dependsOn, forKey: .dependsOn)
+        try container.encode(verification, forKey: .verification)
+        try container.encode(onFailure, forKey: .onFailure)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(output, forKey: .output)
+        try container.encode(attempts, forKey: .attempts)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.tool = try container.decode(String.self, forKey: .tool)
+        self.arguments = try container.decodeIfPresent([String: AnyCodable].self, forKey: .arguments) ?? [:]
+        self.dependsOn = try container.decodeIfPresent([String].self, forKey: .dependsOn) ?? []
+        self.verification = try container.decodeIfPresent(StepVerification.self, forKey: .verification) ?? .succeeded
+        self.onFailure = try container.decodeIfPresent(StepFailurePolicy.self, forKey: .onFailure) ?? .ask
+        self.status = try container.decodeIfPresent(StepStatus.self, forKey: .status) ?? .pending
+        self.output = try container.decodeIfPresent(String.self, forKey: .output)
+        self.attempts = try container.decodeIfPresent(Int.self, forKey: .attempts) ?? 0
+    }
+
     /// Keeps step output small and free of secrets before it is shown, stored or sent to the planner.
     static func clip(_ text: String) -> String {
         let redacted = SecretRedactor.redact(text)
