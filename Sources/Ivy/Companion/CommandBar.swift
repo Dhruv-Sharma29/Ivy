@@ -41,7 +41,7 @@ final class CommandBarController: NSObject, NSWindowDelegate {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = KeyablePanel(contentRect: CGRect(x: 0, y: 0, width: 560, height: 320),
+        let panel = KeyablePanel(contentRect: CGRect(x: 0, y: 0, width: 560, height: 220),
                                  styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -57,9 +57,23 @@ final class CommandBarController: NSObject, NSWindowDelegate {
             onContinueInWindow: { [weak self] in
                 self?.close()
                 MainWindowController.shared?.show()
-            }))
+            }, onContentHeight: { [weak self] height in self?.fitContent(height) }))
         self.panel = panel
         return panel
+    }
+
+    private func fitContent(_ height: CGFloat) {
+        guard let panel else { return }
+        let limit = (panel.screen?.visibleFrame.height ?? 600) - 24
+        let frame = Self.fittedFrame(panel.frame, contentHeight: height, maximumHeight: limit)
+        if abs(frame.height - panel.frame.height) > 1 { panel.setFrame(frame, display: true) }
+    }
+
+    /// Keep the top edge stable when attachments and replies make the bar taller.
+    static func fittedFrame(_ frame: CGRect, contentHeight: CGFloat, maximumHeight: CGFloat) -> CGRect {
+        guard contentHeight.isFinite, contentHeight > 0, maximumHeight.isFinite, maximumHeight >= 120 else { return frame }
+        let height = min(maximumHeight, max(120, contentHeight.rounded(.up)))
+        return CGRect(x: frame.minX, y: frame.maxY - height, width: frame.width, height: height)
     }
 }
 
@@ -74,6 +88,7 @@ struct CommandBarView: View {
     @ObservedObject var session: CommandBarSession
     let onClose: () -> Void
     let onContinueInWindow: () -> Void
+    var onContentHeight: (CGFloat) -> Void = { _ in }
 
     @FocusState private var focused: Bool
 
@@ -87,19 +102,27 @@ struct CommandBarView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                IvyAppIconView().frame(width: 24, height: 24)
+                Text("Ivy").font(.headline)
+                Text("Quick chat").font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button(action: onContinueInWindow) { Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 28, height: 28) }
+                    .help("Open Ivy").accessibilityLabel("Open Ivy")
+                    .accessibilityIdentifier("ivy.commandBar.open")
+                Button(action: onClose) { Image(systemName: "xmark").frame(width: 28, height: 28) }
+                    .help("Close (Esc)").accessibilityLabel("Close quick chat")
+                    .accessibilityIdentifier("ivy.commandBar.close")
+            }
+            .buttonStyle(IvyNavigationButtonStyle())
             HStack(spacing: 10) {
-                Image(nsImage: IvyLogoImage.template)
-                    .renderingMode(.template)
-                    .resizable()
-                    .frame(width: 20, height: 20)
-                    .foregroundStyle(IvyTheme.leaf)
-                    .accessibilityHidden(true)
                 TextField("Ask Ivy…", text: $session.text)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 18))
+                    .font(.system(size: 16))
                     .focused($focused)
                     .onSubmit(ask)
+                    .accessibilityLabel("Message Ivy")
                 Button {
                     Task { await session.captureFrontWindow() }
                 } label: { Image(systemName: "rectangle.dashed.badge.record") }
@@ -109,13 +132,32 @@ struct CommandBarView: View {
                 .accessibilityLabel("Attach front window")
                 .accessibilityIdentifier("ivy.commandBar.screen")
                 .disabled(brain.isThinking || blocked != nil)
-                if brain.isThinking { ProgressView().controlSize(.small) }
+                Button(action: ask) {
+                    Image(systemName: "arrow.up").font(.system(size: 15, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .ivyGlassButtonStyle(prominent: true)
+                .buttonBorderShape(.circle)
+                .help("Send request (Return)").accessibilityLabel("Send request")
+                .accessibilityIdentifier("ivy.commandBar.send")
+                .disabled(brain.isThinking || blocked != nil || (session.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && tray.attachments.isEmpty))
             }
+            .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 8)
+            .frame(minHeight: 52)
+            .ivyGlass(cornerRadius: 26)
 
             AttachmentBar(tray: tray)
+            if brain.isThinking {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Working on your request…").font(.callout).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
             if let blocked {
-                HStack {
-                    Text(blocked).font(.system(size: 12)).foregroundStyle(.orange)
+                HStack(alignment: .top, spacing: 12) {
+                    Label(blocked, systemImage: "info.circle").font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button("Open Ivy", action: onContinueInWindow)
                 }
@@ -124,13 +166,22 @@ struct CommandBarView: View {
                     MessageBlocksView(text: reply.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxHeight: 180)
+                .frame(height: 180)
                 HStack {
                     Spacer()
                     Button("Continue in Window", action: onContinueInWindow).keyboardShortcut(.return, modifiers: [.command])
                 }
             } else if session.askedID == nil, !brain.isThinking {
-                let recent = Array(library.list().prefix(5))
+                HStack(spacing: 8) {
+                    ForEach([HomeShortcut.browse, .explain, .plan]) { shortcut in
+                        Button { session.text = shortcut.prompt; focused = true } label: {
+                            Label(shortcut.rawValue, systemImage: shortcut.symbol).font(.caption)
+                        }
+                        .help("Draft a \(shortcut.rawValue.lowercased()) request")
+                        .accessibilityHint("Fills the draft without sending")
+                    }
+                }
+                let recent = Array(library.list(.active).prefix(3))
                 if !recent.isEmpty {
                     Text("Recent").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                     ForEach(recent) { entry in
@@ -144,15 +195,17 @@ struct CommandBarView: View {
                                 Text(entry.updatedAt.formatted(.relative(presentation: .named))).font(.system(size: 11)).foregroundStyle(.secondary)
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(IvyNavigationButtonStyle())
                     }
                 }
             }
         }
         .padding(16)
         .frame(width: 560, alignment: .topLeading)
-        .ivyGlass(cornerRadius: 16)
+        .fixedSize(horizontal: false, vertical: true)
+        .ivyGlass(cornerRadius: IvyTheme.cardRadius)
         .ivyGlassButtonStyle()
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onContentHeight($0) }
         .onAppear {
             focused = true
             library.refresh()

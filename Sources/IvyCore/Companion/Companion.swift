@@ -124,16 +124,39 @@ public struct CaptureGeometry: Equatable, Sendable {
     }
 }
 
-/// The geometry of the latest screenshot Ivy was shown, read by `point_at` (lock-backed: tools run off the main actor).
+/// Desktop mappings for the images actually sent together. A new batch replaces old mappings.
 public final class ScreenGeometryRelay: Sendable {
-    private let latest = OSAllocatedUnfairLockBox<CaptureGeometry?>(nil)
+    private let captures = OSAllocatedUnfairLockBox<[UUID: CaptureGeometry]>([:])
 
     public init() {}
 
-    public var current: CaptureGeometry? { latest.value }
+    public var current: CaptureGeometry? {
+        let batch = captures.value
+        return batch.count == 1 ? batch.values.first : nil
+    }
 
     public func record(_ geometry: CaptureGeometry?) {
-        latest.value = geometry
+        captures.value = geometry.map { [UUID(): $0] } ?? [:]
+    }
+
+    public func record(_ batch: [UUID: CaptureGeometry]) {
+        captures.value = batch
+    }
+
+    public func resolve(screenshotID: String?) throws -> CaptureGeometry {
+        let batch = captures.value
+        if let screenshotID {
+            guard let id = UUID(uuidString: screenshotID), let geometry = batch[id] else {
+                throw ToolError.invalidArgument("That screenshot is not in the current shared images. Ask for a fresh Front Window capture.")
+            }
+            return geometry
+        }
+        guard batch.count == 1, let geometry = batch.values.first else {
+            throw ToolError.invalidArgument(batch.isEmpty
+                ? "There's no screenshot to point at. Ask the user to show you their screen (⌃⌥⌘S) first."
+                : "Several screenshots were shared. Specify screenshot_id from the attachment metadata.")
+        }
+        return geometry
     }
 }
 
@@ -153,12 +176,13 @@ public final class PointAtTool: IvyTool, Sendable {
     public static let maxLabel = 60
 
     public let name = "point_at"
-    public let description = "Highlights an area of the user's screen for a few seconds, with a short label, to show where something is. Coordinates are pixels in the most recent screenshot you were shown (origin top-left). It only draws; it cannot click or type."
+    public let description = "Use this to show a visible button, menu or area when the user asks where it is or asks you to point. Draws an arrow and highlight for a few seconds; cannot click or type. Use screenshot_id from the shared attachment metadata and integer pixels in that image (origin top-left, using its stated dimensions). Only use images marked on-screen pointing available, and only point at something actually visible. Without a suitable image ask for a fresh Front Window capture; do not guess coordinates or capture automatically."
     public let group = ToolGroup.core
     public let safetyClassification = ToolSafetyClassification.safe
     public var declaration: FunctionDeclaration {
         FunctionDeclaration(name: name, description: description, parameters: ToolParameters(
-            properties: [
+              properties: [
+                  "screenshot_id": ToolProperty(type: "STRING", description: "ID from the shared image's attachment metadata. Required when multiple captures were shared."),
                 "x": ToolProperty(type: "INTEGER", description: "Left edge, in screenshot pixels."),
                 "y": ToolProperty(type: "INTEGER", description: "Top edge, in screenshot pixels."),
                 "width": ToolProperty(type: "INTEGER", description: "Width in pixels (at least 4)."),
@@ -179,27 +203,26 @@ public final class PointAtTool: IvyTool, Sendable {
         self.mainDisplayHeight = mainDisplayHeight
     }
 
-    func parse(_ arguments: [String: AnyCodable]) throws -> (rect: CGRect, label: String) {
+    func parse(_ arguments: [String: AnyCodable]) throws -> (rect: CGRect, label: String, screenshotID: String?) {
         let args = ToolArguments(arguments)
-        try args.allow(["x", "y", "width", "height", "label"])
+        try args.allow(["x", "y", "width", "height", "label", "screenshot_id"])
         let (x, y, w, h) = (try args.int("x"), try args.int("y"), try args.int("width"), try args.int("height"))
         guard x >= 0, y >= 0, w >= 4, h >= 4, x <= 20_000, y <= 20_000, w <= 20_000, h <= 20_000 else {
             throw ToolError.invalidArgument("The area must be inside the screenshot, at least 4×4 pixels.")
         }
-        return (CGRect(x: x, y: y, width: w, height: h), try args.string("label", max: Self.maxLabel))
+        return (CGRect(x: x, y: y, width: w, height: h), try args.string("label", max: Self.maxLabel),
+                try args.optionalString("screenshot_id", max: 36))
     }
 
     public func validate(arguments: [String: AnyCodable]) throws {
-        _ = try parse(arguments)
-        guard geometry.current != nil else {
-            throw ToolError.invalidArgument("There's no screenshot to point at. Ask the user to show you their screen (⌃⌥⌘S) first.")
-        }
+        let request = try parse(arguments)
+        _ = try geometry.resolve(screenshotID: request.screenshotID)
     }
 
     public func execute(arguments: [String: AnyCodable]) async throws -> ToolResult {
         let request = try parse(arguments)
-        guard let geometry = geometry.current,
-              let rect = geometry.screenRect(forImageRect: request.rect, mainDisplayHeight: mainDisplayHeight()) else {
+        let capture = try geometry.resolve(screenshotID: request.screenshotID)
+        guard let rect = capture.screenRect(forImageRect: request.rect, mainDisplayHeight: mainDisplayHeight()) else {
             return .failure("That area isn't inside the last screenshot.")
         }
         await presenter.show(rect, label: request.label)

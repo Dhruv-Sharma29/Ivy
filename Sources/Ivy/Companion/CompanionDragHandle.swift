@@ -26,16 +26,20 @@ struct CompanionDragHandle: NSViewRepresentable {
     let onMoving: (Bool) -> Void
     let onDrop: () -> Void
     var onLayout: (CGRect) -> Void = { _ in }
+    var isInteractive = true
 
     func makeNSView(context: Context) -> CompanionDragSurface {
         let view = CompanionDragSurface()
         view.setAccessibilityElement(false) // The enclosing SwiftUI button supplies the accessible action.
-        view.toolTip = "Drag Ivy to move. Click to open. Right-click for actions."
-        view.installMenu()
+        if isInteractive {
+            view.toolTip = "Drag Ivy to move. Click to open. Right-click for actions."
+            view.installMenu()
+        }
         return view
     }
 
     func updateNSView(_ view: CompanionDragSurface, context: Context) {
+        view.isInteractive = isInteractive
         view.onOpen = onOpen
         view.onEndVoice = onEndVoice
         view.onStopTask = onStopTask
@@ -49,6 +53,7 @@ struct CompanionDragHandle: NSViewRepresentable {
 
 @MainActor
 final class CompanionDragSurface: NSView {
+    var isInteractive = true
     var onOpen: (() -> Void)?
     var onEndVoice: (() -> Void)?
     var onStopTask: (() -> Void)?
@@ -73,9 +78,14 @@ final class CompanionDragSurface: NSView {
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isInteractive ? super.hitTest(point) : nil
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+    override func resetCursorRects() {
+        if isInteractive { addCursorRect(bounds, cursor: .openHand) }
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }

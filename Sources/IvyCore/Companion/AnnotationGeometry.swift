@@ -10,6 +10,15 @@ public struct AnnotationGeometry: Equatable, Sendable {
     public let labelOrigin: CGPoint
     public let labelWidth: CGFloat
 
+    /// Arrowhead travels with the tip during the entrance, then lands at the target edge.
+    public func arrow(at progress: CGFloat) -> (tip: CGPoint, headA: CGPoint, headB: CGPoint) {
+        let t = progress.isFinite ? min(1, max(0, progress)) : 0
+        let tip = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
+        let offset = CGPoint(x: tip.x - end.x, y: tip.y - end.y)
+        return (tip, CGPoint(x: headA.x + offset.x, y: headA.y + offset.y),
+                CGPoint(x: headB.x + offset.x, y: headB.y + offset.y))
+    }
+
     public init?(screen: CGRect, target: CGRect) {
         guard [screen.minX, screen.minY, screen.width, screen.height, target.minX, target.minY, target.width, target.height].allSatisfy(\.isFinite),
               screen.width >= 64, screen.height >= 64, target.width > 0, target.height > 0 else { return nil }

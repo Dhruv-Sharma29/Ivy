@@ -7,6 +7,7 @@ final class CompanionPresentation: ObservableObject {
     @Published var mood: CompanionMood = .hidden
     @Published var caption = ""
     @Published var isMoving = false
+    @Published var approval: CompanionApproval?
 }
 
 /// A small pixel-art character with explicit status. Appearance never changes the approval flow.
@@ -21,12 +22,25 @@ struct CompanionView: View {
     var motionDisabled = false
     var onDrop: () -> Void = {}
     var onContentLayout: (CGRect) -> Void = { _ in }
+    var onConfirm: (CompanionApproval, Bool) -> Void = { _, _ in }
 
     static let panelSize = CGSize(width: 280, height: 224)
+    static func panelSize(hasApproval: Bool) -> CGSize {
+        hasApproval ? CGSize(width: 360, height: 480) : panelSize
+    }
     private var mood: CompanionMood { presentation.mood }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
+            if let approval = presentation.approval {
+                ConfirmationCardView(request: approval.request, compact: true) { approved in
+                    onConfirm(approval, approved)
+                }
+                .frame(width: 344, height: 300)
+                .ivyGlass(cornerRadius: IvyTheme.cardRadius)
+                .id(approval.id)
+                .accessibilityIdentifier("ivy.companion.approval")
+            }
             if !presentation.caption.isEmpty, mood == .speaking {
                 bubble(presentation.caption, lines: 3)
             }
@@ -61,15 +75,22 @@ struct CompanionView: View {
             .accessibilityLabel(mood.accessibilityDescription)
             .accessibilityHint("Click to open Ivy. Drag to move.")
             .accessibilityIdentifier("ivy.companion")
+            // Only the character and status pill drag. Approval controls retain normal pointer routing.
+            .overlay {
+                CompanionDragHandle(onOpen: onOpen, onEndVoice: onEndVoice, onStopTask: onStopTask, onHide: onHide,
+                                    onMoving: { presentation.isMoving = $0 }, onDrop: onDrop)
+                    .accessibilityHidden(true)
+            }
         }
         // Track the visible stack before padding and the fixed transparent panel frame.
         .overlay {
-            CompanionDragHandle(onOpen: onOpen, onEndVoice: onEndVoice, onStopTask: onStopTask, onHide: onHide,
-                                onMoving: { presentation.isMoving = $0 }, onDrop: onDrop, onLayout: onContentLayout)
+            CompanionDragHandle(onOpen: {}, onEndVoice: {}, onStopTask: {}, onHide: {},
+                                onMoving: { _ in }, onDrop: {}, onLayout: onContentLayout, isInteractive: false)
                 .accessibilityHidden(true)
         }
         .padding(8)
-        .frame(width: Self.panelSize.width, height: Self.panelSize.height, alignment: .bottomTrailing)
+        .frame(width: Self.panelSize(hasApproval: presentation.approval != nil).width,
+               height: Self.panelSize(hasApproval: presentation.approval != nil).height, alignment: .bottomTrailing)
         .ivyGlassGroup(spacing: 8)
     }
 

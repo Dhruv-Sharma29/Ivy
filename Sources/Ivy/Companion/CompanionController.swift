@@ -8,7 +8,8 @@ import IvyCore
 @MainActor
 final class CompanionController: NSObject {
     private let environment: IvyAppEnvironment
-    private var panel: NSPanel?
+    private let panelFactory: () -> CompanionPanel
+    private var panel: CompanionPanel?
     private let presentation = CompanionPresentation()
     private var subscriptions: Set<AnyCancellable> = []
     private var mood: CompanionMood = .hidden
@@ -16,8 +17,12 @@ final class CompanionController: NSObject {
     private var hiddenMood: CompanionMood?
     private var contentFrame = CGRect(origin: .zero, size: CompanionView.panelSize)
 
-    init(environment: IvyAppEnvironment) {
+    init(environment: IvyAppEnvironment, panelFactory: @escaping () -> CompanionPanel = {
+        CompanionPanel(contentRect: CGRect(origin: .zero, size: CompanionView.panelSize),
+                       styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    }) {
         self.environment = environment
+        self.panelFactory = panelFactory
         super.init()
         let e = environment
         // Any of these changing can change the mood; recompute on the next main-actor turn (@Published fires early).
@@ -39,6 +44,12 @@ final class CompanionController: NSObject {
     private func update() {
         let e = environment
         let settings = e.settings.settings
+        let approval = CompanionApproval.pending(chat: e.brain.pendingConfirmation, live: e.liveCoordinator.pendingConfirmation)
+        if presentation.approval != approval {
+            // A fresh request must reappear even after hiding a previous approval with the same mood.
+            if approval != nil { hiddenMood = nil }
+            presentation.approval = approval
+        }
         let next = settings.companionEnabled ? CompanionMood.resolve(
             voice: e.liveCoordinator.state,
             chatThinking: e.brain.isThinking,
@@ -49,12 +60,22 @@ final class CompanionController: NSObject {
         mood = next
         let displayedMood = hiddenMood == nil ? next : .hidden
         if presentation.mood != displayedMood { presentation.mood = displayedMood }
+        panel?.allowsKeyboard = approval != nil
         guard mood.isVisible, hiddenMood == nil else {
             presentation.isMoving = false
             panel?.orderOut(nil)
             return
         }
         let panel = self.panel ?? makePanel()
+        panel.allowsKeyboard = approval != nil
+        let size = CompanionView.panelSize(hasApproval: approval != nil)
+        if panel.frame.size != size {
+            var frame = panel.frame
+            frame.size = size
+            panel.setFrame(frame, display: false)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            place(panel, corner: settings.companionCorner)
+        }
         if presentation.caption != e.liveCoordinator.caption { presentation.caption = e.liveCoordinator.caption }
         if !panel.isVisible {
             place(panel, corner: settings.companionCorner)
@@ -77,18 +98,21 @@ final class CompanionController: NSObject {
                 self.presentation.isMoving = false
                 self.panel?.orderOut(nil)
             }, onDrop: { [weak self] in self?.rememberPosition() },
-            onContentLayout: { [weak self] in self?.contentDidLayout($0) }))
+              onContentLayout: { [weak self] in self?.contentDidLayout($0) },
+              onConfirm: { approval, approved in
+                  approval.respond(approved: approved, brain: e.brain, liveCoordinator: e.liveCoordinator)
+              }))
     }
 
-    private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: CGRect(origin: .zero, size: CompanionView.panelSize),
-                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private func makePanel() -> CompanionPanel {
+        let panel = panelFactory()
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .floating
         panel.isMovableByWindowBackground = false // The native drag handle distinguishes a click from a drag.
         panel.hidesOnDeactivate = false
+        panel.worksWhenModal = true // The same request may also be visible in the main-window sheet.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         self.panel = panel
         panel.contentView = makeContent()
@@ -131,4 +155,11 @@ final class CompanionController: NSObject {
     private static func displayID(_ screen: NSScreen) -> UInt32 {
         (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
     }
+}
+
+/// Allow deliberate keyboard review while keeping ordinary companion clicks non-activating.
+class CompanionPanel: NSPanel {
+    var allowsKeyboard = false
+    override var canBecomeKey: Bool { allowsKeyboard }
+    override var canBecomeMain: Bool { false }
 }
