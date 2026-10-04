@@ -20,6 +20,7 @@ struct SettingsPanel: View {
             Divider()
             HistorySettingsSection(settings: settings)
             GeneralSettingsSection(settings: settings)
+            PointerSettingsSection(settings: settings)
             Divider()
             VoiceSettingsSection(settings: settings, wakeWord: wakeWord, onPreviewVoice: onPreviewVoice)
             Divider()

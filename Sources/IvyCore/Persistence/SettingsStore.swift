@@ -68,6 +68,9 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var companionCorner: CompanionCorner
     /// Free placement takes precedence over the legacy default corner after the first drag.
     public var companionPlacement: CompanionPlacement?
+    /// Explicit opt-in to a click-through visual that follows the cursor; never generates input.
+    public var floatingPointerEnabled: Bool
+    public var floatingPointerColor: FloatingPointerColor
     /// Register the command bar hotkey (⌃⌥⌘K) at launch.
     public var commandBarHotkeyEnabled: Bool
     /// The first-run introduction has been finished or skipped (Phase 17c). Existing users are marked done.
@@ -131,6 +134,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionShowWhileIdle: Bool = false,
         companionCorner: CompanionCorner = .bottomRight,
         companionPlacement: CompanionPlacement? = nil,
+        floatingPointerEnabled: Bool = false,
+        floatingPointerColor: FloatingPointerColor = .blue,
         commandBarHotkeyEnabled: Bool = true,
         onboardingCompleted: Bool = false
     ) {
@@ -171,6 +176,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.companionShowWhileIdle = companionShowWhileIdle
         self.companionCorner = companionCorner
         self.companionPlacement = companionPlacement
+        self.floatingPointerEnabled = floatingPointerEnabled
+        self.floatingPointerColor = floatingPointerColor
         self.commandBarHotkeyEnabled = commandBarHotkeyEnabled
         self.onboardingCompleted = onboardingCompleted
     }
@@ -227,6 +234,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionShowWhileIdle = value(.companionShowWhileIdle, d.companionShowWhileIdle)
         companionCorner = other(.companionCorner, d.companionCorner)
         companionPlacement = try? c.decodeIfPresent(CompanionPlacement.self, forKey: .companionPlacement)
+        floatingPointerEnabled = value(.floatingPointerEnabled, d.floatingPointerEnabled)
+        floatingPointerColor = other(.floatingPointerColor, d.floatingPointerColor)
         commandBarHotkeyEnabled = value(.commandBarHotkeyEnabled, d.commandBarHotkeyEnabled)
         onboardingCompleted = value(.onboardingCompleted, d.onboardingCompleted)
     }

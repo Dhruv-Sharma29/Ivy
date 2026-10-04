@@ -43,6 +43,7 @@ struct IvyApp: App {
         environment.onScreenHelp = { MainWindowController.shared?.show() }
         // Phase 17b: the on-screen companion and the ⌃⌥⌘K command bar.
         IvyAppDelegate.companion = CompanionController(environment: environment)
+        IvyAppDelegate.floatingPointer = FloatingPointerController(settings: environment.settings)
         // Phase 17c: the introduction on a fresh install only (existing installs are marked done at launch).
         OnboardingWindowController.shared = OnboardingWindowController(model: environment.onboarding)
         self.environment = environment
@@ -122,6 +123,7 @@ final class IvyAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var shutdown: (@MainActor () async -> Void)?
     /// Kept alive for the app's lifetime.
     @MainActor static var companion: CompanionController?
+    @MainActor static var floatingPointer: FloatingPointerController?
     @MainActor static var commandBar: CommandBarController?
     @MainActor static var openURL: (@MainActor (URL) -> Void)?
 
@@ -140,6 +142,8 @@ final class IvyAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let shutdown = Self.shutdown else { return .terminateNow }
         Self.shutdown = nil
+        Self.floatingPointer?.stop()
+        Self.floatingPointer = nil
         Task { @MainActor in
             await shutdown()
             sender.reply(toApplicationShouldTerminate: true)
