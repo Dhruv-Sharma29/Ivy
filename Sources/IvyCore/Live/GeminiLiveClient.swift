@@ -236,8 +236,16 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
     }
 
     public func sendImage(_ jpeg: Data) async throws {
+        try await sendImageFrame(jpeg, context: nil)
+    }
+
+    public func sendImage(_ jpeg: Data, context: String) async throws {
+        try await sendImageFrame(jpeg, context: context)
+    }
+
+    private func sendImageFrame(_ jpeg: Data, context: String?) async throws {
         let ws = try await getConnectedWebSocket()
-        let message = BidiClientMessage(realtimeInput: BidiRealtimeInput(jpegFrame: jpeg))
+        let message = BidiClientMessage(realtimeInput: BidiRealtimeInput(jpegFrame: jpeg, context: context))
         do {
             let jsonData = try JSONEncoder().encode(message)
             guard let jsonString = String(data: jsonData, encoding: .utf8) else { throw LiveError.audioEncodingFailed }

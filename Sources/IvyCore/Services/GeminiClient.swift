@@ -207,6 +207,7 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
                 var parts: [Part] = []
                 if !msg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(Part(text: msg.text)) }
                 for attachment in msg.attachments {
+                    parts.append(Part(text: attachment.modelContext))
                     for jpeg in attachment.jpeg { parts.append(Part(inlineData: InlineData(mimeType: "image/jpeg", data: jpeg))) }
                     if let text = attachment.text, !text.isEmpty {
                         parts.append(Part(text: "Text recognised in the \(attachment.label):\n\(text)"))

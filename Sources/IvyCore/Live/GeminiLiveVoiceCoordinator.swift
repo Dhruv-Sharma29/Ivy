@@ -380,10 +380,14 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Shows Ivy one still image during a live session (the screen-help hotkey while talking). Returns false
     /// when there is no session to send it to; the caller then attaches it to the chat instead.
     @discardableResult
-    public func sendImage(_ jpeg: Data) async -> Bool {
+    public func sendImage(_ jpeg: Data, context: String? = nil) async -> Bool {
         guard state.isLive, !isReconnecting, let token = currentSessionToken else { return false }
         do {
-            try await session.sendImage(jpeg)
+            if let context {
+                try await session.sendImage(jpeg, context: context)
+            } else {
+                try await session.sendImage(jpeg)
+            }
             return currentSessionToken == token
         } catch {
             print("[LIVE] image not sent: \(error.localizedDescription)")

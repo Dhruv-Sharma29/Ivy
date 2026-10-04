@@ -6,6 +6,33 @@ import os
 @Suite("Phase 4B - GeminiLiveClient Unit Tests")
 struct GeminiLiveClientTests {
 
+    @Test("screen image sends its identity and dimensions with the frame, and surfaces transport failure")
+    func screenFrameContext() async throws {
+        let transport = MockWebSocketTransport()
+        let client = GeminiLiveClient(apiKey: "fixture", webSocketFactory: { _ in transport })
+        await #expect(throws: LiveError.sessionClosed) {
+            try await client.sendImage(Data([1]), context: "frame")
+        }
+        try await client.connect()
+        transport.enqueueReceiveString("{\"setupComplete\": {}}")
+        for _ in 0..<50 {
+            if client.isConnected { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(client.isConnected)
+        try await client.sendImage(Data([1, 2]), context: "screenshot_id=fixture; 800x600 pixels")
+        guard case .string(let json) = transport.sentMessages.last else {
+            Issue.record("Missing image message"); await client.disconnect(); return
+        }
+        let message = try JSONDecoder().decode(BidiClientMessage.self, from: Data(json.utf8))
+        #expect(message.realtimeInput?.text == "screenshot_id=fixture; 800x600 pixels")
+        #expect(message.realtimeInput?.video?.data == Data([1, 2]).base64EncodedString())
+        try await client.sendImage(Data([3]))
+        transport.setSendError(LiveError.sessionClosed)
+        await #expect(throws: LiveError.self) { try await client.sendImage(Data([4]), context: "frame") }
+        await client.disconnect()
+    }
+
     @Test("GeminiLiveClient rejects empty API key")
     func testRejectsEmptyAPIKey() async {
         let client = GeminiLiveClient(apiKey: "")

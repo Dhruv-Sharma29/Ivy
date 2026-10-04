@@ -17,6 +17,8 @@ public protocol GeminiLiveSession: Sendable {
 
     /// Sends one JPEG frame (Phase 14). Has a default that throws, for sessions that can't.
     func sendImage(_ jpeg: Data) async throws
+    /// One frame with its image ID and coordinate dimensions, for screen guidance.
+    func sendImage(_ jpeg: Data, context: String) async throws
 
     /// Yields streaming events from the Gemini Live session.
     func receiveEvents() -> AsyncThrowingStream<LiveEvent, Error>
@@ -26,6 +28,9 @@ public protocol GeminiLiveSession: Sendable {
 }
 
 extension GeminiLiveSession {
+    public func sendImage(_ jpeg: Data, context: String) async throws {
+        throw LiveError.serverError("This session can't receive labeled screen images.")
+    }
     /// Sends one JPEG frame. Sessions that can't (test doubles) report it instead of failing silently.
     public func sendImage(_ jpeg: Data) async throws {
         throw LiveError.serverError("This session can't receive images.")
@@ -46,6 +51,7 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
         var endAudioInputError: Error? = nil
         var sentToolResponses: [FunctionResponse] = []
         var sentImages: [Data] = []
+        var sentImageContexts: [String] = []
         var connectError: Error? = nil
         var sendAudioError: Error? = nil
         var sendToolResponsesError: Error? = nil
@@ -93,6 +99,18 @@ public final class MockGeminiLiveSession: GeminiLiveSession, @unchecked Sendable
 
     public var sentImages: [Data] {
         state.withLock { $0.sentImages }
+    }
+
+    public var sentImageContexts: [String] { state.withLock { $0.sentImageContexts } }
+
+    public func sendImage(_ jpeg: Data, context: String) async throws {
+        let error = state.withLock { s -> Error? in
+            guard s.isConnected else { return LiveError.sessionClosed }
+            s.sentImages.append(jpeg)
+            s.sentImageContexts.append(context)
+            return nil
+        }
+        if let error { throw error }
     }
 
     public func sendImage(_ jpeg: Data) async throws {
