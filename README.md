@@ -4,7 +4,12 @@ Ivy combines text chat, live voice, screen help and local Mac tools in a native 
 
 ## Current status
 
-The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 1)**, with an updated app and DMG in `dist/`.
+The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 2)**, with an updated app and DMG in `dist/`.
+
+The working tree also contains an initial Ivy UI refresh: shared rounded cards in Home,
+Library, Tasks and Settings, roomier navigation, and a floating quick-chat bar with draft suggestions
+and explicit Send/Open/Close controls. This newer UI is **not yet packaged in the build-2 DMG**.
+See [the UI refresh report](tasks/ui-refresh.md) for the changes and verification limits.
 
 **This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The v1.1 artifact has passed packaging and signature checks, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
 
@@ -21,7 +26,7 @@ See [remaining work](tasks/remaining.md) for hardware testing and release requir
 - **Screen help:** attach a screenshot, selected region, image or PDF. The screen-help shortcut can show a capture to an active Live session. Inside the floating Command Bar, **Command–Shift–S** attaches the front window for review and explicit send.
 - **Screen pointer:** Ivy can draw a temporary arrow and labelled highlight to show where a button, menu or other area is on the screen you shared.
 - **Tasks and Mac tools:** plan multi-step work with `/agent <goal>`, review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
-- **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet.
+- **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet. Pending tool actions also show a review card above the companion with **Do it / Cancel** controls.
 - **Secure credentials:** keys saved through Settings live in macOS Keychain, outside plaintext settings and conversation history. Voice, macros, plans and external links cannot approve risky actions.
 - **Conversation links:** `ivy://new` and `ivy://conversation/<UUID>` reveal Chat. Links never send messages or run tools; active requests, approvals, tasks and voice sessions block conversation switching.
 
@@ -40,21 +45,30 @@ in the chat timeline when that action starts. Click its disclosure arrow to expa
 | Output | The result or error returned by the action | File contents, or “file not found” |
 
 Use these cards to check progress, understand a failure and see which action produced a result.
-A running card may be waiting for your approval; approve or cancel in the separate approval sheet.
+A running card may be waiting for your approval; review its action preview and choose **Do it** or **Cancel** in the approval sheet or above the companion. Both answer the same pending request. Dragging, opening or hiding the companion never approves an action.
 Expanding a card does not approve or rerun anything. Credential fields are masked and long details are
 clipped with a truncation notice. Detailed cards last for the current session/conversation; saved history
 keeps condensed tool notes rather than the raw arguments and output.
 
 ### Annotation arrow: find something on your screen
 
-Share a window using screen help or the attachment controls, then ask something like **“Where is the
-Export button?”** When Ivy uses its `point_at` tool, an arrow points from the screen edge toward a
+Share a window using screen help or the attachment controls, then ask **“Find the Export button and
+point to it in this shared window.”** Include the capture with that question. When Ivy uses its `point_at`
+tool, an arrow points from the screen edge toward a
 highlighted area, with a short label. The overlay disappears after about six seconds or when replaced
 by another highlight.
 
 This makes screen guidance easier to follow than a written description alone. It uses the last screenshot
 you shared; it does not take another capture or click the target. The overlay lets your clicks pass through,
 so you can interact with the app yourself. If the window moved since the screenshot, share it again.
+
+Each shared capture has its own image ID and pixel dimensions, so Ivy can select the right image when
+several windows are attached. Uploaded files and text-only captures can be discussed but cannot establish
+where an arrow belongs on your current desktop. With Reduce Motion enabled, the arrow is stationary.
+
+If screen capture is denied, use **Open Settings** in the capture error to enable Ivy under Screen &
+System Audio Recording. Reopen Ivy if macOS asks, then choose **Retry Capture**. Retrying only attaches
+the image; review it and send your question explicitly.
 
 ## Requirements
 
@@ -157,7 +171,7 @@ git diff --check
 
 Tests use isolated fixtures for network, credentials and audio. Native interface tests render previews in `/private/tmp/ivy-ui-review`; those tests do not establish behavior on a real microphone, AirPods or another Mac.
 
-The latest 2026-10-03 verification passed **five consecutive runs of 1,173 core tests and 19 native interface tests** (each complete run under 60 seconds). Changed executable lines in this release were **91.4% covered** (458/501), which is a changed-line measure, not total project coverage. The strict incremental build passed without warnings in 0.17 seconds. Hardware, accessibility, performance and release acceptance checks remain outstanding.
+The 2026-10-04 build-2 verification passed **1,182 core tests and 20 native interface tests** (the combined test execution was about 29 seconds). The screen-guidance changes have **90.6% changed executable-line coverage** (163/180), not total project coverage. Strict debug and release builds passed without warnings. Native previews include capture-permission recovery at compact widths and stationary arrows with Reduce Motion. Real Gemini/desktop pointing, hardware, accessibility, performance and broader release acceptance checks still need manual verification.
 
 To package from source:
 

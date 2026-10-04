@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+Local friend-testing package: **1.1.0 (build 2)**. The local `v1.1.0` tag remains the original build 1;
+these follow-up changes have not been published to GitHub.
+
+- Unpackaged companion approval card: pending chat/task and Live tool requests show a bounded action
+  preview with **Do it / Cancel** above the character. These controls answer the same request as the
+  main-window sheet; stale or repeated responses are ignored. The character remains draggable without
+  intercepting review controls, and the panel grows and shrinks around its visible content.
+
+- Unpackaged UI follow-up: compact branded Home and Command Bar headers, shared 20-point card corners,
+  icon wells, roomier navigation and clearer group spacing across Home, Library, Tasks and Settings.
+  Command Bar suggestions fill a draft; its new Send/Open/Close controls retain the existing safety checks.
+  This initial UI refresh has passed layout checks; native glass still needs an in-app visual check.
+
+- Screen guidance now instructs Ivy to inspect shared images and use `point_at` for visible UI targets,
+  with fresh-capture guidance when no usable screen image is available.
+- Chat and Live frames carry attachment IDs and actual image dimensions. Multiple shared captures retain
+  separate desktop mappings; unknown IDs are rejected and non-screen images clear stale mappings.
+- Screen Recording denial shows a readable explanation, Open Settings and an explicit Retry Capture action.
+  Retrying attaches a fresh capture for review without sending it automatically.
+- Annotation arrows animate from the display edge toward the target. Reduce Motion shows a stationary,
+  complete arrow and disables the highlight pulse.
+
 ## 1.1.0 — 2026-10-03 (friend-testing build)
 
 This release packages the implemented work from Phases 8–17. It is not a notarized public release;

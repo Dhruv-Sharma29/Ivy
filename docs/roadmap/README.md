@@ -2,6 +2,12 @@
 
 Current source audit and prioritized backlog: [remaining work](../../tasks/remaining.md). Historical phase checklists may predate the desktop UI and later integration fixes.
 
+Planned next capabilities: [Phase 19 — Computer Control](phase-19-computer-control.md) and
+[Phase 20 — Assistant Workspace](phase-20-assistant-workspace.md). Together they cover Mac input,
+adaptive tasks, a floating panel, generated files, routines, dictation, specialists, a compact overview,
+walkthroughs and connectors. Phase 20 specifies the combined build order. These features are planned,
+not shipped; the first milestone is reviewed Calculator/TextEdit control with a shared floating panel.
+
 v1.0 (Phases 1–7) shipped the core: menu-bar chat on Gemini REST, five SafetyGate-guarded macOS tools,
 ElevenLabs TTS, Gemini Live voice (Kore) with "Hey Ivy" barge-in and idle wake, ⌘⇧Space push-to-talk,
 Keychain credentials, persisted settings/history, hardened-runtime signing and notarization.
@@ -20,8 +26,17 @@ screen-aware, agentic, and with a proper app window of its own.
 | 14 | [Vision & Screen Intelligence](phase-14-vision-screen-intelligence.md) | "What am I looking at?" — screenshots, regions, OCR, images, PDFs; on hotkey only. |
 | 15 | [Agentic Workflows](phase-15-agentic-workflows.md) | Multi-step tasks with a plan, checkpoints, verification and recovery. |
 | 16 | [Developer Mode](phase-16-developer-mode.md) | Git, builds, tests, logs, PRs — a project-aware pair programmer. |
-| 17 | [UI/UX 2.0](phase-17-ui-ux-2.md) | A real Ivy app: chat window + sidebar, an on-screen companion, onboarding — heyclicky-style, Ivy-flavoured. |
+| 17 | [UI/UX 2.0](phase-17-ui-ux-2.md) | A native Ivy workspace: chat window, sidebar, on-screen companion and onboarding. |
 | 18 | [Final Integration & Release](phase-18-final-integration.md) | Regression, audits, signed/notarized v1.1.0, changelog, tag. |
+
+## Planned extensions after the current release
+
+| Phase | Plan | Goal |
+| --- | --- | --- |
+| 19 | [Computer Control](phase-19-computer-control.md) | Scoped Mac clicking/typing, adaptive execution, verification and cancellation. |
+| 20 | [Assistant Workspace](phase-20-assistant-workspace.md) | Eight selected Ivy additions, with shared foundations and milestone releases. |
+
+Both phases are unimplemented. Their numbering does not assign a release version or alter the existing DMG.
 
 ## Recommended order
 

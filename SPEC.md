@@ -268,6 +268,14 @@ public protocol GeminiClientProtocol: Sendable {
 
 ### Desktop app shell (revised 2026-10-02)
 
+- Ivy's visual refresh uses compact header rows, 20-point rounded cards,
+  generous separation between groups, icon wells and restrained indigo emphasis. Home, Library, Tasks,
+  Settings and the floating Command Bar share this rhythm. The Command Bar exposes Close, Open Ivy and
+  Send controls and fits its height to replies/attachments while keeping its top edge stable;
+  quick suggestions only fill its draft. Existing navigation, capture review, voice and
+  approval rules still apply. Solid-surface previews verify layout and text; actual native glass
+  appearance still requires an in-app visual check.
+
 - macOS registers `ivy://new` and `ivy://conversation/<UUID>` for navigation only. Links reveal Chat in the main window, preserve per-conversation drafts, and never send prompts or run tools. Extra parameters and action URLs are ignored. Active requests, approvals, tasks, voice sessions and attachment processing block switching with a visible notice; missing conversations leave the current chat intact.
 
 - Starting a live voice session opens Chat so its conversation and replies are visible.
@@ -316,6 +324,13 @@ public protocol GeminiClientProtocol: Sendable {
 - Real idle, listening, thinking, speaking, working, approval and error states choose distinct poses. Idle includes occasional blinking and a brief greeting on appearance; thinking has a skeptical side-eye, working uses a tablet, and approval folds her arms. Speaking reacts to output audio without inventing speech or progress.
 - Cached sprite frames animate at a modest update rate, with visible idle breathing, blinking and gentle sway. Dragging adds a small lift, bob and tilt; non-idle activity poses remain recognizable and speaking still follows actual audio. Reduce Motion pauses the timeline and uses a static pose even during dragging; status text, captions and real task progress remain available.
 - Drag the character or status pill freely; a four-point threshold distinguishes dragging from clicking. A drag never opens the app. Dropped positions are remembered relative to their display and clamped by visible content bounds, allowing the character and status pill to reach the screen edges despite the panel's transparent margins. Bounds adapt when captions change size; a main-display fallback handles a saved display disappearing. There is no automatic corner snap. The panel is non-activating; a normal click opens Ivy and right-click provides Open Ivy, end voice, stop task and hide actions. Animation stops while hidden. All approvals remain in the existing confirmation flow.
+- A pending chat/task or Live tool approval also appears above the companion as a compact review card
+  with its title, scrollable prompt/action preview and Do it / Cancel buttons. It mirrors the same
+  identity-bound request as the main-window sheet; it never creates or approves another request.
+  Showing, dragging, hiding or clicking the character does not approve. Buttons stay outside the drag
+  surface, and repeated/stale responses are ignored. The panel grows while reviewing and returns to its
+  normal size afterward, keeping its complete visible content inside the selected display. When the
+  companion is disabled/hidden, the existing main-window approval remains available.
 
 ---
 
@@ -429,6 +444,14 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 - Command Bar local ⌘⇧S attaches the front non-Ivy window to the shared reviewed tray. Capture does not send;
   submission is blocked by active voice/tasks, capture work or pending approvals.
 - point_at draws a click-through screen-edge arrow, highlight and label on the relevant display.
+- Screen guidance uses the shared image's actual pixel dimensions and screenshot_id. A request with several
+  eligible captures must identify its target; files and text-only images cannot reuse a previous desktop mapping.
+  Captures are still explicit, and only sending an attachment makes its mapping available to point_at.
+- Permission-denied screen captures show a readable explanation, Open Settings and explicit Retry Capture.
+  Opening Settings never retries or sends a capture automatically.
+- Annotation arrows enter from the screen edge over 0.35 seconds; Reduce Motion shows the complete arrow
+  immediately and removes the highlight pulse. Labels and highlights remain click-through for six seconds.
 - Before production stores load, v1.1 secures a one-time v1.0 durable-data/settings backup. Backup failure
   uses temporary stores with a visible warning, without loading/migrating original data. Keychain is excluded.
-- Marketing version 1.1.0, build 1. Friend-testing packaging preserves old DMGs; notarization remains deferred.
+- Marketing version 1.1.0; build 1 is the original release, build 2 adds the screen-guidance follow-up.
+  Friend-testing packaging preserves old DMGs; notarization remains deferred.

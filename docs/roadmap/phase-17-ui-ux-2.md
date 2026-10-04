@@ -11,22 +11,30 @@ The main window uses a hidden title bar and hidden toolbar to remove the large t
 
 The pixel companion is freely draggable through a native mouse surface on its visible content. Four points of movement distinguishes a drag from a click; only a click opens Ivy. Free placement is persisted relative to the display's usable area, replacing corner snapping. Clamping uses the measured character, status and caption bounds rather than transparent panel margins, so Ivy can reach every edge; caption size changes preserve relative placement. Idle sways and blinks; dragging adds a modest bob and tilt, retaining real activity poses. Reduce Motion keeps all poses still while allowing normal user-controlled dragging.
 
+Pending tool approvals now show a compact review card above the companion with the action title,
+scrollable prompt/preview and **Do it / Cancel**. It mirrors the exact chat/task or Live request shown
+in the main-window sheet; Live takes precedence if both are pending. Rendering, opening, hiding and
+dragging never approve. Approval buttons remain outside the native drag surface; stale responses are
+ignored and each new request resets button state. The panel grows for review, clamps all visible
+content to the display, and returns to its ordinary size afterwards. Task plan review still opens in
+the main window; a task status alone does not create a tool approval.
+
 Turn Ivy from a 380×520 menu-bar popover into a real Mac app people *want* to open: a proper chat window
-with a conversation sidebar, a playful on-screen companion that listens, talks and points at things (in the
-spirit of [heyclicky](https://www.heyclicky.com)), a quick command bar, and an onboarding people remember —
+with a conversation sidebar, an on-screen companion that listens, talks and points at things,
+a quick command bar, and onboarding that introduces the app —
 all unmistakably **Ivy**: sharp, a little sarcastic, green, and alive.
 
-## What we take from heyclicky — and what we make our own
+## Ivy interface capabilities
 
-| heyclicky does | Ivy's version |
+| Capability | Ivy interface |
 |---|---|
-| "an ai buddy that lives on your mac" | Ivy is a *plant* that lives on your Mac: a small vine/leaf companion that grows little leaves as you use it |
+| On-screen companion | Ivy is a *plant* that lives on your Mac: a small vine/leaf companion that grows little leaves as you use it |
 | Hotkey → it sees your screen, you talk out loud | ⌘⇧S "What am I looking at?" (Phase 14) + ⌘⇧Space push-to-talk + "Hey Ivy" |
 | Draws on your screen to point the way | `point_at` annotations drawn as vine-green highlights with a hand-drawn arrow + label |
 | Voice-spawned agents | "Hey Ivy, agent: …" → Phase 15 task card in the window + companion progress ring |
 | Playful faces (^ ω ^), lowercase, personality everywhere | Ivy's leaf-face expressions per state, dry one-liners in empty/error states; tone set by Phase 13 sass slider |
-| "HELLO my name is" onboarding | A name-tag onboarding where Ivy introduces itself — and asks what to call you |
-| Only sees the screen on hotkey; screenshots never stored | Same promise, shown in the UI and enforced by tests (Phase 14) |
+| Introductory onboarding | A name-tag onboarding where Ivy introduces itself — and asks what to call you |
+| Explicit screen sharing | Captures only when requested; screenshots never stored. Shown in the UI and enforced by tests (Phase 14) |
 | Chat is secondary; the buddy is the interface | Both: the companion for in-the-moment help, the app window for real conversations and history |
 
 ## Baseline
@@ -90,7 +98,7 @@ here if the popover is the active surface. Everything else lives in the window.
   the orb) that appears **only when active**: wake word heard, PTT held, Live session, task running, or
   "What am I looking at?". Otherwise hidden (setting: "Show Ivy while idle" off by default).
 - Position: follows a screen corner (drag to any corner/edge, remembered per display) — optionally trails the
-  cursor like heyclicky (setting).
+  cursor (setting).
 - States (leaf-face + ring):
   | State | Face | Ring |
   |---|---|---|

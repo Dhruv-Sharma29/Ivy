@@ -10,10 +10,10 @@ struct Phase7VersionMetadataTests {
     @Test("IvyVersion constants are non-empty and well-formed")
     func versionConstants() {
         #expect(IvyVersion.marketingVersion == "1.1.0")
-        #expect(IvyVersion.buildNumber == "1")
+        #expect(IvyVersion.buildNumber == "2")
         #expect(IvyVersion.bundleIdentifier == "com.ivy.assistant")
         #expect(IvyVersion.appName == "Ivy")
-        #expect(IvyVersion.displayVersion == "v1.1.0 (1)")
+        #expect(IvyVersion.displayVersion == "v1.1.0 (2)")
         #expect(IvyVersion.userAgent.contains("Ivy/1.1.0"))
         #expect(IvyVersion.userAgent.contains("com.ivy.assistant"))
     }
