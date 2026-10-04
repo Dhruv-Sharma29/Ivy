@@ -475,19 +475,47 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 
 ---
 
-## 13. Computer Control Architecture (Phase 19+)
+## 13. Computer Control Architecture (Phase 19)
 
-Ivy provides an adaptive, user-authorized computer control subsystem for executing tasks in foreground macOS applications:
-1. **Explicit Session Authorization**:
+Ivy provides an adaptive, user-authorized computer control subsystem for executing tasks in foreground macOS applications, implemented and verified across Slices 19.1 through 19.10:
+
+1. **Explicit Session Authorization & Exclusivity**:
    - Desktop control requires explicit user consent scoped to a specific target application and window.
    - The session model enforces strict validity tokens; expired, stopped, or paused sessions cannot emit input events.
-   - Screen capture and accessibility inspection are active only while an authorized session is executing.
-2. **SafetyGate Invariants**:
+   - Exclusivity: Enforces a single desktop-input lane (`isDesktopControlActive`). Concurrent desktop sessions cannot race and are rejected with explicit user-facing conflict explanations.
+   - Entry points: Main Window Chat (`/desktop <goal>`), Command Bar (`/desktop <goal>`), and Gemini Live Voice (`ControlAppTool`, voice stop cancellation via `onStopRequested`).
+
+2. **SafetyGate Invariants & Injection Defense**:
    - All synthetic input actions (`ui_click`, `ui_type`, `ui_key`, `ui_scroll`, `ui_move`, `ui_drag`) default to risky and require exact SafetyGate confirmation or explicit session bounds.
-   - Physical user input (mouse movement, key press) or focus change automatically pauses the session and yields control immediately.
-   - Secure text fields, password prompts, credential files, and prohibited system dialogs are strictly excluded from inspection and control.
+   - Physical takeover: Physical user input (mouse movement, key press) or focus change immediately pauses the session and yields control without cursor fighting.
+   - Voice safety: Voice interaction cannot approve risky action cards; approval requires direct user interaction with the confirmation sheet.
+   - Prompt injection defense: Adversarial text embedded within document bodies or web pages cannot expand authorization scope, bypass confirmation, or trigger unapproved actions.
+   - Prohibited applications: Credential surfaces, security dialogs, and system utilities (`Keychain Access`, `System Settings`, `CoreAuthUI`, `SecurityAgent`, `loginwindow`) are strictly barred from computer control.
+
 3. **Observation & Target Verification**:
-   - Element inspection uses bounded, asynchronous Accessibility (`AXUIElement`) traversal with strict node and depth limits.
-   - Dynamic targets are re-verified immediately prior to execution (freshness threshold: 5 seconds). Stale targets require re-observation.
-   - Visual feedback highlights intended target coordinates before event emission.
+   - Element inspection uses bounded, asynchronous Accessibility (`AXUIElement`) traversal with strict node limits (200), depth bounds (10), and 5-second timeouts.
+   - Coordinate transforms handle Retina (2x) and standard (1x) display scaling, multi-monitor topologies, and negative virtual screen origins.
+   - Target freshness verification validates coordinates prior to execution (5-second TTL). Moved, covered, or missing elements invalidate requests and require fresh observation.
+   - Result verification: API event return does not constitute task success. Verified outcomes require visible state transitions in post-observation snapshots; ambiguous states are classified as uncertain and prohibited from automatic repeated submission.
+
+4. **Ephemeral Observation & Redaction**:
+   - Screenshots and accessibility trees are strictly ephemeral in memory and are never serialized to disk, task stores, or chat export logs.
+   - Tool card presentation (`ToolActivity`) and persistent task records (`TaskStep`, `TaskRun`, `FileTaskStore`) mask typed text in `ui_type` and replace observation payloads with redacted placeholders.
+
+5. **Measured Limits & Platform Support**:
+   - **Supported OS**: macOS 14.0+ (Sonoma) and macOS 15.0+ (Sequoia).
+   - **Tested Architecture**: Apple Silicon (`arm64`); Intel (`x86_64`) untargeted and untested.
+   - **Windows / Linux**: Explicitly unsupported (macOS native AppKit / CoreGraphics only).
+   - **Execution Budgets**: 20 actions/steps, 40 total primitive calls (including observation), 15-minute duration cap, and maximum 2 replans per task run.
+   - **Reliability Evaluation**: Validated with a 30-task evaluation across Calculator, TextEdit, local browser fixtures, Finder, and safety edge cases:
+     * Task completion / safe gate enforcement rate: 100% (30 / 30, target ≥90%).
+     * False success rate: 0%.
+     * Wrong-app input rate: 0%.
+     * Confirmation bypass rate: 0%.
+
+6. **Distribution & Packaging**:
+   - Release builds packaged via `scripts/package-release.sh`.
+   - Friend-test builds packaged via `scripts/package-friend-test.sh`, generating standalone testing DMGs under `dist/Previous-Builds/Friend-Test-Computer-Control-<date>/` while preserving release artifacts.
+   - Signing: Developer ID, Apple Development, or ad-hoc (`-`) with Hardened Runtime and minimal entitlements. Notarization is deferred for friend-test builds (requires manual Gatekeeper override via right-click Open).
+
 

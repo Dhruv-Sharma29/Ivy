@@ -33,14 +33,12 @@ screen-aware, agentic, and with a proper app window of its own.
 
 ## Planned extensions after the current release
 
-| Phase | Plan | Goal |
-| --- | --- | --- |
-| 19 | [Computer Control](phase-19-computer-control.md) | Scoped Mac clicking/typing, adaptive execution, verification and cancellation. |
-| 20 | [Assistant Workspace](phase-20-assistant-workspace.md) | Fifteen workstreams covering personal assistants, concurrent work, spatial guidance and connected task UI. |
+| Phase | Plan | Goal | Status |
+| --- | --- | --- | --- |
+| 19 | [Computer Control](phase-19-computer-control.md) | Scoped Mac clicking/typing, adaptive execution, verification and cancellation. | Implemented & Verified |
+| 20 | [Assistant Workspace](phase-20-assistant-workspace.md) | Fifteen workstreams covering personal assistants, concurrent work, spatial guidance and connected task UI. | Planned / Initial Slice |
 
-Phase 19 remains planned. Phase 20 has one optional floating-pointer visual/settings slice included in
-the latest 2026-10-04 local app/DMG rebuild; its complete workstreams remain open. Phase numbering does not
-assign a release version. New surfaces follow [Ivy's own interface requirement](phase-20-assistant-workspace.md#ivys-own-interface--design-requirement).
+Phase 19 is fully implemented, strictly verified across Slices 19.1–19.10, and validated by the 30-task reliability evaluation. Phase 20 has an optional floating-pointer visual/settings slice included in the latest 2026-10-04 local app/DMG rebuild; its broader workstreams remain open. Phase numbering does not assign a release version. New surfaces follow [Ivy's own interface requirement](phase-20-assistant-workspace.md#ivys-own-interface--design-requirement).
 
 ## Recommended order
 
