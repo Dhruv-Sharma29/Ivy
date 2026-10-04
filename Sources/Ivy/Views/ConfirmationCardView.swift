@@ -4,17 +4,19 @@ import IvyCore
 public struct ConfirmationCardView: View {
     public let request: ConfirmationRequest
     public let onConfirm: (Bool) -> Void
+    private let compact: Bool
     @State private var hasResponded: Bool = false
 
-    public init(request: ConfirmationRequest, onConfirm: @escaping (Bool) -> Void) {
+    public init(request: ConfirmationRequest, compact: Bool = false, onConfirm: @escaping (Bool) -> Void) {
         self.request = request
+        self.compact = compact
         self.onConfirm = onConfirm
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: compact ? 12 : 16) {
             HStack(spacing: 12) {
-                IvyAppIconView().frame(width: 36, height: 36)
+                IvyAppIconView().frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Approval required")
@@ -56,51 +58,68 @@ public struct ConfirmationCardView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 180)
+            .frame(maxHeight: compact ? 120 : 180)
 
             Divider()
 
-            HStack(spacing: 10) {
-                Text("Nothing runs until you approve.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 12)
-                Button(role: .cancel) {
-                    guard !hasResponded else { return }
-                    hasResponded = true
-                    onConfirm(false)
-                } label: {
-                    Text("Cancel")
-                        .frame(minWidth: 64)
+            if compact {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Nothing runs until you approve.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Spacer(minLength: 0)
+                        decisionButtons
+                    }
                 }
-                .ivyGlassButtonStyle()
-                .keyboardShortcut(.escape, modifiers: [])
-                .disabled(hasResponded)
-                .accessibilityHint("Refuses this action. Nothing will run.")
-                .accessibilityIdentifier("ivy.approval.cancel")
-
-                Button {
-                    guard !hasResponded else { return }
-                    hasResponded = true
-                    onConfirm(true)
-                } label: {
-                    Text("Do it")
-                        .bold()
-                        .frame(minWidth: 64)
+            } else {
+                HStack(spacing: 10) {
+                    Text("Nothing runs until you approve.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 12)
+                    decisionButtons
                 }
-                .ivyGlassButtonStyle(prominent: true)
-                .tint(IvyTheme.leaf)
-                // Deliberate chord, not plain Return: a stray Return while typing must never approve a risky action.
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(hasResponded)
-                .accessibilityLabel("Do it")
-                .accessibilityHint("Approves and runs this action. Shortcut: Command Return.")
-                .accessibilityIdentifier("ivy.approval.confirm")
             }
         }
-        .padding(20)
+        .padding(compact ? 14 : 20)
         .tint(IvyTheme.leaf)
+    }
+
+    private var decisionButtons: some View {
+        Group {
+            Button(role: .cancel) {
+                guard !hasResponded else { return }
+                hasResponded = true
+                onConfirm(false)
+            } label: {
+                Text("Cancel")
+                    .frame(minWidth: 64)
+            }
+            .ivyGlassButtonStyle()
+            .keyboardShortcut(.escape, modifiers: [])
+            .disabled(hasResponded)
+            .accessibilityHint("Refuses this action. Nothing will run.")
+            .accessibilityIdentifier("ivy.approval.cancel")
+
+            Button {
+                guard !hasResponded else { return }
+                hasResponded = true
+                onConfirm(true)
+            } label: {
+                Text("Do it")
+                    .bold()
+                    .frame(minWidth: 64)
+            }
+            .ivyGlassButtonStyle(prominent: true)
+            .tint(IvyTheme.leaf)
+            // Deliberate chord, not plain Return: a stray Return while typing must never approve a risky action.
+            .keyboardShortcut(.return, modifiers: [.command])
+            .disabled(hasResponded)
+            .accessibilityLabel("Do it")
+            .accessibilityHint("Approves and runs this action. Shortcut: Command Return.")
+            .accessibilityIdentifier("ivy.approval.confirm")
+        }
     }
 }
 

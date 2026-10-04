@@ -509,8 +509,9 @@ struct Phase9CompactionTests {
         for i in 1...10 { await brain.send("q\(i)"); await brain.waitForMaintenance() }
         #expect(roomy.summaryRequests.isEmpty)
         #expect(roomy.turns.last?.history.count == 19)
-        // No compaction adds context here; the only additional data is the new automatic macOS region.
-        #expect(roomy.turns.last?.systemPrompt == SystemPromptBuilder.build(profile: PersonalizationProfile(), region: .current))
+        // No summary is added: only the composed preferences/region and shared screen-guidance capability.
+        #expect(roomy.turns.last?.systemPrompt == ScreenPointingGuidance.appending(to:
+            SystemPromptBuilder.build(profile: PersonalizationProfile(), region: .current)))
         #expect(roomy.turns.last?.systemPrompt.hasPrefix(IvyPersona.systemPrompt) == true)
         #expect(roomy.turns.last?.systemPrompt.contains("Time zone: \(TimeZone.autoupdatingCurrent.identifier)") == true)
 

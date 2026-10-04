@@ -13,8 +13,8 @@ struct SettingsCard<Content: View>: View {
                 Image(systemName: symbol)
                     .font(.body.weight(.medium))
                     .foregroundStyle(IvyTheme.sectionAccent)
-                    .frame(width: 28, height: 28)
-                    .background(IvyTheme.sectionAccent.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+                    .frame(width: 32, height: 32)
+                    .background(IvyTheme.sectionAccent.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.headline)
@@ -28,7 +28,7 @@ struct SettingsCard<Content: View>: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .ivyGlass(cornerRadius: 16)
+        .ivyGlass(cornerRadius: IvyTheme.cardRadius)
     }
 }
 

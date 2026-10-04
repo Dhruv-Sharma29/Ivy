@@ -14,21 +14,29 @@ struct IvyHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 hero
-                Text("Quick actions").font(.headline)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                Text("Start something").font(.headline)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 14)], spacing: 14) {
                     ForEach(HomeShortcut.allCases) { shortcut in
                         Button { onPrompt(shortcut.prompt) } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Image(systemName: shortcut.symbol).font(.title3).foregroundStyle(IvyTheme.moss)
-                                Text(shortcut.rawValue).font(.body.weight(.semibold)).lineLimit(1)
-                                Text(shortcut.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            HStack(alignment: .center, spacing: 12) {
+                                Image(systemName: shortcut.symbol).font(.system(size: 18, weight: .medium))
+                                    .foregroundStyle(IvyTheme.moss).frame(width: 38, height: 38)
+                                    .background(IvyTheme.moss.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(shortcut.rawValue).font(.body.weight(.semibold)).lineLimit(1)
+                                    Text(shortcut.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.secondary)
+                                    .accessibilityHidden(true)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 72, maxHeight: 72, alignment: .leading)
-                            .padding(14)
-                            .ivyGlass(cornerRadius: 16, interactive: true)
+                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                            .padding(16)
+                            .ivyGlass(cornerRadius: IvyTheme.cardRadius, interactive: true)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(IvyNavigationButtonStyle())
                         .disabled(brain.isThinking || brain.pendingConfirmation != nil || tasks.run?.isActive == true)
                     }
                 }
@@ -50,9 +58,16 @@ struct IvyHomeView: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 12) {
+                IvyAppIconView().frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ivy").font(.title3.weight(.semibold))
+                    Text("Your personal assistant").font(.callout).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
             introduction
-            Divider()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 8)
@@ -60,8 +75,8 @@ struct IvyHomeView: View {
 
     private var introduction: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("How can I help?")
-                .font(.system(size: 28, weight: .semibold))
+            Text("What can I help with?")
+                .font(.system(size: 26, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
             Text("Plan tasks, work with files, and get answers on your Mac.")
                 .font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -70,6 +85,8 @@ struct IvyHomeView: View {
                 Text(brain.isGeminiKeyConfigured ? "Connected and ready" : "Connect Gemini to get started")
             }
             .font(.callout).foregroundStyle(.secondary)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(IvyTheme.moss.opacity(0.08), in: Capsule())
             if !brain.isGeminiKeyConfigured {
                 SettingsLink { Text("Connect Gemini") }.ivyGlassButtonStyle(prominent: true)
             }
@@ -110,7 +127,7 @@ struct IvyHomeView: View {
                     .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(IvyNavigationButtonStyle())
             }
         }
     }

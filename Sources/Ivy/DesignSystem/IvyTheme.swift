@@ -12,7 +12,7 @@ enum IvyTheme {
     static let riskAmber = Color.orange
     static let dangerRed = Color.red
 
-    static let cardRadius: CGFloat = 12
+    static let cardRadius: CGFloat = 20
     static let bubbleRadius: CGFloat = 16
     static let codeRadius: CGFloat = 8
 

@@ -145,12 +145,14 @@ struct LibraryWorkspaceView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(item.title).font(.body.weight(.medium)).lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading).frame(height: 36, alignment: .topLeading)
-                            Image(systemName: item.symbol).font(.system(size: 28)).foregroundStyle(IvyTheme.moss)
-                                .frame(maxWidth: .infinity, minHeight: 40).accessibilityHidden(true)
+                            Image(systemName: item.symbol).font(.system(size: 26)).foregroundStyle(IvyTheme.moss)
+                                .frame(width: 48, height: 48)
+                                .background(IvyTheme.moss.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                                .frame(maxWidth: .infinity, minHeight: 54).accessibilityHidden(true)
                             Text(item.detail).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(height: 142, alignment: .top)
+                        .frame(height: 158, alignment: .top)
                     }
                 }
                 .contentShape(Rectangle())
@@ -160,7 +162,7 @@ struct LibraryWorkspaceView: View {
             .help(item.title)
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(item.kind)
+                    Text(item.kind).fontWeight(.medium)
                     Text(item.date, format: .dateTime.month(.abbreviated).day().hour().minute())
                 }
                 .font(.caption).foregroundStyle(.secondary)
@@ -171,7 +173,7 @@ struct LibraryWorkspaceView: View {
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .ivyGlass(cornerRadius: 16, interactive: true)
+        .ivyGlass(cornerRadius: IvyTheme.cardRadius, interactive: true)
     }
 
     private func cardText(_ item: LibraryItem) -> some View {

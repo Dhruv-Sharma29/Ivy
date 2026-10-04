@@ -138,6 +138,12 @@ struct LayoutTests {
                                    onPrompt: { _ in }, onOpenConversation: {}, onCapture: {})
             try await snapshot(home.ivyWindowBackground(), scheme: scheme, size: NSSize(width: 860, height: 1000),
                                url: directory.appendingPathComponent("home-\(name).png"))
+            try await snapshot(home.environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas),
+                               scheme: scheme, size: NSSize(width: 860, height: 1000),
+                               url: directory.appendingPathComponent("home-opaque-\(name).png"))
+            try await snapshot(home.environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas),
+                               scheme: scheme, size: NSSize(width: 350, height: 1050),
+                               url: directory.appendingPathComponent("home-compact-\(name).png"))
             for destination in WorkspaceDestination.allCases where destination != .home && destination != .chat {
                 let page = ChatPaneView(brain: environment.brain, voiceManager: environment.voiceManager,
                                        liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
@@ -145,6 +151,9 @@ struct LayoutTests {
                                        library: environment.library, destination: destination)
                 try await snapshot(page, scheme: scheme, size: NSSize(width: 650, height: 740),
                                    url: directory.appendingPathComponent("workspace-\(destination.id)-\(name).png"))
+                try await snapshot(page.environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas),
+                                   scheme: scheme, size: NSSize(width: 650, height: 740),
+                                   url: directory.appendingPathComponent("workspace-opaque-\(destination.id)-\(name).png"))
             }
             for category in [LibraryCategory.all, .pinned, .reports, .archived] {
                 let libraryPage = LibraryWorkspaceView(library: environment.library, tasks: environment.tasks, blocked: false,
@@ -285,6 +294,39 @@ struct LayoutTests {
         approvalView.respond(to: .instructions, approved: false)
         approvalView.respond(to: .approval(longRequest, live: true), approved: false)
         await environment.shutdown()
+    }
+
+    @Test("companion approvals remain reviewable above the character without intercepting controls")
+    func companionApprovals() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let requests = [
+            ConfirmationRequest(toolName: "run_applescript", title: "AppleScript Execution",
+                prompt: "Review this action before running it.",
+                detail: "tell application \"Safari\"\n    activate\n    open location \"https://www.youtube.com\"\nend tell"),
+            ConfirmationRequest(toolName: "file_op", title: "Write a file with a long title for review",
+                prompt: String(repeating: "Existing content may be replaced. ", count: 20),
+                detail: String(repeating: "Long action preview\n", count: 100)),
+        ]
+        for (index, request) in requests.enumerated() {
+            let presentation = CompanionPresentation()
+            presentation.mood = .needsApproval
+            presentation.approval = CompanionApproval(request: request, isLive: false)
+            var responses: [Bool] = []
+            var visibleBounds: CGRect = .zero
+            let view = CompanionView(presentation: presentation, meter: AudioLevelMeter(),
+                onOpen: {}, onEndVoice: {}, onStopTask: {}, onHide: {}, motionDisabled: true,
+                onContentLayout: { visibleBounds = $0 }, onConfirm: { _, answer in responses.append(answer) })
+            let size = CompanionView.panelSize(hasApproval: true)
+            for scheme in [ColorScheme.light, .dark] {
+                try await snapshot(view.environment(\.ivyOpaqueSurfaces, true), scheme: scheme, size: size,
+                    url: directory.appendingPathComponent("companion-approval-\(index)-\(scheme).png"))
+                #expect(CGRect(origin: .zero, size: size).contains(visibleBounds))
+                #expect(visibleBounds.width >= 344 && visibleBounds.height >= 425,
+                        "placement must include the review card, not only the character")
+                #expect(responses.isEmpty, "rendering or layout cannot approve an action")
+            }
+        }
     }
 
     @Test("native companion layout reports visible bounds without transparent panel margins")
@@ -596,6 +638,13 @@ struct LayoutTests {
             GeminiLiveVoiceCoordinator(session: MockGeminiLiveSession(), audioCapture: MockAudioCapture(), audioPlayer: MockLiveAudioPlayer())
         }
         let session = CommandBarSession(brain: environment.brain, tray: environment.attachments, tasks: environment.tasks, live: environment.liveCoordinator)
+        let originalFrame = CGRect(x: 120, y: 400, width: 560, height: 220)
+        let expandedFrame = CommandBarController.fittedFrame(originalFrame, contentHeight: 390.2, maximumHeight: 700)
+        #expect(expandedFrame.height == 391 && expandedFrame.maxY == originalFrame.maxY)
+        #expect(expandedFrame.minX == originalFrame.minX && expandedFrame.width == originalFrame.width)
+        #expect(CommandBarController.fittedFrame(originalFrame, contentHeight: 900, maximumHeight: 500).height == 500)
+        #expect(CommandBarController.fittedFrame(originalFrame, contentHeight: 40, maximumHeight: 500).height == 120)
+        #expect(CommandBarController.fittedFrame(originalFrame, contentHeight: .nan, maximumHeight: 500) == originalFrame)
         let geometry = try #require(AnnotationGeometry(screen: CGRect(x: -800, y: 0, width: 800, height: 600),
                                                       target: CGRect(x: -600, y: 200, width: 180, height: 100)))
         let proposal = DiffDraftProposal(diff: diff)
@@ -609,13 +658,59 @@ struct LayoutTests {
             try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,
                 tray: environment.attachments, live: environment.liveCoordinator, session: session, onClose: {}, onContinueInWindow: {}),
                 scheme: scheme, size: NSSize(width: 580, height: 320), url: directory.appendingPathComponent("release-command-bar-\(scheme).png"))
+            try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,
+                tray: environment.attachments, live: environment.liveCoordinator, session: session, onClose: {}, onContinueInWindow: {})
+                .environment(\.ivyOpaqueSurfaces, true), scheme: scheme, size: NSSize(width: 580, height: 320),
+                url: directory.appendingPathComponent("command-bar-opaque-\(scheme).png"))
             try await snapshot(AnnotationView(label: "Export menu", geometry: geometry).background(IvyTheme.canvas),
                 scheme: scheme, size: NSSize(width: 800, height: 600), url: directory.appendingPathComponent("release-pointer-\(scheme).png"))
             try await snapshot(ChatFeedView(messages: [ChatMessage(role: .user, text: "Read notes"), ChatMessage(role: .model, text: "Done.")],
                 activity: activity, voice: environment.voiceManager, onApplyDiff: nil),
                 scheme: scheme, size: NSSize(width: 600, height: 560), url: directory.appendingPathComponent("release-tool-timeline-\(scheme).png"))
         }
+        session.text = "Give me a short answer"
+        #expect(await session.send())
+        var measuredHeight: CGFloat = 0
+        try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,
+            tray: environment.attachments, live: environment.liveCoordinator, session: session, onClose: {}, onContinueInWindow: {},
+            onContentHeight: { measuredHeight = $0 }).environment(\.ivyOpaqueSurfaces, true),
+            scheme: .dark, size: NSSize(width: 580, height: 460),
+            url: directory.appendingPathComponent("command-bar-reply-opaque-dark.png"))
+        #expect(measuredHeight > 320 && measuredHeight < 460, "the actual reply layout grows beyond the old fixed panel")
         await environment.shutdown()
+    }
+
+    @Test("capture permission recovery wraps at compact widths; reduced-motion arrows are immediately complete")
+    func screenGuidanceControls() async throws {
+        struct DeniedCapture: ScreenContextCapturing {
+            func frontmostOtherApp() async -> String? { "Editor" }
+            func capture(_ target: CaptureTarget) async throws -> CapturedScreen { throw VisionError.screenPermissionDenied }
+        }
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let tray = AttachmentTray(capturer: DeniedCapture())
+        #expect(await tray.capture(.frontWindow) == nil)
+        #expect(tray.needsScreenPermission && tray.canRetryCapture)
+        let geometry = try #require(AnnotationGeometry(screen: CGRect(x: 0, y: 0, width: 800, height: 600),
+                                                       target: CGRect(x: 180, y: 250, width: 120, height: 60)))
+        var arrow = AnnotationArrow(geometry: geometry, progress: 0)
+        #expect(arrow.animatableData == 0)
+        arrow.animatableData = 1
+        var endpoints: [CGPoint] = []
+        arrow.path(in: CGRect(x: 0, y: 0, width: 800, height: 600)).forEach {
+            if case .line(let point) = $0 { endpoints.append(point) }
+        }
+        #expect(endpoints.contains(geometry.end))
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(320), 580] {
+                try await snapshot(AttachmentBar(tray: tray).background(IvyTheme.canvas), scheme: scheme,
+                                   size: NSSize(width: width, height: 150),
+                                   url: directory.appendingPathComponent("capture-permission-\(Int(width))-\(scheme).png"))
+            }
+            try await snapshot(AnnotationView(label: "Export", geometry: geometry, forceReduceMotion: true).background(IvyTheme.canvas),
+                               scheme: scheme, size: NSSize(width: 800, height: 600),
+                               url: directory.appendingPathComponent("pointer-reduced-motion-\(scheme).png"))
+        }
     }
 
     private func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, url: URL,
@@ -683,6 +778,10 @@ struct LayoutTests {
         // The native drag surface must cover both the character and pill, rather than collapsing to zero size.
         func verifyDragSurfaces(_ view: NSView) {
             if let surface = view as? CompanionDragSurface {
+                if !surface.isInteractive {
+                    #expect(surface.hitTest(.zero) == nil, "layout measurement must not intercept approval buttons")
+                    return
+                }
                 #expect(surface.bounds.width >= 96 && surface.bounds.height >= 120)
                 let center = CGPoint(x: surface.bounds.midX, y: surface.bounds.midY)
                 // AppKit hitTest expects the point in the receiver's superview coordinates.

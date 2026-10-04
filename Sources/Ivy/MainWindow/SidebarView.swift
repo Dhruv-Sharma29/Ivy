@@ -85,16 +85,16 @@ struct SidebarView: View {
             .accessibilityLabel("Settings")
         }
         .padding(.vertical, 16)
-        .frame(width: 52)
+        .frame(width: 56)
     }
 
     private func railIcon(_ symbol: String, selected: Bool) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 18, weight: selected ? .semibold : .regular))
             .foregroundStyle(selected ? Color.primary : Color.secondary)
-            .frame(width: 36, height: 36)
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-            .ivyGlass(cornerRadius: 12, interactive: true, enabled: selected)
+            .frame(width: 40, height: 40)
+            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .ivyGlass(cornerRadius: 14, interactive: true, enabled: selected)
     }
 
     private var taskPane: some View {
@@ -174,7 +174,10 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     IvyAppIconView().frame(width: 24, height: 24)
-                    Text("Ivy").font(.system(size: 17, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Ivy").font(.system(size: 17, weight: .semibold))
+                        Text("Personal assistant").font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer(minLength: 4)
                     Button {
                         searchVisible.toggle()
@@ -214,7 +217,7 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 14)
             .padding(.top, 14)
-            .padding(.bottom, 8)
+            .padding(.bottom, 16)
             conversationList
             Divider()
             ArchivedFolder(isExpanded: $archiveExpanded) {

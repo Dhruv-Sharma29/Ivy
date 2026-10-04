@@ -36,8 +36,8 @@ struct TasksWorkspaceView: View {
                     }
                 } else {
                     VStack(spacing: 12) {
-                        Image(systemName: "checklist").font(.system(size: 34)).foregroundStyle(IvyTheme.moss)
-                            .frame(width: 72, height: 72).ivyGlass(cornerRadius: 22)
+                        Image(systemName: "checklist").font(.system(size: 30)).foregroundStyle(IvyTheme.moss)
+                            .frame(width: 64, height: 64).ivyGlass(cornerRadius: IvyTheme.cardRadius)
                         Text("What can Ivy take off your list?").font(.title2.weight(.medium)).multilineTextAlignment(.center)
                         Text("Start with a goal. Ivy helps you plan the steps and review the result.")
                             .foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -52,7 +52,9 @@ struct TasksWorkspaceView: View {
                             Button { onPrompt(starter.prompt) } label: {
                                 HStack(alignment: .top, spacing: 14) {
                                     Image(systemName: starter.symbol).font(.system(size: 20))
-                                        .foregroundStyle(IvyTheme.moss).frame(width: 26, height: 28)
+                                        .foregroundStyle(IvyTheme.moss).frame(width: 38, height: 38)
+                                        .background(IvyTheme.moss.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                                        .accessibilityHidden(true)
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text(starter.rawValue).font(.body.weight(.medium)).foregroundStyle(.primary)
                                         Text(starter.detail).font(.callout).foregroundStyle(.secondary)
@@ -61,8 +63,8 @@ struct TasksWorkspaceView: View {
                                     Spacer(minLength: 0)
                                 }
                                 .padding(18).frame(maxWidth: .infinity, minHeight: 106, alignment: .topLeading)
-                                .contentShape(RoundedRectangle(cornerRadius: 16))
-                                .ivyGlass(cornerRadius: 16, interactive: true)
+                                .contentShape(RoundedRectangle(cornerRadius: IvyTheme.cardRadius))
+                                .ivyGlass(cornerRadius: IvyTheme.cardRadius, interactive: true)
                             }
                             .buttonStyle(IvyNavigationButtonStyle()).disabled(blocked)
                             .accessibilityHint("Open a draft in Chat")
@@ -117,7 +119,7 @@ struct TaskReportView: View {
             }
         }
         .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-        .ivyGlass(cornerRadius: 18)
+        .ivyGlass(cornerRadius: IvyTheme.cardRadius)
     }
 
     private func stepSymbol(_ status: StepStatus) -> String {
