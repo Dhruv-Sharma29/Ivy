@@ -14,75 +14,20 @@ public struct ConfirmationCardView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 12 : 16) {
-            HStack(spacing: 12) {
-                IvyAppIconView().frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Approval required")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(request.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "lock.shield")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(request.prompt)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if !request.detail.isEmpty {
-                        Text(request.detail)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.primary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                            )
-                    }
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(request.title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: compact ? 120 : 180)
-
-            Divider()
-
-            if compact {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Nothing runs until you approve.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack(spacing: 10) {
-                        Spacer(minLength: 0)
-                        decisionButtons
-                    }
-                }
-            } else {
-                HStack(spacing: 10) {
-                    Text("Nothing runs until you approve.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 12)
-                    decisionButtons
-                }
+                .help([request.title, request.prompt, request.detail].joined(separator: "\n\n"))
+                .accessibilityIdentifier("ivy.approval.reason")
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                decisionButtons
             }
         }
-        .padding(compact ? 14 : 20)
+        .padding(12)
         .tint(IvyTheme.leaf)
     }
 
@@ -94,7 +39,7 @@ public struct ConfirmationCardView: View {
                 onConfirm(false)
             } label: {
                 Text("Cancel")
-                    .frame(minWidth: 64)
+                    .frame(minWidth: compact ? 48 : 64)
             }
             .ivyGlassButtonStyle()
             .keyboardShortcut(.escape, modifiers: [])
@@ -109,7 +54,7 @@ public struct ConfirmationCardView: View {
             } label: {
                 Text("Do it")
                     .bold()
-                    .frame(minWidth: 64)
+                    .frame(minWidth: compact ? 48 : 64)
             }
             .ivyGlassButtonStyle(prominent: true)
             .tint(IvyTheme.leaf)
@@ -123,14 +68,14 @@ public struct ConfirmationCardView: View {
     }
 }
 
-/// A bounded native sheet keeps actions visible while long requests scroll independently.
+/// The native sheet shares the companion's reason and two explicit decision controls.
 struct ConfirmationSheetView: View {
     let request: ConfirmationRequest
     let onConfirm: (Bool) -> Void
 
     var body: some View {
         ConfirmationCardView(request: request, onConfirm: onConfirm)
-            .frame(width: 500, height: 340)
+            .frame(width: 280, height: 100)
             .interactiveDismissDisabled()
             .accessibilityIdentifier("ivy.approval")
     }

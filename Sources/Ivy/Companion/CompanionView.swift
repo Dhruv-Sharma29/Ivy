@@ -26,21 +26,12 @@ struct CompanionView: View {
 
     static let panelSize = CGSize(width: 280, height: 224)
     static func panelSize(hasApproval: Bool) -> CGSize {
-        hasApproval ? CGSize(width: 360, height: 480) : panelSize
+        hasApproval ? CGSize(width: 280, height: 240) : panelSize
     }
     private var mood: CompanionMood { presentation.mood }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
-            if let approval = presentation.approval {
-                ConfirmationCardView(request: approval.request, compact: true) { approved in
-                    onConfirm(approval, approved)
-                }
-                .frame(width: 344, height: 300)
-                .ivyGlass(cornerRadius: IvyTheme.cardRadius)
-                .id(approval.id)
-                .accessibilityIdentifier("ivy.companion.approval")
-            }
             if !presentation.caption.isEmpty, mood == .speaking {
                 bubble(presentation.caption, lines: 3)
             }
@@ -48,18 +39,20 @@ struct CompanionView: View {
             Button(action: onOpen) {
                 VStack(spacing: 5) {
                     CompanionSpriteView(mood: mood, meter: meter, motionDisabled: motionDisabled, isMoving: presentation.isMoving)
-                    VStack(spacing: 4) {
-                        Label(status, systemImage: symbol)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(statusColor)
-                        if case .working(let progress) = mood {
-                            ProgressView(value: max(0, min(1, progress)))
-                                .progressViewStyle(.linear).frame(width: 82)
-                                .tint(IvyTheme.leaf).accessibilityHidden(true)
+                    if presentation.approval == nil {
+                        VStack(spacing: 4) {
+                            Label(status, systemImage: symbol)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(statusColor)
+                            if case .working(let progress) = mood {
+                                ProgressView(value: max(0, min(1, progress)))
+                                    .progressViewStyle(.linear).frame(width: 82)
+                                    .tint(IvyTheme.leaf).accessibilityHidden(true)
+                            }
                         }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .ivyGlass(cornerRadius: 100, interactive: true)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .ivyGlass(cornerRadius: 100, interactive: true)
                 }
                 .contentShape(Rectangle())
             }
@@ -80,6 +73,15 @@ struct CompanionView: View {
                 CompanionDragHandle(onOpen: onOpen, onEndVoice: onEndVoice, onStopTask: onStopTask, onHide: onHide,
                                     onMoving: { presentation.isMoving = $0 }, onDrop: onDrop)
                     .accessibilityHidden(true)
+            }
+            if let approval = presentation.approval {
+                ConfirmationCardView(request: approval.request, compact: true) { approved in
+                    onConfirm(approval, approved)
+                }
+                .frame(width: 240, height: 96)
+                .ivyGlass(cornerRadius: IvyTheme.cardRadius)
+                .id(approval.id)
+                .accessibilityIdentifier("ivy.companion.approval")
             }
         }
         // Track the visible stack before padding and the fixed transparent panel frame.

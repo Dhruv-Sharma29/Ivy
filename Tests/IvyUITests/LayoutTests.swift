@@ -11,11 +11,12 @@ import os
 struct LayoutTests {
     @Test("settings search finds voice, credentials and permission sections")
     func settingsSearch() {
-        #expect(SettingsPane.allCases.count == 9)
+        #expect(SettingsPane.allCases.count == 10, "Pointer has its own settings page")
         #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("Gemini") } == [.keys])
         #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("microphone") } == [.permissions])
         #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("Hey Ivy") } == [.voice])
-        #expect(Set(SettingsPane.allCases.map(\.symbol)).count == 9)
+        #expect(Set(SettingsPane.allCases.map(\.symbol)).count == 10)
+        #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("cursor") } == [.pointer])
         #expect(!IvyAppDelegate().applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
     }
 
@@ -194,8 +195,23 @@ struct LayoutTests {
                                                   wakeWord: environment.wakeWord, initialPane: pane)
                 try await snapshot(settings, scheme: scheme, size: NSSize(width: 800, height: 600),
                                    url: directory.appendingPathComponent("settings-\(pane.id)-\(name).png"))
+                if pane == .pointer {
+                    try await snapshot(settings.environment(\.ivyOpaqueSurfaces, true), scheme: scheme,
+                                       size: NSSize(width: 800, height: 600),
+                                       url: directory.appendingPathComponent("settings-pointer-opaque-\(name).png"))
+                }
             }
             let voice = VoiceSettingsSection(settings: environment.settings, wakeWord: environment.wakeWord, onPreviewVoice: {})
+            let pointerPreviews = HStack(spacing: 28) {
+                ForEach(FloatingPointerColor.allCases, id: \.self) { color in
+                    VStack(spacing: 8) {
+                        FloatingPointerView(color: color)
+                        Text(color.title).font(.callout)
+                    }
+                }
+            }.padding(20).background(IvyTheme.canvas)
+            try await snapshot(pointerPreviews, scheme: scheme, size: NSSize(width: 340, height: 110),
+                               url: directory.appendingPathComponent("pointer-colors-\(name).png"))
             try await snapshot(voice.padding(20).background(IvyTheme.canvas).tint(IvyTheme.leaf), scheme: scheme,
                                size: NSSize(width: 600, height: 1120), url: directory.appendingPathComponent("voice-full-\(name).png"))
             environment.brain.startNewConversation()
@@ -279,8 +295,17 @@ struct LayoutTests {
             detail: String(repeating: "-- Long script fixture\n", count: 100))
         for scheme in [ColorScheme.light, .dark] {
             try await snapshot(ConfirmationSheetView(request: longRequest, onConfirm: { _ in }), scheme: scheme,
-                size: NSSize(width: 500, height: 340),
+                size: NSSize(width: 280, height: 100),
                 url: directory.appendingPathComponent("approval-long-\(scheme == .light ? "light" : "dark").png"))
+            // Replace obsolete Details fixtures with reason-only approvals, as explicitly requested.
+            // Keep long/empty payload coverage and all identity/cancellation assertions.
+            try await snapshot(ConfirmationCardView(request: longRequest, compact: true, onConfirm: { _ in }),
+                scheme: scheme, size: NSSize(width: 240, height: 96),
+                url: directory.appendingPathComponent("approval-reason-long-\(scheme).png"))
+            try await snapshot(ConfirmationSheetView(request: ConfirmationRequest(
+                toolName: "open_app", title: "Open Calculator", prompt: "Open Calculator?", detail: ""),
+                onConfirm: { _ in }), scheme: scheme, size: NSSize(width: 280, height: 100),
+                url: directory.appendingPathComponent("approval-reason-empty-\(scheme).png"))
         }
         #expect(approvalBrain.pendingConfirmation?.id == request.id, "rendering must never approve an action")
         #expect(approvalView.presentedSheet?.id == ChatSheet.approval(request, live: false).id)
@@ -296,7 +321,7 @@ struct LayoutTests {
         await environment.shutdown()
     }
 
-    @Test("companion approvals remain reviewable above the character without intercepting controls")
+    @Test("companion approvals replace the status bubble below the character without intercepting controls")
     func companionApprovals() async throws {
         let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -320,10 +345,13 @@ struct LayoutTests {
             let size = CompanionView.panelSize(hasApproval: true)
             for scheme in [ColorScheme.light, .dark] {
                 try await snapshot(view.environment(\.ivyOpaqueSurfaces, true), scheme: scheme, size: size,
-                    url: directory.appendingPathComponent("companion-approval-\(index)-\(scheme).png"))
+                    url: directory.appendingPathComponent("companion-approval-\(index)-\(scheme).png"),
+                    expectsCompanionApproval: true)
                 #expect(CGRect(origin: .zero, size: size).contains(visibleBounds))
-                #expect(visibleBounds.width >= 344 && visibleBounds.height >= 425,
+                #expect(visibleBounds.width >= 240 && visibleBounds.height >= 190,
                         "placement must include the review card, not only the character")
+                #expect(visibleBounds.width <= 240 && visibleBounds.height <= 224,
+                        "approval must replace the status pill and stay compact even for long previews")
                 #expect(responses.isEmpty, "rendering or layout cannot approve an action")
             }
         }
@@ -715,7 +743,7 @@ struct LayoutTests {
 
     private func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, url: URL,
                                    increasedContrast: Bool = false, expectsWindowMaterial: Bool? = nil,
-                                   expectsApproval: Bool = false) async throws {
+                                   expectsApproval: Bool = false, expectsCompanionApproval: Bool = false) async throws {
         let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height).preferredColorScheme(scheme))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -737,7 +765,9 @@ struct LayoutTests {
             #expect(window.sheets.count == 1, "only one modal approval may be presented")
             #expect(window.frame.contains(sheet.frame), "the complete approval must fit even at minimum window size")
             let content = try #require(sheet.contentView)
-            #expect(content.bounds.width >= 500 && content.bounds.height >= 340)
+            #expect(content.bounds.width >= 280 && content.bounds.height >= 100)
+            #expect(content.bounds.width <= 300 && content.bounds.height <= 120,
+                    "confirmation must stay compact even when the action preview is long")
             content.layoutSubtreeIfNeeded()
             let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
             content.cacheDisplay(in: content.bounds, to: bitmap)
@@ -775,14 +805,21 @@ struct LayoutTests {
             for child in view.subviews { verifyComposer(child) }
         }
         verifyComposer(host)
-        // The native drag surface must cover both the character and pill, rather than collapsing to zero size.
+        // Normal status pills drag with the character. The user-requested approval bubble replaces
+        // that pill with interactive controls, so only the 96-point character may drag during approval.
         func verifyDragSurfaces(_ view: NSView) {
             if let surface = view as? CompanionDragSurface {
                 if !surface.isInteractive {
                     #expect(surface.hitTest(.zero) == nil, "layout measurement must not intercept approval buttons")
                     return
                 }
-                #expect(surface.bounds.width >= 96 && surface.bounds.height >= 120)
+                #expect(surface.bounds.width >= 96)
+                if expectsCompanionApproval {
+                    #expect(surface.bounds.height >= 96 && surface.bounds.height <= 100,
+                            "approval buttons must remain outside the character's drag surface")
+                } else {
+                    #expect(surface.bounds.height >= 120)
+                }
                 let center = CGPoint(x: surface.bounds.midX, y: surface.bounds.midY)
                 // AppKit hitTest expects the point in the receiver's superview coordinates.
                 let point = surface.convert(center, to: host.superview)
