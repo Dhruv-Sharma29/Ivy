@@ -139,6 +139,9 @@ public final class ComputerControlCoordinator: ObservableObject {
                 observation = try await observationProvider.observe(session: session, scope: scope)
                 lastObservation = observation
             } catch {
+                if isCancelled || isTaskCancelled() || !session.state.isActive {
+                    return .cancelled
+                }
                 session.pause(reason: .staleTarget)
                 feedbackController?.pause(reason: .staleTarget)
                 return .paused(.stepFailed(stepID: "\(stepCount)", reason: "Observation failed: \(error.localizedDescription)"))
@@ -156,6 +159,9 @@ public final class ComputerControlCoordinator: ObservableObject {
                     availableTools: availableTools
                 )
             } catch {
+                if isCancelled || isTaskCancelled() || !session.state.isActive {
+                    return .cancelled
+                }
                 // Invalid or unknown output cannot execute
                 session.pause(reason: .userRequested)
                 feedbackController?.pause(reason: .userRequested)
@@ -217,6 +223,24 @@ public final class ComputerControlCoordinator: ObservableObject {
                 taskStep.status = .running
                 onStepCreated(taskStep)
 
+                // Verify target element freshness before dispatch
+                if let elementID = call.args["element_id"]?.stringValue {
+                    let freshness = ComputerActionVerifier.verifyTargetFreshness(
+                        elementID: elementID,
+                        original: observation,
+                        fresh: observation
+                    )
+                    if case .failure(let failure) = freshness {
+                        session.pause(reason: .staleTarget)
+                        feedbackController?.pause(reason: .staleTarget)
+                        if case .targetInvalidated(let reason) = failure {
+                            taskStep.status = .failed("Target element moved or invalidated: \(reason)")
+                            onStepUpdated(taskStep)
+                            return .paused(.stepFailed(stepID: stepID, reason: reason))
+                        }
+                    }
+                }
+
                 // Inject observation token into arguments
                 var finalArgs = call.args
                 if finalArgs["token"] == nil {
@@ -253,14 +277,62 @@ public final class ComputerControlCoordinator: ObservableObject {
                 }
 
                 if response.isSuccess {
-                    taskStep.status = .succeeded
+                    // Result verification: observe post-action state
+                    var postObs: DesktopObservation? = nil
+                    do {
+                        postObs = try await observationProvider.observe(session: session, scope: scope)
+                        lastObservation = postObs
+                    } catch {
+                        // Observation failed or timed out
+                    }
+
+                    let targetElement = call.args["element_id"]?.stringValue.flatMap { id in
+                        observation.elements.first(where: { $0.id == id })
+                    }
+                    let actionKind = ComputerControlActionKind(rawValue: call.name) ?? .click
+                    let actionObj = ComputerControlAction(
+                        kind: actionKind,
+                        target: call.args["element_id"]?.stringValue.map { .elementID($0) },
+                        text: call.args["text"]?.stringValue
+                    )
+
+                    var verificationNote = ""
+                    if let postObs {
+                        let outcome = ComputerActionVerifier.verifyActionOutcome(
+                            action: actionObj,
+                            targetElement: targetElement,
+                            preObservation: observation,
+                            postObservation: postObs
+                        )
+                        switch outcome {
+                        case .verified(let explanation):
+                            taskStep.status = .succeeded
+                            verificationNote = " [Verified: \(explanation)]"
+                        case .unchanged(let explanation):
+                            taskStep.status = .failed("No UI state change observed: \(explanation)")
+                            verificationNote = " [Unchanged: \(explanation)]"
+                        case .uncertain(let explanation):
+                            taskStep.status = .succeeded
+                            verificationNote = " [Uncertain: \(explanation)]"
+                        case .targetInvalidated(let reason):
+                            taskStep.status = .failed("Target invalidated: \(reason)")
+                            session.pause(reason: .staleTarget)
+                            feedbackController?.pause(reason: .staleTarget)
+                            onStepUpdated(taskStep)
+                            return .paused(.stepFailed(stepID: stepID, reason: reason))
+                        }
+                    } else {
+                        taskStep.status = .succeeded
+                    }
+
+                    taskStep.output = (taskStep.output ?? "") + verificationNote
                     onStepUpdated(taskStep)
                     history.append(ComputerActionHistoryItem(
                         stepNumber: stepCount,
                         toolName: call.name,
                         summary: title,
-                        result: response.resultMessage ?? "OK",
-                        succeeded: true
+                        result: (response.resultMessage ?? "OK") + verificationNote,
+                        succeeded: taskStep.status == .succeeded
                     ))
                 } else {
                     let errMsg = response.errorMessage ?? "Action failed"
