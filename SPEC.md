@@ -475,6 +475,23 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 
 ---
 
+## Spatial screen-question contract (Phase 20.12 initial slice)
+
+- A configurable shared voice key (⌘⇧Space), held ⌃⌥⌘R / ⌃⌥⌘A shortcut, or menu-bar Select area action opens Ivy's temporary
+  selection overlay. Hover crops a 240×180 point area; freehand and rectangle modes outline the actual
+  bounding crop. Esc cancels; releasing the held shortcut or choosing Attach area finishes selection.
+- Selection overlays intercept input only while selecting. They close before an in-memory
+  ScreenCaptureKit capture; Ivy and excluded applications are omitted. Changed display geometry or
+  front window cancels capture. Screen Recording denial surfaces existing recovery UI; reselect afterward.
+- Typed selections go through existing redaction/size limits and appear in Quick chat for review and
+  explicit send. Shared voice turns buffer up to 30 seconds of speech in memory, close the microphone
+  on release, then submit the labeled crop before speech. Silence, cancellation and missing image
+  discard the speech; there is no audio-only retry. Selection never approves actions or moves the cursor.
+- Sleep, session lock, display changes, shortcut changes, cancellation and quit remove the selector and
+  cancel pending capture. Physical shortcut polling runs only during selection to recover missed key-up.
+- Rich drawing and target freshness at typed submission remain future work. Typed attachments describe
+  a captured snapshot, not a live control target; voice turns bind the crop to one held utterance.
+
 ## 13. Computer Control Architecture (Phase 19)
 
 Ivy provides an adaptive, user-authorized computer control subsystem for executing tasks in foreground macOS applications, implemented and verified across Slices 19.1 through 19.10:
@@ -517,5 +534,3 @@ Ivy provides an adaptive, user-authorized computer control subsystem for executi
    - Release builds packaged via `scripts/package-release.sh`.
    - Friend-test builds packaged via `scripts/package-friend-test.sh`, generating standalone testing DMGs under `dist/Previous-Builds/Friend-Test-Computer-Control-<date>/` while preserving release artifacts.
    - Signing: Developer ID, Apple Development, or ad-hoc (`-`) with Hardened Runtime and minimal entitlements. Notarization is deferred for friend-test builds (requires manual Gatekeeper override via right-click Open).
-
-

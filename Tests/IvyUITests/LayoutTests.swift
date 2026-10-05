@@ -662,7 +662,8 @@ struct LayoutTests {
         }.padding(24)
         let environment = IvyAppEnvironment(settingsStore: LayoutSettingsStore(),
             credentials: FixedCredentialProvider([.geminiAPIKey: "fixture"]),
-            conversationStore: FileConversationStore(directory: directory.appendingPathComponent("release-history-" + UUID().uuidString)), geminiClient: LayoutOfflineClient()) { _, _ in
+            conversationStore: FileConversationStore(directory: directory.appendingPathComponent("release-history-" + UUID().uuidString)),
+            geminiClient: LayoutOfflineClient(), visionPipeline: VisionPipeline(recognizer: LayoutCropRecognizer())) { _, _ in
             GeminiLiveVoiceCoordinator(session: MockGeminiLiveSession(), audioCapture: MockAudioCapture(), audioPlayer: MockLiveAudioPlayer())
         }
         let session = CommandBarSession(brain: environment.brain, tray: environment.attachments, tasks: environment.tasks, live: environment.liveCoordinator)
@@ -697,6 +698,16 @@ struct LayoutTests {
                 scheme: scheme, size: NSSize(width: 600, height: 560), url: directory.appendingPathComponent("release-tool-timeline-\(scheme).png"))
         }
         session.text = "Give me a short answer"
+        let crop = try #require(ImageProcessing.rgbContext(width: 480, height: 180))
+        crop.setFillColor(CGColor(gray: 0.15, alpha: 1)); crop.fill(CGRect(x: 0, y: 0, width: 480, height: 180))
+        crop.setFillColor(CGColor(red: 0.4, green: 0.6, blue: 1, alpha: 1)); crop.fillEllipse(in: CGRect(x: 160, y: 40, width: 100, height: 100))
+        let cropBytes = try ImageProcessing.jpeg(try #require(crop.makeImage()))
+        let selectedArea = try #require(await environment.attachments.addImageData(cropBytes, name: "Selected area fixture"))
+        session.prepareScreenQuestion(selectedArea)
+        try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,
+            tray: environment.attachments, live: environment.liveCoordinator, session: session, onClose: {}, onContinueInWindow: {})
+            .environment(\.ivyOpaqueSurfaces, true), scheme: .dark, size: NSSize(width: 580, height: 580),
+            url: directory.appendingPathComponent("screen-question-review-dark.png"))
         #expect(await session.send())
         var measuredHeight: CGFloat = 0
         try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,
@@ -860,6 +871,10 @@ private struct ControlFrames: PreferenceKey {
 }
 
 /// Fixture preferences are isolated from the user's settings and never start hotkeys or recording.
+private struct LayoutCropRecognizer: TextRecognizing {
+    func recognize(_ image: Data) async throws -> [RecognizedText] { [] }
+}
+
 private final class LayoutSettingsStore: SettingsStore, @unchecked Sendable {
     private let value = OSAllocatedUnfairLock(initialState: LayoutSettingsStore.defaults)
     private static var defaults: IvySettings {

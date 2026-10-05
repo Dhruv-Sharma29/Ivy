@@ -245,12 +245,19 @@ struct Phase6VoicePermissionFlowTests {
 
         // Simulate incoming audio putting Ivy into SPEAKING
         session.simulateEvent(.audioChunk(Data(repeating: 0x11, count: 640)))
-        try? await Task.sleep(nanoseconds: 30_000_000)
+        // Wait for the event, rather than assuming the parallel test runner schedules it within 30 ms.
+        for _ in 0..<100 {
+            if coordinator.state == .speaking { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(coordinator.state == .speaking)
 
         // Wake word detected during speaking interrupts playback
         detector.simulateTranscription("Hey Ivy, stop right there")
-        try? await Task.sleep(nanoseconds: 30_000_000)
+        for _ in 0..<100 {
+            if coordinator.state == .listening { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
         #expect(coordinator.state == .listening)
         #expect(!player.isPlaying)

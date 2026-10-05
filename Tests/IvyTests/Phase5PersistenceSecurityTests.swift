@@ -586,7 +586,12 @@ struct Phase5StaleSessionTests {
         try #require(capture.isHeld)
 
         let start = Task { await c.startSession() }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Give the restart task a bounded chance to reach its teardown wait under parallel test load.
+        for _ in 0..<100 {
+            if c.state != .listening { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(capture.isHeld)
         #expect(c.state != .listening) // the new session waits for the old teardown
 
         capture.release()

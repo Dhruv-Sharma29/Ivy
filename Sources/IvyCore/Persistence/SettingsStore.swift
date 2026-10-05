@@ -71,6 +71,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
     /// Explicit opt-in to a click-through visual that follows the cursor; never generates input.
     public var floatingPointerEnabled: Bool
     public var floatingPointerColor: FloatingPointerColor
+    public var screenQuestionEnabled: Bool
+    public var screenQuestionShortcut: ScreenQuestionShortcut
     /// Register the command bar hotkey (⌃⌥⌘K) at launch.
     public var commandBarHotkeyEnabled: Bool
     /// The first-run introduction has been finished or skipped (Phase 17c). Existing users are marked done.
@@ -136,6 +138,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionPlacement: CompanionPlacement? = nil,
         floatingPointerEnabled: Bool = false,
         floatingPointerColor: FloatingPointerColor = .blue,
+        screenQuestionEnabled: Bool = true,
+        screenQuestionShortcut: ScreenQuestionShortcut = .pushToTalk,
         commandBarHotkeyEnabled: Bool = true,
         onboardingCompleted: Bool = false
     ) {
@@ -178,6 +182,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.companionPlacement = companionPlacement
         self.floatingPointerEnabled = floatingPointerEnabled
         self.floatingPointerColor = floatingPointerColor
+        self.screenQuestionEnabled = screenQuestionEnabled
+        self.screenQuestionShortcut = screenQuestionShortcut
         self.commandBarHotkeyEnabled = commandBarHotkeyEnabled
         self.onboardingCompleted = onboardingCompleted
     }
@@ -236,6 +242,8 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionPlacement = try? c.decodeIfPresent(CompanionPlacement.self, forKey: .companionPlacement)
         floatingPointerEnabled = value(.floatingPointerEnabled, d.floatingPointerEnabled)
         floatingPointerColor = other(.floatingPointerColor, d.floatingPointerColor)
+        screenQuestionEnabled = value(.screenQuestionEnabled, d.screenQuestionEnabled)
+        screenQuestionShortcut = other(.screenQuestionShortcut, d.screenQuestionShortcut)
         commandBarHotkeyEnabled = value(.commandBarHotkeyEnabled, d.commandBarHotkeyEnabled)
         onboardingCompleted = value(.onboardingCompleted, d.onboardingCompleted)
     }

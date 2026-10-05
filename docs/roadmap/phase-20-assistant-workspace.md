@@ -4,6 +4,9 @@ Status: **partial source implementation; all fifteen complete workstreams remain
 Expanded 2026-10-04 at the user's request. The optional floating-pointer visual/preferences slice of
 20.14 is implemented and included in the latest local app/DMG rebuild; anchored arrows and the broader
 workspace remain pending. See the [UI report](../../tasks/ui-refresh.md) for verification and limitations.
+The initial 20.12 screen-question slice is implemented and packaged locally: bounded hover/freehand/rectangle crops,
+typed review, and a shared voice shortcut with image-before-speech submission. This does not complete
+20.12's richer selection, target-freshness and device acceptance requirements.
 This extends [Phase 19 — Computer Control](phase-19-computer-control.md) with the full personal-assistant
 workspace plan. Existing voice, memory, screen pointers and companion approvals are foundations;
 they do not mean these expanded capabilities are complete.
@@ -362,6 +365,14 @@ limits and shared budgets hold; shared resource conflicts serialize; one failed/
 falsely fail/succeed another; stale approvals, late results and Stop all cannot emit new actions.
 
 ## 20.12 — Spatial questions from a circled region
+
+**Initial packaged slice:** shared ⌘⇧Space voice shortcut, configurable R/A typed selection shortcuts,
+menu selection, hover/freehand/rectangle bounding crops, keyboard hover positioning and Esc cancellation.
+The dashed crop bounds show included pixels. ScreenCaptureKit selected crops stay in memory and exclude
+Ivy/protected apps; existing redaction/limits apply. Voice speech stays buffered until the microphone closes
+and the crop is sent first; silence/capture failure sends no speech. Typed crops appear in Quick chat.
+Real mixed-scale hardware acceptance, exact polygon masking, arbitrary shortcut assignment and
+freshness checks at typed submission remain open; screenshots are snapshots, not control authorization.
 
 **Dependency:** existing region capture and Phase 19 observation/coordinate freshness.
 

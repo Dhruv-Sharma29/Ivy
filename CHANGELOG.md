@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Included in the latest local app/DMG: hover, freehand and rectangle screen questions with a shared push-to-talk key
+  (⌘⇧Space), optional R/A selection shortcuts and a menu action. Typed crops are reviewed in Quick chat;
+  voice crops are sent before bounded, memory-only speech after microphone release. Silent presses,
+  Esc, stale windows/displays, capture denial, sleep and session lock cancel the turn. Protected apps
+  are excluded and crops use the existing local redaction pipeline. This is the initial 20.12 slice;
+  richer drawing and typed-submission freshness remain pending.
+
 - Included in the latest local app/DMG rebuild: optional folded-leaf floating pointer, native Pointer settings,
   persisted Blue/Green/Amber/Red choices and bounded following beside the system cursor. Default off;
   click-through and non-activating, with no computer input or extra permissions. Disable/Reduce Motion,

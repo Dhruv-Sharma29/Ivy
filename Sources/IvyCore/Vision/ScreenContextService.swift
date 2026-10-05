@@ -33,7 +33,7 @@ public protocol ScreenContextCapturing: Sendable {
 }
 
 /// ScreenCaptureKit for display and window; the system `screencapture -i` selector for regions.
-public struct SystemScreenContext: ScreenContextCapturing {
+public struct SystemScreenContext: ScreenContextCapturing, SelectedRegionCapturing {
     public init() {}
 
     private static var ownPID: pid_t { ProcessInfo.processInfo.processIdentifier }
@@ -66,6 +66,46 @@ public struct SystemScreenContext: ScreenContextCapturing {
         } catch {
             throw Self.userFacingError(error)
         }
+    }
+
+    /// Captures the reviewed bounds in memory; excluded apps are removed even when behind another window.
+    public func capture(selection: ScreenRegionSelection, excludedApps: [String]) async throws -> CapturedScreen {
+        do {
+            let front = Self.frontOtherWindow()
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            try Task.checkCancellation()
+            guard front?.id == Self.frontOtherWindow()?.id,
+                  let display = content.displays.first(where: { $0.displayID == selection.displayID }),
+                  let frame = await MainActor.run(body: {
+                      NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32) == selection.displayID }?.frame
+                  }), frame == selection.screen else {
+                throw VisionError.captureFailed("the window or display changed. Select the area again.")
+            }
+            let policy = VisionPolicy(excludedApps: excludedApps)
+            if policy.isExcluded(app: front?.app) { throw VisionError.excludedApp(front?.app ?? "") }
+            let excluded = content.applications.filter { $0.processID == Self.ownPID || policy.isExcluded(app: $0.applicationName) }
+            let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
+            let config = SCStreamConfiguration()
+            config.sourceRect = selection.sourceRect
+            guard let size = selection.pixelSize(atScale: CGFloat(filter.pointPixelScale)) else {
+                throw VisionError.captureFailed("the display scale is invalid. Select again.")
+            }
+            config.width = Int(size.width)
+            config.height = Int(size.height)
+            config.showsCursor = false
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            try Task.checkCancellation()
+            guard front?.id == Self.frontOtherWindow()?.id else {
+                throw VisionError.captureFailed("the front window changed. Select again.")
+            }
+            guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+                throw VisionError.captureFailed("the selected area couldn't be encoded.")
+            }
+            let origin = CGDisplayBounds(display.displayID).origin
+            let source = selection.sourceRect
+            return CapturedScreen(png: png, app: front?.app,
+                frame: CGRect(x: origin.x + source.minX, y: origin.y + source.minY, width: source.width, height: source.height))
+        } catch { throw Self.userFacingError(error) }
     }
 
     /// Match the framework's error identity, not its localized technical wording.

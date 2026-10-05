@@ -18,6 +18,20 @@ Open **Settings → Pointer → Follow my cursor**, then choose a color. It defa
 Ivy companion to be enabled. It is click-through and never moves or clicks your mouse; disabling it,
 Reduce Motion and sleep stop following.
 
+**Included in the latest app/DMG rebuild: screen questions with the voice key.** In **Settings → Pointer**,
+enable **Hold shortcut to select** and choose **Voice key (⌘⇧Space)**; push-to-talk must also be enabled.
+Hold the voice key over another app, hover or draw around an area, and say “What is this?” or
+“How does this work?” Release to ask. The dashed rectangle shows the entire crop, including corners
+around a freehand circle. Ivy stops the microphone, then sends that crop before your speech. Esc cancels;
+silence or capture failure sends no speech. Screen Recording permission is required, and images/audio
+stay in memory. Recording is limited to 30 seconds.
+
+For a typed question, choose **⌃⌥⌘R** or **⌃⌥⌘A**, or use **Ivy menu → Ask about a screen area…**.
+Release the held shortcut (or press Return), review the crop in Quick chat, edit the question and Send.
+Arrow keys reposition the hover crop. Turn off this selection shortcut to keep ordinary audio-only
+push-to-talk. This initial slice supports bounding crops; rich screen drawing and tracked walkthroughs
+remain planned.
+
 **This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The v1.1 artifact has passed packaging and signature checks, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
 
 See [remaining work](tasks/remaining.md) for hardware testing and release requirements, and [CHANGELOG.md](CHANGELOG.md) for the v1.1 additions.
@@ -25,7 +39,7 @@ See [remaining work](tasks/remaining.md) for hardware testing and release requir
 The [next-feature plan](docs/roadmap/phase-20-assistant-workspace.md) covers computer control, screen-aware
 dictation, personal/specialist assistants, concurrent jobs, daily suggestions, generated files, routines,
 multi-account connectors, spatial guidance and a compact overview. These expanded capabilities are
-planned apart from the pointer visual above; the roadmap includes their dependencies and acceptance
+planned apart from the pointer visual and initial screen-question slice above; the roadmap includes their dependencies and acceptance
 checks, plus an explicit Ivy design direction for original layouts, leaf branding and copy.
 
 ## Features

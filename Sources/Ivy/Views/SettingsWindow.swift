@@ -193,7 +193,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .voice: "Live conversations, Hey Ivy, and reading aloud."
         case .personalization: "Choose how Ivy responds and what it remembers."
         case .screen: "Choose what to share when you show Ivy your screen."
-        case .pointer: "Floating cursor appearance, color and visibility."
+        case .pointer: "Floating cursor appearance, color and visibility; screen questions and selection shortcuts."
         case .proactive: "Reminders and suggestions, on your terms."
         case .privacy: "Control saved history and export diagnostics."
         case .keys: "Connect Gemini and ElevenLabs securely through the macOS Keychain."

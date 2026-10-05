@@ -12,9 +12,16 @@ private final class KeyablePanel: NSPanel {
 final class CommandBarController: NSObject, NSWindowDelegate {
     private let environment: IvyAppEnvironment
     private var panel: NSPanel?
+    private let session: CommandBarSession
 
     init(environment: IvyAppEnvironment) {
         self.environment = environment
+        session = CommandBarSession(brain: environment.brain, tray: environment.attachments, tasks: environment.tasks, live: environment.liveCoordinator)
+    }
+
+    func showScreenQuestion(_ attachment: ImageAttachment) {
+        session.prepareScreenQuestion(attachment)
+        show()
     }
 
     func toggle() {
@@ -52,7 +59,7 @@ final class CommandBarController: NSObject, NSWindowDelegate {
         let e = environment
         panel.contentView = NSHostingView(rootView: CommandBarView(
             brain: e.brain, library: e.library, tasks: e.tasks, tray: e.attachments, live: e.liveCoordinator,
-            session: CommandBarSession(brain: e.brain, tray: e.attachments, tasks: e.tasks, live: e.liveCoordinator),
+            session: session,
             onClose: { [weak self] in self?.close() },
             onContinueInWindow: { [weak self] in
                 self?.close()
@@ -147,6 +154,13 @@ struct CommandBarView: View {
             .ivyGlass(cornerRadius: 26)
 
             AttachmentBar(tray: tray)
+            if let id = session.screenQuestionID, let attachment = tray.attachments.first(where: { $0.id == id }),
+               let bytes = attachment.jpeg.first, let image = NSImage(data: bytes) {
+                Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 180)
+                    .accessibilityLabel("Selected screen area preview")
+                Text("Selected bounds · review the crop, then edit your question and send. Not saved.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if brain.isThinking {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)

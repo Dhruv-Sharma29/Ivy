@@ -48,7 +48,9 @@ voice, memory, pointers and companion confirmations provide foundations only. Se
 [Phase 20 — Assistant Workspace](../docs/roadmap/phase-20-assistant-workspace.md) for the full coverage
 matrix, dependencies, acceptance criteria and combined Phase 19/20 milestones.
 The optional folded-leaf floating pointer and its settings are implemented and included in the latest
-local app/DMG rebuild. Anchored target arrows, real input control and the other workspace additions remain
+local app/DMG rebuild. The initial screen-question slice is also packaged: shared voice-key selection,
+hover/freehand/rectangle crops and typed review. See [screen-question verification](screen-questions.md)
+for usage and hardware checks. Anchored target arrows, real input control and the other workspace additions remain
 pending. Every UI slice follows the roadmap's explicit Ivy identity/design requirement.
 
 - [ ] 20.1 Floating task panel — shared with the computer-control panel.
@@ -63,6 +65,7 @@ pending. Every UI slice follows the roadmap's explicit Ivy identity/design requi
 - [ ] 20.10 Daily suggestions — authorized goals/memory/integrations, Start/Edit/Later/Dismiss and deduplication.
 - [ ] 20.11 Concurrent work — bounded research/draft workers, linked finished-agent follow-ups and one desktop-input lane.
 - [ ] 20.12 Spatial context — hold shortcut, circle/select a region and submit a question about the exact crop.
+  Initial bounding-crop/voice/typed slice is packaged; exact masking, typed-submission freshness and real-device acceptance remain open.
 - [ ] 20.13 Screen drawing — validated polygons, arrows and curved paths with accessible explanations.
 - [ ] 20.14 Anchored companion arrows — fresh cursor/companion/region mapping with display-aware fallback;
   optional cursor-follow visual/color/Hide settings are implemented and packaged locally.

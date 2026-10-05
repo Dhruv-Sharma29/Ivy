@@ -127,7 +127,8 @@ Computer control supplies shared input and observation foundations for dictation
 
 All fifteen workstreams are planned in [Phase 20 — Assistant Workspace](../docs/roadmap/phase-20-assistant-workspace.md),
 linked to [Phase 19 — Computer Control](../docs/roadmap/phase-19-computer-control.md) with a combined
-milestone order. Apart from the optional pointer slice above, they remain unimplemented. Planning does not enable accounts, capture, background
+milestone order. The optional pointer slice and the [initial screen-question slice](screen-questions.md)
+are packaged locally; the complete workstreams remain open. Planning does not enable accounts, capture, background
 execution or permissions.
 
 Source checks for the important gaps: `ProactiveModels.swift` and `ProactiveEngine.tick` distinguish
