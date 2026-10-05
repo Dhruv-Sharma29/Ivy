@@ -28,7 +28,7 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
     private let state = OSAllocatedUnfairLock(initialState: State())
     /// Distinguishes this manager's hotkey from other Ivy hotkeys (push-to-talk, screen help): every manager's
     /// handler sees every Ivy hotkey event, and must act only on its own.
-    private let hotKeyNumber: UInt32
+    let hotKeyNumber: UInt32
     private static let nextNumber = OSAllocatedUnfairLock(initialState: UInt32(1))
 
     public init() {
@@ -162,14 +162,17 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
 
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         var handlerRef: EventHandlerRef? = nil
-        let installStatus = InstallEventHandler(GetApplicationEventTarget(), handler, 2, &eventTypes, selfPtr, &handlerRef)
+        // Receive hotkeys before AppKit/SwiftUI application handlers can consume them.
+        // Both registration and delivery must use the same dispatcher target, including in the background.
+        let target = GetEventDispatcherTarget()
+        let installStatus = InstallEventHandler(target, handler, 2, &eventTypes, selfPtr, &handlerRef)
         guard installStatus == noErr else {
             throw HotkeyError.eventHandlerInstallationFailed(installStatus)
         }
 
         let hotKeyID = EventHotKeyID(signature: OSType(0x49565921), id: hotKeyNumber) // 'IVY!'
         var hotKeyRef: EventHotKeyRef? = nil
-        let regStatus = RegisterEventHotKey(keyCode, modifiers.rawValue, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        let regStatus = RegisterEventHotKey(keyCode, modifiers.rawValue, hotKeyID, target, 0, &hotKeyRef)
         guard regStatus == noErr else {
             if let handlerRef {
                 RemoveEventHandler(handlerRef)

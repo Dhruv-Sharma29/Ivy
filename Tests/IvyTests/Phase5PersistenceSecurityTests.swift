@@ -374,6 +374,61 @@ struct Phase5StartupTests {
         #expect(!hotkey.isRegistered)
     }
 
+    @Test("removed Pointer preferences are ignored without changing retained settings")
+    func removedPointerSettingsCompatibility() throws {
+        let old = Data(#"{"floatingPointerEnabled":true,"floatingPointerColor":"red","screenQuestionEnabled":true,"screenQuestionShortcut":"pushToTalk","pushToTalkEnabled":true,"companionEnabled":false,"visionMaskSecrets":false}"#.utf8)
+        let decoded = try JSONDecoder().decode(IvySettings.self, from: old)
+        #expect(decoded.pushToTalkEnabled && !decoded.companionEnabled && !decoded.visionMaskSecrets)
+        let roundTrip = try JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any]
+        #expect(roundTrip?["floatingPointerEnabled"] == nil && roundTrip?["floatingPointerColor"] == nil)
+        #expect(roundTrip?["screenQuestionEnabled"] == nil && roundTrip?["screenQuestionShortcut"] == nil)
+        #expect(try JSONDecoder().decode(IvySettings.self, from: JSONEncoder().encode(decoded)) == decoded)
+    }
+
+    @Test("push-to-talk setting changes register globally without restarting")
+    func hotkeySettingChangesImmediately() async throws {
+        var preferences = IvySettings.defaults
+        preferences.pushToTalkEnabled = false
+        let (env, capture, _, hotkey) = environment(settings: preferences)
+        #expect(!hotkey.isRegistered)
+        env.settings.settings.pushToTalkEnabled = true
+        #expect(hotkey.isRegistered && hotkey.registrationCount == 1)
+        hotkey.simulateKeyDown()
+        for _ in 0..<100 {
+            if capture.isCapturing { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(capture.isCapturing)
+        env.settings.settings.pushToTalkEnabled = false
+        #expect(!hotkey.isRegistered)
+        for _ in 0..<100 {
+            if !capture.isCapturing && env.liveCoordinator.state == .idle { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(!capture.isCapturing && env.liveCoordinator.state == .idle)
+        env.settings.settings.pushToTalkEnabled = true
+        #expect(hotkey.isRegistered && hotkey.registrationCount == 2)
+        env.settings.settings.companionEnabled.toggle()
+        #expect(hotkey.registrationCount == 2, "Other settings must not replace the registered handler")
+        await env.shutdown()
+    }
+
+    @Test("a failed push-to-talk registration can be retried with the setting")
+    func hotkeySettingRetriesRegistration() async {
+        var preferences = IvySettings.defaults
+        preferences.pushToTalkEnabled = false
+        let (env, _, _, hotkey) = environment(settings: preferences)
+        hotkey.setMockErrorOnRegister(.registrationFailed(-9878))
+        env.settings.settings.pushToTalkEnabled = true
+        #expect(!hotkey.isRegistered && env.hotkeyError != nil)
+        env.settings.settings.pushToTalkEnabled = false
+        #expect(env.hotkeyError == nil)
+        hotkey.setMockErrorOnRegister(nil)
+        env.settings.settings.pushToTalkEnabled = true
+        #expect(hotkey.isRegistered && env.hotkeyError == nil)
+        await env.shutdown()
+    }
+
     @Test("the latest conversation is restored when enabled, and not otherwise")
     func restore() throws {
         let store = InMemoryConversationStore()

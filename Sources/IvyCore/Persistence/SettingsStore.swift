@@ -10,7 +10,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var restoreLastConversation: Bool
     /// Echo cancellation for Live, so "Hey Ivy" is heard over Ivy's own voice on speakers. Applies at launch.
     public var echoCancellation: Bool
-    /// Register the global push-to-talk shortcut at launch.
+    /// Enable the global push-to-talk shortcut; changes apply immediately.
     public var pushToTalkEnabled: Bool
     /// Show the live transcript line in the voice bar.
     public var showLiveTranscript: Bool
@@ -68,11 +68,6 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var companionCorner: CompanionCorner
     /// Free placement takes precedence over the legacy default corner after the first drag.
     public var companionPlacement: CompanionPlacement?
-    /// Explicit opt-in to a click-through visual that follows the cursor; never generates input.
-    public var floatingPointerEnabled: Bool
-    public var floatingPointerColor: FloatingPointerColor
-    public var screenQuestionEnabled: Bool
-    public var screenQuestionShortcut: ScreenQuestionShortcut
     /// Register the command bar hotkey (⌃⌥⌘K) at launch.
     public var commandBarHotkeyEnabled: Bool
     /// The first-run introduction has been finished or skipped (Phase 17c). Existing users are marked done.
@@ -136,10 +131,6 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionShowWhileIdle: Bool = false,
         companionCorner: CompanionCorner = .bottomRight,
         companionPlacement: CompanionPlacement? = nil,
-        floatingPointerEnabled: Bool = false,
-        floatingPointerColor: FloatingPointerColor = .blue,
-        screenQuestionEnabled: Bool = true,
-        screenQuestionShortcut: ScreenQuestionShortcut = .pushToTalk,
         commandBarHotkeyEnabled: Bool = true,
         onboardingCompleted: Bool = false
     ) {
@@ -180,10 +171,6 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.companionShowWhileIdle = companionShowWhileIdle
         self.companionCorner = companionCorner
         self.companionPlacement = companionPlacement
-        self.floatingPointerEnabled = floatingPointerEnabled
-        self.floatingPointerColor = floatingPointerColor
-        self.screenQuestionEnabled = screenQuestionEnabled
-        self.screenQuestionShortcut = screenQuestionShortcut
         self.commandBarHotkeyEnabled = commandBarHotkeyEnabled
         self.onboardingCompleted = onboardingCompleted
     }
@@ -240,10 +227,6 @@ public struct IvySettings: Codable, Equatable, Sendable {
         companionShowWhileIdle = value(.companionShowWhileIdle, d.companionShowWhileIdle)
         companionCorner = other(.companionCorner, d.companionCorner)
         companionPlacement = try? c.decodeIfPresent(CompanionPlacement.self, forKey: .companionPlacement)
-        floatingPointerEnabled = value(.floatingPointerEnabled, d.floatingPointerEnabled)
-        floatingPointerColor = other(.floatingPointerColor, d.floatingPointerColor)
-        screenQuestionEnabled = value(.screenQuestionEnabled, d.screenQuestionEnabled)
-        screenQuestionShortcut = other(.screenQuestionShortcut, d.screenQuestionShortcut)
         commandBarHotkeyEnabled = value(.commandBarHotkeyEnabled, d.commandBarHotkeyEnabled)
         onboardingCompleted = value(.onboardingCompleted, d.onboardingCompleted)
     }

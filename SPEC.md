@@ -327,15 +327,6 @@ public protocol GeminiClientProtocol: Sendable {
 - The old `alwaysShowInDock` preference is decoded for compatibility; it no longer controls desktop app presence.
 
 ### On-screen companion (revised 2026-10-02)
-- Optional floating pointer (2026-10-04): Settings → Pointer enables a separate 32-point original
-  folded-leaf vector beside the ordinary macOS cursor, with Blue, Green, Amber and Red choices. It defaults off
-  for new and existing users. Following requires the companion master switch, uses bounded smoothing,
-  flips its offset near display edges and snaps on large jumps/display transitions. The transparent
-  non-activating panel is click-through on all Spaces and full-screen desktops. It synthesizes no input,
-  does not request accessibility permission and does not imply computer-control tools are available.
-  Off, master-disable, Reduce Motion, sleep/inactive session, missing display geometry and app shutdown
-  hide it and cancel sampling. Display/wake/accessibility preference changes can restore enabled follow
-  mode. Settings persist independently; existing point_at arrows and approval panels remain separate.
 - The optional floating companion is a transparent, chunky pixel-art Ivy with dark hair, an ivy-leaf clip and a charcoal outfit. Character artwork stays in the companion; the main workspace retains its professional design.
 - Real idle, listening, thinking, speaking, working, approval and error states choose distinct poses. Idle includes occasional blinking and a brief greeting on appearance; thinking has a skeptical side-eye, working uses a tablet, and approval folds her arms. Speaking reacts to output audio without inventing speech or progress.
 - Cached sprite frames animate at a modest update rate, with visible idle breathing, blinking and gentle sway. Dragging adds a small lift, bob and tilt; non-idle activity poses remain recognizable and speaking still follows actual audio. Reduce Motion pauses the timeline and uses a static pose even during dragging; status text, captions and real task progress remain available.
@@ -475,22 +466,16 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 
 ---
 
-## Spatial screen-question contract (Phase 20.12 initial slice)
+## Pointer removal and global voice contract (2026-10-05)
 
-- A configurable shared voice key (⌘⇧Space), held ⌃⌥⌘R / ⌃⌥⌘A shortcut, or menu-bar Select area action opens Ivy's temporary
-  selection overlay. Hover crops a 240×180 point area; freehand and rectangle modes outline the actual
-  bounding crop. Esc cancels; releasing the held shortcut or choosing Attach area finishes selection.
-- Selection overlays intercept input only while selecting. They close before an in-memory
-  ScreenCaptureKit capture; Ivy and excluded applications are omitted. Changed display geometry or
-  front window cancels capture. Screen Recording denial surfaces existing recovery UI; reselect afterward.
-- Typed selections go through existing redaction/size limits and appear in Quick chat for review and
-  explicit send. Shared voice turns buffer up to 30 seconds of speech in memory, close the microphone
-  on release, then submit the labeled crop before speech. Silence, cancellation and missing image
-  discard the speech; there is no audio-only retry. Selection never approves actions or moves the cursor.
-- Sleep, session lock, display changes, shortcut changes, cancellation and quit remove the selector and
-  cancel pending capture. Physical shortcut polling runs only during selection to recover missed key-up.
-- Rich drawing and target freshness at typed submission remain future work. Typed attachments describe
-  a captured snapshot, not a live control target; voice turns bind the crop to one held utterance.
+- The Pointer Settings page, cursor-follow visual, hover/freehand/rectangle selector and shared
+  voice-selection callbacks are removed at the user's request. Old Pointer preference keys are ignored
+  when decoding settings and are omitted on the next save.
+- Push-to-talk is voice-only from any app. Keyed hotkeys register and receive notifications at the
+  Carbon dispatcher target before application handlers; each manager handles only its own identity.
+- Enabling/disabling push-to-talk updates the global registration immediately. Disabling during a held
+  press uses the existing release watchdog to close capture without approving or cancelling a reply.
+- Explicit screen attachments and screen-help tools continue using their existing permission and review flow.
 
 ## 13. Computer Control Architecture (Phase 19)
 

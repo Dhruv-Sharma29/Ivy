@@ -8,29 +8,16 @@ The desktop app, saved conversations, live voice, task engine and core Mac tools
 
 The local package includes the initial Ivy UI refresh: shared rounded cards in Home,
 Library, Tasks and Settings, roomier navigation, and a floating quick-chat bar with draft suggestions
-and explicit Send/Open/Close controls. The DMG was rebuilt on **2026-10-04** with compact companion
+and explicit Send/Open/Close controls. The DMG was rebuilt on **2026-10-05** with compact companion
 confirmations and push-to-talk missed-release recovery. Quit the running Ivy and replace it with this
 updated app before testing the fix; older packages remain in `dist/Previous-Builds/`.
 See [the UI refresh report](tasks/ui-refresh.md) for the changes and verification limits.
 
-**Included in the latest 2026-10-04 app/DMG rebuild:** an optional folded-leaf floating pointer.
-Open **Settings → Pointer → Follow my cursor**, then choose a color. It defaults off and requires the
-Ivy companion to be enabled. It is click-through and never moves or clicks your mouse; disabling it,
-Reduce Motion and sleep stop following.
-
-**Included in the latest app/DMG rebuild: screen questions with the voice key.** In **Settings → Pointer**,
-enable **Hold shortcut to select** and choose **Voice key (⌘⇧Space)**; push-to-talk must also be enabled.
-Hold the voice key over another app, hover or draw around an area, and say “What is this?” or
-“How does this work?” Release to ask. The dashed rectangle shows the entire crop, including corners
-around a freehand circle. Ivy stops the microphone, then sends that crop before your speech. Esc cancels;
-silence or capture failure sends no speech. Screen Recording permission is required, and images/audio
-stay in memory. Recording is limited to 30 seconds.
-
-For a typed question, choose **⌃⌥⌘R** or **⌃⌥⌘A**, or use **Ivy menu → Ask about a screen area…**.
-Release the held shortcut (or press Return), review the crop in Quick chat, edit the question and Send.
-Arrow keys reposition the hover crop. Turn off this selection shortcut to keep ordinary audio-only
-push-to-talk. This initial slice supports bounding crops; rich screen drawing and tracked walkthroughs
-remain planned.
+**Latest update:** the Pointer feature has been removed, including its Settings page, floating
+cursor decoration and hover/circle selection. Push-to-talk is voice-only. Enable it in
+**Settings → General**, hold **⌘⇧Space** while another app is open, speak, then release.
+The toggle now applies immediately; microphone release and approval safeguards remain in place.
+See [the shortcut/removal report](tasks/pointer-removal.md) for verification limits.
 
 **This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The v1.1 artifact has passed packaging and signature checks, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
 
@@ -39,7 +26,7 @@ See [remaining work](tasks/remaining.md) for hardware testing and release requir
 The [next-feature plan](docs/roadmap/phase-20-assistant-workspace.md) covers computer control, screen-aware
 dictation, personal/specialist assistants, concurrent jobs, daily suggestions, generated files, routines,
 multi-account connectors, spatial guidance and a compact overview. These expanded capabilities are
-planned apart from the pointer visual and initial screen-question slice above; the roadmap includes their dependencies and acceptance
+planned; the roadmap includes their dependencies and acceptance
 checks, plus an explicit Ivy design direction for original layouts, leaf branding and copy.
 
 ## Features

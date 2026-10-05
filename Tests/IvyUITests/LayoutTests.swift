@@ -11,12 +11,13 @@ import os
 struct LayoutTests {
     @Test("settings search finds voice, credentials and permission sections")
     func settingsSearch() {
-        #expect(SettingsPane.allCases.count == 10, "Pointer has its own settings page")
+        #expect(SettingsPane.allCases.count == 9)
         #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("Gemini") } == [.keys])
         #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("microphone") } == [.permissions])
         #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("Hey Ivy") } == [.voice])
-        #expect(Set(SettingsPane.allCases.map(\.symbol)).count == 10)
-        #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("cursor") } == [.pointer])
+        #expect(Set(SettingsPane.allCases.map(\.symbol)).count == 9)
+        #expect(SettingsPane.allCases.allSatisfy { $0.rawValue != "Pointer" })
+        #expect(SettingsPane.allCases.filter { $0.searchText.localizedStandardContains("cursor") }.isEmpty)
         #expect(!IvyAppDelegate().applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
     }
 
@@ -195,23 +196,8 @@ struct LayoutTests {
                                                   wakeWord: environment.wakeWord, initialPane: pane)
                 try await snapshot(settings, scheme: scheme, size: NSSize(width: 800, height: 600),
                                    url: directory.appendingPathComponent("settings-\(pane.id)-\(name).png"))
-                if pane == .pointer {
-                    try await snapshot(settings.environment(\.ivyOpaqueSurfaces, true), scheme: scheme,
-                                       size: NSSize(width: 800, height: 600),
-                                       url: directory.appendingPathComponent("settings-pointer-opaque-\(name).png"))
-                }
             }
             let voice = VoiceSettingsSection(settings: environment.settings, wakeWord: environment.wakeWord, onPreviewVoice: {})
-            let pointerPreviews = HStack(spacing: 28) {
-                ForEach(FloatingPointerColor.allCases, id: \.self) { color in
-                    VStack(spacing: 8) {
-                        FloatingPointerView(color: color)
-                        Text(color.title).font(.callout)
-                    }
-                }
-            }.padding(20).background(IvyTheme.canvas)
-            try await snapshot(pointerPreviews, scheme: scheme, size: NSSize(width: 340, height: 110),
-                               url: directory.appendingPathComponent("pointer-colors-\(name).png"))
             try await snapshot(voice.padding(20).background(IvyTheme.canvas).tint(IvyTheme.leaf), scheme: scheme,
                                size: NSSize(width: 600, height: 1120), url: directory.appendingPathComponent("voice-full-\(name).png"))
             environment.brain.startNewConversation()
@@ -703,11 +689,11 @@ struct LayoutTests {
         crop.setFillColor(CGColor(red: 0.4, green: 0.6, blue: 1, alpha: 1)); crop.fillEllipse(in: CGRect(x: 160, y: 40, width: 100, height: 100))
         let cropBytes = try ImageProcessing.jpeg(try #require(crop.makeImage()))
         let selectedArea = try #require(await environment.attachments.addImageData(cropBytes, name: "Selected area fixture"))
-        session.prepareScreenQuestion(selectedArea)
+        #expect(environment.attachments.attachments.first?.id == selectedArea.id)
         try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,
             tray: environment.attachments, live: environment.liveCoordinator, session: session, onClose: {}, onContinueInWindow: {})
             .environment(\.ivyOpaqueSurfaces, true), scheme: .dark, size: NSSize(width: 580, height: 580),
-            url: directory.appendingPathComponent("screen-question-review-dark.png"))
+            url: directory.appendingPathComponent("command-bar-attachment-dark.png"))
         #expect(await session.send())
         var measuredHeight: CGFloat = 0
         try await snapshot(CommandBarView(brain: environment.brain, library: environment.library, tasks: environment.tasks,

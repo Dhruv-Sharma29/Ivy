@@ -1,12 +1,9 @@
 # Phase 20 — Assistant Workspace
 
 Status: **partial source implementation; all fifteen complete workstreams remain open**.
-Expanded 2026-10-04 at the user's request. The optional floating-pointer visual/preferences slice of
-20.14 is implemented and included in the latest local app/DMG rebuild; anchored arrows and the broader
-workspace remain pending. See the [UI report](../../tasks/ui-refresh.md) for verification and limitations.
-The initial 20.12 screen-question slice is implemented and packaged locally: bounded hover/freehand/rectangle crops,
-typed review, and a shared voice shortcut with image-before-speech submission. This does not complete
-20.12's richer selection, target-freshness and device acceptance requirements.
+Expanded 2026-10-04; revised 2026-10-05 at the user's request. The floating Pointer feature and
+20.12 hover/circle selection have been removed from source and scope. Push-to-talk remains voice-only.
+The remaining workspace additions below are planned. See [the removal report](../../tasks/pointer-removal.md).
 This extends [Phase 19 — Computer Control](phase-19-computer-control.md) with the full personal-assistant
 workspace plan. Existing voice, memory, screen pointers and companion approvals are foundations;
 they do not mean these expanded capabilities are complete.
@@ -49,9 +46,8 @@ recognizable interface. This applies even when a milestone requires a complete U
 - **Floating surfaces:** the companion keeps compact reason + Cancel / Do it approvals; the task panel
   shows actual goal, step and Stop. File previews, follow-ups and task status share Ivy's surfaces and
   spacing. Each surface has a defined purpose rather than recreating an entire reference window.
-- **Voice and pointer:** preserve conversational hold/release semantics and Ivy's keyboard conventions.
-  Use an original folded-leaf pointer with optional color choices, clear mode/state and click-through
-  behavior. Settings follow Ivy's native grouped cards, labels and search rather than reference layouts.
+- **Voice:** preserve conversational hold/release semantics and Ivy's keyboard conventions.
+  Keep push-to-talk voice-only; screen sharing remains an explicit attachment action.
 - **Copy and assets:** write original Ivy labels, prompts, empty states and onboarding. No borrowed
   marketing language, product names, commercial/account screens or reference assets in the interface
   or user documentation. Required third-party license attribution remains intact if code is reused.
@@ -80,11 +76,11 @@ The two requested lists overlap. This matrix combines them without dropping a ca
 | Personal agent creation through an interview | 20.9 | New goal interview, profile proposals and reviewed multi-assistant creation. |
 | Daily suggestions from goals, integrations and memory | 20.10 | New opt-in suggestion generation, review, dismissal and deduplication. |
 | Concurrent work with separate results | 20.11 | Existing execution is serial; bounded independent research/draft workers are new. |
-| Spatial context: hold a shortcut, circle a region and ask | 20.12 | Region capture exists; a lasso gesture bound to a question and fresh image is new. |
+| Spatial context: hold a shortcut, circle a region and ask | 20.12 — removed | Cancelled by the user on 2026-10-05; excluded from implementation scope. |
 | Screen drawing: polygons, arrows and curved lines | 20.13 | Rectangular highlights/arrows exist; validated geometry and drawing lifecycle are new. |
 | Floating Home/notch and compact menu-bar overview | 20.6 | Existing menu and companion remain; task/assistant/suggestion/file overview is new. |
 | Memory and personalization | 20.5, 20.9, 20.10 | Existing preferences/memory remain; goal records, specialist scope and inspectable sharing are new. |
-| Companion arrows anchored to cursor and highlighted region | 20.14 | Current arrows start at a screen edge; fresh cursor/companion anchors are new. |
+| Companion arrows anchored to a highlighted region | 20.14 | Existing screen-edge arrows remain; measured companion anchors are planned. Cursor-follow mode is removed. |
 | Native Mac polish | 20.15, every milestone | Existing native styling, shortcuts, animation and compact approvals remain; new surfaces receive matching behavior. |
 
 ## Combined build order
@@ -95,7 +91,7 @@ The two requested lists overlap. This matrix combines them without dropping a ca
 | B — useful results | 20.2, then 20.3 | File gallery/previews, followed by repeatable read-only tasks and routine controls. |
 | C — adaptive work and dictation | 19.5–19.6, then 20.4 | Verified computer-use loop plus a separate dictation mode using the same input driver. |
 | D — personal assistants | 20.5, then 20.9 | Separate role memory, goals, a user interview and reviewed creation of several assistants. |
-| E — spatial guidance and advanced control | 20.12–20.14, 20.7 alongside 19.7–19.9 | Region questions, drawing, anchored arrows, tracked walkthroughs, browser control and dragging. |
+| E — spatial guidance and advanced control | 20.13–20.14, 20.7 alongside 19.7–19.9 | Drawing, companion arrows, tracked walkthroughs, browser control and dragging. |
 | F — connected tools | 20.8 | Custom connectors, email/calendar/browser-service adapters, named accounts and explicit permissions. |
 | G — proactive and concurrent work | 20.11, then 20.10 | Independent bounded workers, resumable follow-ups and personalized suggestions from authorized sources. |
 | H — compact Home and polish | 20.6 with 20.15 | Overview of real assistants, suggestions, tasks and files; native interaction/accessibility review. |
@@ -364,35 +360,15 @@ instructions and spoken acceptance cannot approve a risky tool. Disabled suggest
 limits and shared budgets hold; shared resource conflicts serialize; one failed/blocked worker does not
 falsely fail/succeed another; stale approvals, late results and Stop all cannot emit new actions.
 
-## 20.12 — Spatial questions from a circled region
+## 20.12 — Removed from scope
 
-**Initial packaged slice:** shared ⌘⇧Space voice shortcut, configurable R/A typed selection shortcuts,
-menu selection, hover/freehand/rectangle bounding crops, keyboard hover positioning and Esc cancellation.
-The dashed crop bounds show included pixels. ScreenCaptureKit selected crops stay in memory and exclude
-Ivy/protected apps; existing redaction/limits apply. Voice speech stays buffered until the microphone closes
-and the crop is sent first; silence/capture failure sends no speech. Typed crops appear in Quick chat.
-Real mixed-scale hardware acceptance, exact polygon masking, arbitrary shortcut assignment and
-freshness checks at typed submission remain open; screenshots are snapshots, not control authorization.
-
-**Dependency:** existing region capture and Phase 19 observation/coordinate freshness.
-
-- Provide a configurable hold shortcut plus a visible Select region button. While held, show a temporary
-  selection surface; draw a circle/freehand lasso or use a rectangular/keyboard-accessible alternative.
-  On release, preview the selected region with a text/voice question; do not auto-send an empty question.
-- Bind question, crop, image ID, app/window, display transform and capture time. Send only the selected
-  context after the user's submission. Mark the shape as selection, not an instruction to click or draw.
-- Cancel/Escape removes the selector and capture; changing app/display/window before submission asks
-  for a fresh capture. Screen permission denial and protected windows get existing recovery UI.
-- Screenshots and lasso geometry remain session-only. Avoid conflicts with PTT, screen attachment and
-  control shortcuts; cancel selection before starting a desktop input session.
-
-**Acceptance:** circle a chart/control on mixed-scale displays and ask about that crop; correct IDs and
-coordinates survive submission; cancel/silence/stale targets send nothing; keyboard users can select;
-ordinary overlays remain click-through after the explicit selector closes.
+The user cancelled hover/circle/rectangle selection and its voice integration on 2026-10-05.
+Its selectors, shortcuts, settings, capture adapters and feature-only tests are removed.
+Do not reintroduce it without a new user request.
 
 ## 20.13 — Rich screen drawing
 
-**Dependency:** annotation/capture mapping, 20.12 spatial references and shared run/step identity.
+**Dependency:** explicit attachment/capture mapping and shared run/step identity.
 Walkthroughs in 20.7 integrate these shapes once the renderer is ready.
 
 - Extend the annotation model with polygons, straight arrows, curved paths and labels, bound to a fresh
@@ -400,7 +376,7 @@ Walkthroughs in 20.7 integrate these shapes once the renderer is ready.
   and duration before rendering. Treat model-provided shapes as data, never executable instructions.
 - Use Ivy's style with legible strokes, optional drawing animation and static Reduce Motion alternatives.
   Show the related explanation in accessible text; shape/color alone cannot carry the instruction.
-- Keep explanatory drawings click-through; reserve pointer interception for explicit region selection.
+- Keep explanatory drawings click-through; never intercept pointer input for annotations.
   Clear/Repeat controls, expiry, step changes, Stop, hidden/moved targets and session teardown remove
   old shapes. Revalidate mapping before redraw rather than stretching an old capture to a new window.
 - Support diagrams or tutorial emphasis without changing app content. Any drawing inside a document
@@ -410,36 +386,18 @@ Walkthroughs in 20.7 integrate these shapes once the renderer is ready.
 is rejected; text remains readable; overlays intercept no app input and clear on all teardown paths;
 long walkthroughs do not accumulate windows, timers or stale shapes.
 
-## 20.14 — Companion and cursor-anchored arrows
-
-**Implemented slice (2026-10-04; packaged locally):** opt-in 32-point folded-leaf cursor companion,
-Blue/Green/Amber/Red preferences in a searchable Pointer settings page, bounded following and
-click-through non-activating presentation. Hide/master-disable, Reduce Motion, sleep/inactive session,
-missing display geometry and app shutdown stop tracking. Existing installations remain opted out.
-Native fixtures cover lifecycle and window policy; real multi-display/Spaces input checks remain manual.
-Target-anchored arrows, task bubbles and emphasis events below are still pending.
-
-The [supplied-media review](../../tasks/interface-reference-review.md) also specifies an optional
-floating Ivy pointer separate from the OS cursor: bounded smooth following, color/Hide controls,
-truthful emphasis rings and optional task-update bubbles. This visual can ship independently of the
-computer-input driver; it cannot click, type or approve an action.
+## 20.14 — Companion-anchored guidance
 
 **Dependency:** 20.13 geometry plus fresh Phase 19 targets and measured companion placement.
 
-- Support screen-edge, companion and cursor origins for the same target arrow. Use the current measured
-  visible companion bounds or a cursor position sampled for this guidance step; never move the user's
-  cursor just to create an animation. Clamp paths and keep labels clear of target controls and task UI.
-- Recompute while the user explicitly drags the companion or a scoped target window moves; hide if the
-  target can no longer be validated. Cursor following is optional, bounded and active only during a
-  guidance/control session or explicitly enabled, visible companion-follow mode. Hide/disable and
-  teardown stop tracking; idle hidden UI never performs persistent mouse tracking.
-- Separate pointing from execution: the arrow explains the next action and cannot click or approve it.
-  Provide a stable screen-edge fallback if the companion is hidden or on another display; accessible
-  text always identifies the target. Reduce Motion uses a static path and avoids a chasing animation.
+- Extend existing screen-edge arrows with a measured companion anchor and labelled target.
+  Clamp paths and labels to the display; hide guidance when a target becomes stale.
+- Explanatory arrows stay click-through, cannot click or approve, and clear on Stop and teardown.
+  Use a static screen-edge fallback when the companion is hidden and honor Reduce Motion.
+- Cursor-follow decoration and hover/circle selectors are removed from scope at the user's request.
 
-**Acceptance:** cursor/companion/edge anchors resolve to the same verified region without moving input;
-dragging across displays, hidden companion, changed scale and stale targets produce correct redraw or
-fallback; Stop clears the arrow and tracking; idle/hidden states perform no continuous cursor polling.
+**Acceptance:** companion/edge anchors map to the same validated target; stale geometry hides guidance;
+Stop clears overlays and idle/hidden UI performs no persistent cursor polling.
 
 ## 20.15 — Native Mac polish and integration
 

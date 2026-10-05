@@ -6,7 +6,6 @@ import Combine
 public final class CommandBarSession: ObservableObject {
     @Published public var text = ""
     @Published public private(set) var askedID: UUID?
-    @Published public var screenQuestionID: UUID?
     private let brain: IvyBrain
     private let tray: AttachmentTray
     private let tasks: TaskEngine
@@ -37,20 +36,11 @@ public final class CommandBarSession: ObservableObject {
         await tray.capture(.frontWindow)
     }
 
-    /// Keeps an existing draft intact; the crop is reviewed before an explicit send.
-    public func prepareScreenQuestion(_ attachment: ImageAttachment) {
-        screenQuestionID = attachment.id
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            text = "What is this, and how does it work?"
-        }
-    }
-
     @discardableResult
     public func send() async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !tray.attachments.isEmpty, !brain.isThinking, blocked == nil else { return false }
         text = ""
-        screenQuestionID = nil
         if trimmed.lowercased().hasPrefix("/agent ") {
             await tasks.start(goal: String(trimmed.dropFirst("/agent ".count)))
         } else if trimmed.lowercased().hasPrefix("/desktop ") {

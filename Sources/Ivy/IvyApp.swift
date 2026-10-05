@@ -43,59 +43,12 @@ struct IvyApp: App {
         environment.onScreenHelp = { MainWindowController.shared?.show() }
         // Phase 17b: the on-screen companion and the ⌃⌥⌘K command bar.
         IvyAppDelegate.companion = CompanionController(environment: environment)
-        IvyAppDelegate.floatingPointer = FloatingPointerController(settings: environment.settings)
         // Phase 17c: the introduction on a fresh install only (existing installs are marked done at launch).
         OnboardingWindowController.shared = OnboardingWindowController(model: environment.onboarding)
         self.environment = environment
         let commandBar = CommandBarController(environment: environment)
         IvyAppDelegate.commandBar = commandBar
         environment.onCommandBar = { commandBar.toggle() }
-        let selector = ScreenQuestionController(settings: environment.settings,
-            blocked: {
-                environment.brain.isThinking || environment.attachments.isWorking || environment.tasks.run?.isActive == true
-                    || environment.tasks.isDesktopControlActive
-                    || environment.brain.pendingConfirmation != nil
-                    || environment.liveCoordinator.pendingConfirmation != nil
-            }, capture: { selection in
-                let attachment = await environment.attachments.capture(selection: selection)
-                guard !Task.isCancelled else { return }
-                if let attachment { commandBar.showScreenQuestion(attachment) }
-                else if environment.attachments.lastError != nil { commandBar.show() }
-            }, report: { message in
-                environment.attachments.reportCaptureError(message)
-                commandBar.show()
-            })
-        IvyAppDelegate.screenQuestion = selector
-        let live = environment.liveCoordinator
-        var voiceSelection: ScreenRegionSelection?
-        live.onPushToTalkContextBegin = { [weak environment, weak live] in
-            guard let environment, environment.settings.settings.screenQuestionEnabled,
-                  environment.settings.settings.screenQuestionShortcut == .pushToTalk else { return .audioOnly }
-            guard live?.state.isLive == false else { return .cancel }
-            return .screen
-        }
-        live.onPushToTalkContextReady = { [weak selector] in selector?.begin(voice: true) == true }
-        live.onPushToTalkContextEnd = { [weak selector] in voiceSelection = selector?.takeSelection() }
-        live.onPushToTalkContextRelease = { [weak environment, weak commandBar] in
-            guard let environment, let selection = voiceSelection else { return nil }
-            voiceSelection = nil
-            let attachment = await environment.attachments.capture(selection: selection, stage: false)
-            if attachment == nil, !Task.isCancelled, environment.attachments.lastError != nil { commandBar?.show() }
-            return attachment
-        }
-        live.onPushToTalkContextCancel = { [weak selector] in voiceSelection = nil; selector?.cancel() }
-        live.onPushToTalkContextShown = { [weak environment] attachment in
-            environment?.attachments.markShown(attachment)
-        }
-        selector.onCancelled = { [weak live] in
-            guard live?.isPushToTalkActive == true else { return }
-            Task { await live?.stopSession() }
-        }
-        selector.onVoiceRelease = { [weak live] in Task { await live?.endPushToTalk() } }
-        selector.onInvalidated = { [weak live] in
-            guard live?.wasSessionStartedByPushToTalk == true, live?.state.isLive == true else { return }
-            Task { await live?.stopSession() }
-        }
         environment.observeSystemEvents()
         let needsOnboarding = environment.needsOnboarding
         DispatchQueue.main.async {
@@ -132,7 +85,6 @@ struct IvyApp: App {
                 library.newConversation()
                 MainWindowController.shared?.show()
             }
-            Button("Ask about a screen area…") { IvyAppDelegate.screenQuestion?.begin() }
             Divider()
             if liveVoiceCoordinator.state.isLive {
                 Button("End Voice Session") { Task { await liveVoiceCoordinator.stopSession() } }
@@ -170,8 +122,6 @@ final class IvyAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var shutdown: (@MainActor () async -> Void)?
     /// Kept alive for the app's lifetime.
     @MainActor static var companion: CompanionController?
-    @MainActor static var floatingPointer: FloatingPointerController?
-    @MainActor static var screenQuestion: ScreenQuestionController?
     @MainActor static var commandBar: CommandBarController?
     @MainActor static var openURL: (@MainActor (URL) -> Void)?
 
@@ -190,10 +140,6 @@ final class IvyAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let shutdown = Self.shutdown else { return .terminateNow }
         Self.shutdown = nil
-        Self.floatingPointer?.stop()
-        Self.floatingPointer = nil
-        Self.screenQuestion?.stop()
-        Self.screenQuestion = nil
         Task { @MainActor in
             await shutdown()
             sender.reply(toApplicationShouldTerminate: true)

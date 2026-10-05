@@ -20,7 +20,6 @@ struct SettingsPanel: View {
             Divider()
             HistorySettingsSection(settings: settings)
             GeneralSettingsSection(settings: settings)
-            PointerSettingsSection(settings: settings)
             Divider()
             VoiceSettingsSection(settings: settings, wakeWord: wakeWord, onPreviewVoice: onPreviewVoice)
             Divider()
@@ -101,8 +100,8 @@ struct GeneralSettingsSection: View {
                 SettingsToggle(title: "Keep visible when idle", isOn: $settings.settings.companionShowWhileIdle)
                     .disabled(!settings.settings.companionEnabled)
             }
-            SettingsCard(title: "Keyboard shortcuts", symbol: "command", subtitle: "Shortcut changes take effect after restarting Ivy.") {
-                SettingsToggle(title: "Push to talk", detail: "Hold ⌘⇧Space to speak to Ivy.", isOn: $settings.settings.pushToTalkEnabled)
+            SettingsCard(title: "Keyboard shortcuts", symbol: "command", subtitle: "Command bar changes take effect after restarting Ivy.") {
+                SettingsToggle(title: "Push to talk", detail: "Hold ⌘⇧Space from any app. Changes apply immediately.", isOn: $settings.settings.pushToTalkEnabled)
                 Divider()
                 SettingsToggle(title: "Quick command bar", detail: "Press ⌃⌥⌘K to open a quick prompt.", isOn: $settings.settings.commandBarHotkeyEnabled)
             }

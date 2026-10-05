@@ -131,13 +131,10 @@ struct CommandBarSessionTests {
         }
         let bar = CommandBarSession(brain: environment.brain, tray: environment.attachments, tasks: environment.tasks, live: environment.liveCoordinator)
         #expect(await bar.send() == false)
+        bar.text = "Keep my draft"
         await bar.captureFrontWindow()
         #expect(await capturer.calls == [.frontWindow])
         #expect(environment.attachments.attachments.count == 1 && environment.brain.messages.isEmpty)
-        let selected = try #require(environment.attachments.attachments.first)
-        bar.prepareScreenQuestion(selected)
-        #expect(bar.screenQuestionID == selected.id && bar.text == "What is this, and how does it work?")
-        bar.text = "Keep my draft"; bar.prepareScreenQuestion(selected)
         #expect(bar.text == "Keep my draft")
         bar.text = "/agent organize"
         #expect(bar.blocked != nil)
@@ -150,7 +147,6 @@ struct CommandBarSessionTests {
         #expect(environment.attachments.attachments.isEmpty)
         #expect(client.recordedHistory.first?.attachments.count == 1)
         #expect(bar.askedID == environment.brain.messages.first?.id && bar.text.isEmpty)
-        #expect(bar.screenQuestionID == nil)
         #expect(environment.brain.currentConversation.messages.first?.text.contains("not saved") == true)
         #expect(!(try JSONEncoder().encode(environment.brain.currentConversation)).contains(jpeg))
         await environment.liveCoordinator.startSession()

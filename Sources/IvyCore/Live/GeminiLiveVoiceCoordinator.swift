@@ -129,7 +129,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     var activeTaskCount: Int {
         [captureTask, eventTask, drainTask, toolExecutionTask, setupWatchdogTask, wakeWatchdogTask, reconnectTask,
          pushToTalkReleaseWatchdogTask]
-            .filter { $0 != nil }.count + (spatialContextTask == nil ? 0 : 1)
+            .filter { $0 != nil }.count
     }
 
     private var isReconnecting: Bool {
@@ -145,18 +145,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     private var pushToTalkPressID: UUID?
     private var pushToTalkReleaseWatchdogTask: Task<Void, Never>?
     private let pushToTalkPoll: @Sendable () async throws -> Void
-    public enum PushToTalkContextMode { case audioOnly, screen, cancel }
-    /// App-owned region selection. A screen turn buffers speech until its image is ready.
-    public var onPushToTalkContextBegin: (() -> PushToTalkContextMode)?
-    /// Opens selection only after permission prompts have closed, so the overlay cannot cover them.
-    public var onPushToTalkContextReady: (() -> Bool)?
-    public var onPushToTalkContextEnd: (() -> Void)?
-    public var onPushToTalkContextRelease: (() async -> ImageAttachment?)?
-    public var onPushToTalkContextCancel: (() -> Void)?
-    public var onPushToTalkContextShown: ((ImageAttachment) -> Void)?
-    private var waitsForScreenContext = false
-    private var spatialAudio = Data()
-    private var spatialContextTask: Task<ImageAttachment?, Never>?
     /// Started by the idle "Hey Ivy" wake word: ends after one answered turn, or after silence.
     public private(set) var wasSessionStartedByWakeWord: Bool = false
     private let wakeSilenceTimeout: Duration
@@ -337,10 +325,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             // Idempotent: already active, duplicate key-down ignored
             return
         }
-        let contextMode = onPushToTalkContextBegin?() ?? .audioOnly
-        guard contextMode != .cancel else { return }
-        waitsForScreenContext = contextMode == .screen
-        spatialAudio = Data()
         isPushToTalkActive = true
         let pressID = UUID()
         pushToTalkPressID = pressID
@@ -468,7 +452,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         // The server may start its reply or request approval before the shortcut is released.
         // A one-shot session still releases its microphone in those states.
         pushToTalkInputClosed = true
-        if waitsForScreenContext { onPushToTalkContextEnd?() }
         // Capture may be returning its stream on another executor. Its startup path completes release
         // once the consumer exists, so already queued speech isn't mistaken for a silent press.
         guard captureTask != nil else { return }
@@ -486,10 +469,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             await stopSession()
             return
         }
-        if waitsForScreenContext, spatialContextTask == nil {
-            let release = onPushToTalkContextRelease
-            spatialContextTask = Task { await release?() }
-        }
         pushToTalkReleasePending = true
         await finishPushToTalkInput(token: token)
     }
@@ -498,22 +477,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         guard currentSessionToken == token, pushToTalkReleasePending, state == .listening else { return }
         pushToTalkReleasePending = false
         do {
-            if waitsForScreenContext {
-                guard let attachment = await spatialContextTask?.value, let jpeg = attachment.jpeg.first else {
-                    if currentSessionToken == token { await tearDown(then: .error("Screen area wasn't attached. Select again or turn off screen questions for audio-only push-to-talk.")) }
-                    return
-                }
-                guard currentSessionToken == token, !Task.isCancelled else { return }
-                // No speech is sent before this labeled image; VAD cannot answer from a missing crop.
-                try await session.sendImage(jpeg, context: attachment.modelContext)
-                guard currentSessionToken == token else { return }
-                onPushToTalkContextShown?(attachment)
-                let audio = spatialAudio
-                spatialAudio = Data(); spatialContextTask = nil; waitsForScreenContext = false
-                for offset in stride(from: 0, to: audio.count, by: 8000) {
-                    try await session.sendAudio(audio.subdata(in: offset..<min(offset + 8000, audio.count)))
-                }
-            }
             // A quick utterance may finish while the socket is connecting; send that pre-roll first.
             let held = preRoll.drain()
             for offset in stride(from: 0, to: held.count, by: 8000) {
@@ -544,7 +507,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     deinit {
-        spatialContextTask?.cancel()
         pushToTalkReleaseWatchdogTask?.cancel()
         captureTask?.cancel()
         eventTask?.cancel()
@@ -588,13 +550,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         let wakeAvailable = await wakeWordDetector.requestPermission()
         guard currentSessionToken == token else { return }
         isWakePhraseAvailable = wakeAvailable
-
-        if waitsForScreenContext {
-            guard isPushToTalkActive, !pushToTalkInputClosed, onPushToTalkContextReady?() ?? true else {
-                await stopSession()
-                return
-            }
-        }
 
         // Open the microphone before the socket: what the user says while it connects is kept and sent first.
         do {
@@ -651,15 +606,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                     self.levelMeter.reportInput(self.vad.level)
                     let hearing = self.vad.isSpeech && self.state == .listening && !self.isMuted
                     if self.isHearingUser != hearing { self.isHearingUser = hearing }
-
-                    if self.waitsForScreenContext {
-                        guard self.spatialAudio.count + chunk.count <= 960_000 else {
-                            await self.tearDown(then: .error("Screen questions can record up to 30 seconds. Hold the voice key again for a shorter question."))
-                            break
-                        }
-                        self.spatialAudio.append(chunk)
-                        continue
-                    }
 
                     switch self.state {
                     case .speaking, .toolConfirmation, .thinking, .toolExecution:
@@ -748,8 +694,6 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         pushToTalkInputClosed = false
         pushToTalkReleasePending = false
         pushToTalkHeardSpeech = false
-        spatialContextTask?.cancel(); spatialContextTask = nil; spatialAudio = Data()
-        if waitsForScreenContext { waitsForScreenContext = false; onPushToTalkContextCancel?() }
         // A session that ends mid-reply still keeps what was said so far.
         flushTranscripts(interrupted: isModelTurnOpen)
         currentSessionToken = nil

@@ -19,11 +19,6 @@ final class CommandBarController: NSObject, NSWindowDelegate {
         session = CommandBarSession(brain: environment.brain, tray: environment.attachments, tasks: environment.tasks, live: environment.liveCoordinator)
     }
 
-    func showScreenQuestion(_ attachment: ImageAttachment) {
-        session.prepareScreenQuestion(attachment)
-        show()
-    }
-
     func toggle() {
         if let panel, panel.isVisible { close() } else { show() }
     }
@@ -154,13 +149,6 @@ struct CommandBarView: View {
             .ivyGlass(cornerRadius: 26)
 
             AttachmentBar(tray: tray)
-            if let id = session.screenQuestionID, let attachment = tray.attachments.first(where: { $0.id == id }),
-               let bytes = attachment.jpeg.first, let image = NSImage(data: bytes) {
-                Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 180)
-                    .accessibilityLabel("Selected screen area preview")
-                Text("Selected bounds · review the crop, then edit your question and send. Not saved.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
             if brain.isThinking {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)

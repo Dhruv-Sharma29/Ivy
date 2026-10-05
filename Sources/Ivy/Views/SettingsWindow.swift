@@ -111,8 +111,6 @@ struct SettingsWindowView: View {
             PersonalizationPanel(model: environment.personalization)
         case .screen:
             VisionSettingsSection(settings: settings)
-        case .pointer:
-            PointerSettingsSection(settings: settings)
         case .proactive:
             ProactivePanel(settings: settings, proactive: environment.proactive)
         case .privacy:
@@ -170,7 +168,6 @@ struct SettingsWindowView: View {
 /// Each section stays discoverable without squeezing labels into a row of tabs.
 enum SettingsPane: String, CaseIterable, Identifiable {
     case general = "General", voice = "Voice", personalization = "Personalization", screen = "Screen"
-    case pointer = "Pointer"
     case proactive = "Proactive", privacy = "Privacy & Data", keys = "API Keys", permissions = "Permissions", about = "About"
     var id: Self { self }
     var symbol: String {
@@ -179,7 +176,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .voice: "waveform"
         case .personalization: "person.crop.circle"
         case .screen: "rectangle.dashed"
-        case .pointer: "cursorarrow"
         case .proactive: "bell"
         case .privacy: "hand.raised"
         case .keys: "key"
@@ -193,7 +189,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .voice: "Live conversations, Hey Ivy, and reading aloud."
         case .personalization: "Choose how Ivy responds and what it remembers."
         case .screen: "Choose what to share when you show Ivy your screen."
-        case .pointer: "Floating cursor appearance, color and visibility; screen questions and selection shortcuts."
         case .proactive: "Reminders and suggestions, on your terms."
         case .privacy: "Control saved history and export diagnostics."
         case .keys: "Connect Gemini and ElevenLabs securely through the macOS Keychain."

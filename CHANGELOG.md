@@ -2,22 +2,16 @@
 
 ## Unreleased
 
-- Included in the latest local app/DMG: hover, freehand and rectangle screen questions with a shared push-to-talk key
-  (⌘⇧Space), optional R/A selection shortcuts and a menu action. Typed crops are reviewed in Quick chat;
-  voice crops are sent before bounded, memory-only speech after microphone release. Silent presses,
-  Esc, stale windows/displays, capture denial, sleep and session lock cancel the turn. Protected apps
-  are excluded and crops use the existing local redaction pipeline. This is the initial 20.12 slice;
-  richer drawing and typed-submission freshness remain pending.
+- Removed the whole Pointer feature at the user's request: Settings page, floating cursor decoration,
+  hover/circle/rectangle selection, selection shortcuts and image-before-voice callbacks. Existing
+  saved preferences remain compatible; obsolete keys disappear on the next settings save.
+- Global keyed shortcuts now receive Carbon events before application-level handlers can consume them.
+  A native regression test reproduced the old routing failure and passes with the dispatcher fix.
+  The push-to-talk setting updates registration immediately, including disabling a held press and retrying
+  a failed registration. Live keyboard verification in another app remains a manual check.
 
-- Included in the latest local app/DMG rebuild: optional folded-leaf floating pointer, native Pointer settings,
-  persisted Blue/Green/Amber/Red choices and bounded following beside the system cursor. Default off;
-  click-through and non-activating, with no computer input or extra permissions. Disable/Reduce Motion,
-  sleep/inactive session, unavailable displays and shutdown stop sampling. Existing arrows/approvals remain separate.
 - The workspace plan now requires Ivy's own task-first layouts, leaf/status notch overview, grouped
   settings, original icons/copy/assets and design review against existing Ivy surfaces at every milestone.
-- The 2026-10-04 floating-pointer package refresh retains version 1.1.0 (build 2), preserves the
-  preceding app/DMG under `dist/Previous-Builds/Floating-Pointer-2026-10-04-lA9sSo/`, and passes release
-  compilation, app signature, mounted-binary comparison, DMG integrity and SHA-256 checks.
 
 - Push-to-talk checks the physical shortcut while held, recovering a missed key-up without leaving
   Listening or the microphone active. Release preserves the pending reply/tool approval, and Stop

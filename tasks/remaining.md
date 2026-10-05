@@ -47,11 +47,10 @@ Expanded 2026-10-04 to cover both requested feature lists. All fifteen complete 
 voice, memory, pointers and companion confirmations provide foundations only. See
 [Phase 20 — Assistant Workspace](../docs/roadmap/phase-20-assistant-workspace.md) for the full coverage
 matrix, dependencies, acceptance criteria and combined Phase 19/20 milestones.
-The optional folded-leaf floating pointer and its settings are implemented and included in the latest
-local app/DMG rebuild. The initial screen-question slice is also packaged: shared voice-key selection,
-hover/freehand/rectangle crops and typed review. See [screen-question verification](screen-questions.md)
-for usage and hardware checks. Anchored target arrows, real input control and the other workspace additions remain
-pending. Every UI slice follows the roadmap's explicit Ivy identity/design requirement.
+The floating Pointer feature and 20.12 hover/circle selection were removed on 2026-10-05 at the
+user's request. Push-to-talk is voice-only; its global shortcut routing and immediate settings updates
+are covered by regression tests. See [the removal report](pointer-removal.md) for hardware checks.
+Other workspace additions remain pending and follow Ivy's identity/design requirement.
 
 - [ ] 20.1 Floating task panel — shared with the computer-control panel.
 - [ ] 20.2 Generated-file gallery and adjacent preview — real file outputs, Open/Reveal/drag-out.
@@ -64,11 +63,9 @@ pending. Every UI slice follows the roadmap's explicit Ivy identity/design requi
 - [ ] 20.9 Personal agent creation — resumable goals interview and reviewed creation of several assistants.
 - [ ] 20.10 Daily suggestions — authorized goals/memory/integrations, Start/Edit/Later/Dismiss and deduplication.
 - [ ] 20.11 Concurrent work — bounded research/draft workers, linked finished-agent follow-ups and one desktop-input lane.
-- [ ] 20.12 Spatial context — hold shortcut, circle/select a region and submit a question about the exact crop.
-  Initial bounding-crop/voice/typed slice is packaged; exact masking, typed-submission freshness and real-device acceptance remain open.
+- 20.12 Removed from scope — hover/circle selection and its voice integration cancelled by the user.
 - [ ] 20.13 Screen drawing — validated polygons, arrows and curved paths with accessible explanations.
-- [ ] 20.14 Anchored companion arrows — fresh cursor/companion/region mapping with display-aware fallback;
-  optional cursor-follow visual/color/Hide settings are implemented and packaged locally.
+- [ ] 20.14 Companion-anchored guidance — fresh companion/region mapping with a screen-edge fallback.
 - [ ] 20.15 Native Mac integration/polish — draggable panels, shortcuts, animation, accessibility and compact approvals.
 
 Build order: control foundation + shared panel → generated files + routines → adaptive control + dictation

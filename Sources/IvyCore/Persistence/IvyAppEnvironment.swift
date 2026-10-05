@@ -209,14 +209,7 @@ public final class IvyAppEnvironment {
             }
         }
 
-        if settings.settings.pushToTalkEnabled {
-            do {
-                try liveCoordinator.registerHotkey()
-            } catch {
-                hotkeyError = error.localizedDescription
-                print("[HOTKEY] push-to-talk unavailable: \(error.localizedDescription)")
-            }
-        }
+        updatePushToTalkShortcut(enabled: settings.settings.pushToTalkEnabled)
 
         personalizationSubscription = personalization.$profile.sink { [weak brain] profile in
             brain?.personalization = profile
@@ -231,6 +224,9 @@ public final class IvyAppEnvironment {
         var previous = settings.settings
         settingsSubscription = settings.$settings.sink { [weak self, weak brain, weak wakeWord, weak liveCoordinator, weak proactive] new in
             defer { previous = new }
+            if new.pushToTalkEnabled != previous.pushToTalkEnabled {
+                self?.updatePushToTalkShortcut(enabled: new.pushToTalkEnabled)
+            }
             proactiveRelay.setAcceptingTriggers(new.proactiveEnabled)
             if new.proactiveEnabled, !previous.proactiveEnabled {
                 self?.requestNotificationAccess?()
@@ -253,6 +249,21 @@ public final class IvyAppEnvironment {
             brain?.autoTitles = new.autoTitleConversations
             brain?.savesVoiceTranscripts = new.saveVoiceTranscripts
             wakeWord?.setEnabled(new.wakeWordEnabled)
+        }
+    }
+
+    private func updatePushToTalkShortcut(enabled: Bool) {
+        if !enabled {
+            liveCoordinator.unregisterHotkey()
+            hotkeyError = nil
+            return
+        }
+        do {
+            try liveCoordinator.registerHotkey()
+            hotkeyError = nil
+        } catch {
+            hotkeyError = error.localizedDescription
+            print("[HOTKEY] push-to-talk unavailable: \(error.localizedDescription)")
         }
     }
 

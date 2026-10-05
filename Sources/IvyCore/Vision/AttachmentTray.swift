@@ -66,34 +66,6 @@ public final class AttachmentTray: ObservableObject {
         }
     }
 
-    /// A fresh spatial selection uses the same redaction and size limits as other screenshots.
-    /// Permission failure requires a new selection, never a retry of old screen coordinates.
-    @discardableResult
-    public func capture(selection: ScreenRegionSelection, stage: Bool = true) async -> ImageAttachment? {
-        guard !isWorking else { return nil }
-        failedCaptureTarget = nil
-        return await work(stage: stage) {
-            guard let capturer = self.capturer as? any SelectedRegionCapturing else {
-                throw VisionError.captureFailed("this capture service doesn't support selected areas.")
-            }
-            let policy = self.policy()
-            if let app = await self.capturer.frontmostOtherApp(), policy.isExcluded(app: app) {
-                throw VisionError.excludedApp(app)
-            }
-            let shot = try await capturer.capture(selection: selection, excludedApps: policy.excludedApps)
-            try Task.checkCancellation()
-            if policy.isExcluded(app: shot.app) { throw VisionError.excludedApp(shot.app ?? "") }
-            self.captureCount += 1
-            return try await self.pipeline.prepareImage(shot.png, source: .screenshot(app: shot.app), policy: policy, frame: shot.frame)
-        }
-    }
-
-    public func reportCaptureError(_ message: String) {
-        lastError = message
-        needsScreenPermission = false
-        failedCaptureTarget = nil
-    }
-
     @discardableResult
     public func addFile(_ url: URL) async -> ImageAttachment? {
         await work { try await self.pipeline.prepareFile(url, policy: self.policy()) }
@@ -141,7 +113,7 @@ public final class AttachmentTray: ObservableObject {
         return "\(count) attachment\(count == 1 ? "" : "s")" + (bytes > 0 ? " · " + ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file) : "")
     }
 
-    private func work(stage: Bool = true, _ make: @escaping () async throws -> ImageAttachment) async -> ImageAttachment? {
+    private func work(_ make: @escaping () async throws -> ImageAttachment) async -> ImageAttachment? {
         guard !isWorking else { return nil }
         needsScreenPermission = false
         guard attachments.count < Self.maxAttachments else {
@@ -156,7 +128,7 @@ public final class AttachmentTray: ObservableObject {
             try Task.checkCancellation()
             let total = attachments.reduce(0) { $0 + $1.byteCount } + attachment.byteCount
             guard total <= Self.maxRequestBytes else { throw VisionError.tooLarge("Together, these attachments are") }
-            if stage { attachments.append(attachment) }
+            attachments.append(attachment)
             lastError = nil
             failedCaptureTarget = nil
             return attachment

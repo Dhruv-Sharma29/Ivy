@@ -1,6 +1,8 @@
 # Ivy UI refresh and feature audit
 
-Updated 2026-10-04. This report distinguishes implemented source changes from planned capabilities.
+Historical report from 2026-10-04. Superseded for Pointer features on 2026-10-05:
+[the whole Pointer feature was removed](pointer-removal.md), including hover/circle voice selection.
+The dated package/verification entries below are historical, not current installation instructions.
 
 All future slices follow [Ivy's own interface requirement](../docs/roadmap/phase-20-assistant-workspace.md#ivys-own-interface--design-requirement):
 references establish behavior; Ivy retains original leaf branding, task-first layouts, native settings,
