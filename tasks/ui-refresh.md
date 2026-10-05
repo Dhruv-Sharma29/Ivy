@@ -8,10 +8,10 @@ All future slices follow [Ivy's own interface requirement](../docs/roadmap/phase
 references establish behavior; Ivy retains original leaf branding, task-first layouts, native settings,
 companion controls and its own copy/assets. Each milestone is reviewed beside existing Ivy surfaces.
 
-The later [supplied-media review](interface-reference-review.md) records 18 photos and the full
-30.54-second pointer clip, with concrete workspace/notch/settings/floating-pointer requirements.
-The floating-pointer visual/settings slice is implemented and packaged locally as recorded below;
-the other additions remain planned.
+The supplied-media review informed the original workspace/notch/settings ideas. Its floating-pointer
+requirements are superseded by the user's removal request.
+The floating-pointer visual/settings slice was packaged on 2026-10-04 and removed on 2026-10-05.
+Its entries below document that historical build only; the other additions remain planned.
 
 ## Implemented UI refresh
 
@@ -73,7 +73,10 @@ These are results from the UI refresh verification, not a fresh hardware/provide
   changes are 34/36 covered. Strict Swift 6 build passed without warnings/errors.
 - Solid-surface companion previews were reviewed; this update is included in the 2026-10-04 local DMG rebuild.
 
-## Original floating pointer — 2026-10-04, packaged locally
+## Retired floating pointer — historical 2026-10-04 build
+
+Removed from source and the current app/DMG on 2026-10-05. The following is an archived verification record,
+not a current feature list or installation guide.
 
 - A 32-point folded-leaf vector follows beside the ordinary cursor with bounded smoothing, display
   transitions and edge offsets. It is a separate click-through, non-activating window and produces no input.
@@ -89,7 +92,7 @@ These are results from the UI refresh verification, not a fresh hardware/provide
 - Original leaf/color previews were reviewed in both appearances. Solid-surface Settings card previews
   verify content/layout; offscreen native sidebar/header colors and glass rendering remain unreliable.
   Live appearance and real input delivery across displays/Spaces still
-  require manual checking. The latest local app/DMG includes this slice; version/tag remain unchanged.
+  required manual checking for that historical build. The current app/DMG excludes this slice.
 - Phase 20's Ivy design requirement governs subsequent work: task-first Home, original leaf/status notch
   overview, context selection with clear memory scope, native grouped settings and original copy/assets.
 
@@ -103,7 +106,7 @@ These are results from the UI refresh verification, not a fresh hardware/provide
 - Previous app/DMG/checksum preserved in `dist/Previous-Builds/Floating-Pointer-2026-10-04-lA9sSo/`.
 - DMG SHA-256: `906602aa7870e2176e25e4200ca335ffcf7777be59a3b7086307072efdeafa68`.
 - No installed `/Applications/Ivy.app` was present to replace. No user data, version/tag, GitHub release
-  or notarization was changed by packaging. Install the new DMG before testing the pointer.
+  or notarization was changed by that packaging run. This pointer package has been superseded.
 
 ## Selected feature additions
 
@@ -119,18 +122,18 @@ These are results from the UI refresh verification, not a fresh hardware/provide
 | Concurrent work and follow-ups | Run independent research/draft workers with separate context/results and linked continuations; serialize desktop input. |
 | Compact Home/notch/menu-bar overview | Add a peek of real assistants, suggestions, tasks and files, with a no-notch fallback. |
 | Step-by-step walkthroughs | Capture mapping, arrows and labels exist. Add remembered steps and progression from explicitly authorized fresh screen context. |
-| Spatial context and screen drawing | Add circled-region questions, validated polygons/arrows/curves and click-through explanatory overlays. |
-| Anchored companion arrows | Connect fresh cursor or companion bounds to the verified highlighted region; stale targets hide and tracking stops with the session. |
+| Screen drawing | Add validated polygons/arrows/curves on explicitly shared captures. Hover/circle selection is cancelled. |
+| Anchored companion arrows | Connect fresh companion bounds to the verified highlighted region with a screen-edge fallback; no cursor-follow decoration. |
 | App connectors and multiple accounts | Add connector/authentication infrastructure, explicit account scope and isolated credentials. Documentation alone does not implement an integration. |
 | Native Mac polish | Apply existing Ivy styling, compact confirmations, shortcuts, drag areas and accessibility to every new surface. |
 
 Recommended workspace order: floating task panel → output-file gallery/preview → routine controls.
 Computer control supplies shared input and observation foundations for dictation and walkthroughs.
 
-All fifteen workstreams are planned in [Phase 20 — Assistant Workspace](../docs/roadmap/phase-20-assistant-workspace.md),
+Fourteen active workstreams are planned; 20.12 is cancelled in [Phase 20 — Assistant Workspace](../docs/roadmap/phase-20-assistant-workspace.md),
 linked to [Phase 19 — Computer Control](../docs/roadmap/phase-19-computer-control.md) with a combined
-milestone order. The optional pointer slice and the [initial screen-question slice](screen-questions.md)
-are packaged locally; the complete workstreams remain open. Planning does not enable accounts, capture, background
+milestone order. The pointer slice and [screen-question slice](screen-questions.md) are retired;
+remaining workstreams stay open. Planning does not enable accounts, capture, background
 execution or permissions.
 
 Source checks for the important gaps: `ProactiveModels.swift` and `ProactiveEngine.tick` distinguish

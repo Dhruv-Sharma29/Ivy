@@ -91,6 +91,7 @@ struct HistorySettingsSection: View {
 
 struct GeneralSettingsSection: View {
     @ObservedObject var settings: SettingsModel
+    var shortcutStatus: PushToTalkShortcutStatus? = nil
 
     var body: some View {
         VStack(spacing: 18) {
@@ -101,9 +102,39 @@ struct GeneralSettingsSection: View {
                     .disabled(!settings.settings.companionEnabled)
             }
             SettingsCard(title: "Keyboard shortcuts", symbol: "command", subtitle: "Command bar changes take effect after restarting Ivy.") {
-                SettingsToggle(title: "Push to talk", detail: "Hold ⌘⇧Space from any app. Changes apply immediately.", isOn: $settings.settings.pushToTalkEnabled)
+                SettingsToggle(title: "Push to talk", detail: "Hold the shortcut to speak; release to send. Changes apply immediately.", isOn: $settings.settings.pushToTalkEnabled)
+                Picker("Voice shortcut", selection: $settings.settings.pushToTalkShortcut) {
+                    ForEach(PushToTalkShortcut.allCases, id: \.self) { shortcut in
+                        Text(shortcut.label).tag(shortcut)
+                    }
+                }
+                .disabled(!settings.settings.pushToTalkEnabled)
+                if let shortcutStatus {
+                    PushToTalkRegistrationView(status: shortcutStatus, enabled: settings.settings.pushToTalkEnabled)
+                }
                 Divider()
                 SettingsToggle(title: "Quick command bar", detail: "Press ⌃⌥⌘K to open a quick prompt.", isOn: $settings.settings.commandBarHotkeyEnabled)
+            }
+        }
+    }
+}
+
+/// Observes registration independently so a failed toggle is visible immediately.
+struct PushToTalkRegistrationView: View {
+    @ObservedObject var status: PushToTalkShortcutStatus
+    let enabled: Bool
+
+    var body: some View {
+        if enabled {
+            if let error = status.error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("ivy.ptt.registration-error")
+            } else {
+                Label("Global shortcut registered", systemImage: "checkmark.circle")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("ivy.ptt.registered")
             }
         }
     }

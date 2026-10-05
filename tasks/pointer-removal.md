@@ -1,5 +1,7 @@
 # Pointer removal and global push-to-talk — 2026-10-05
 
+Historical build-2 verification. The removal remains in place; see [build-3 shortcut recovery](ptt-shortcut-recovery.md) for the latest package.
+
 The user explicitly requested removal of the whole Pointer feature, including hover/circle selection
 linked to voice. Its Settings page, floating cursor decoration, display polling, selector panels,
 selection shortcuts/menu action, selected-region capture adapters, preview state and voice callbacks

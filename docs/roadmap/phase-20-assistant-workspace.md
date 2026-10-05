@@ -1,11 +1,12 @@
 # Phase 20 — Assistant Workspace
 
-Status: **partial source implementation; all fifteen complete workstreams remain open**.
+Status: **fourteen active workstreams remain open; 20.12 is cancelled**.
+Existing UI foundations are implemented; the full workspace additions below are planned.
 Expanded 2026-10-04; revised 2026-10-05 at the user's request. The floating Pointer feature and
 20.12 hover/circle selection have been removed from source and scope. Push-to-talk remains voice-only.
 The remaining workspace additions below are planned. See [the removal report](../../tasks/pointer-removal.md).
 This extends [Phase 19 — Computer Control](phase-19-computer-control.md) with the full personal-assistant
-workspace plan. Existing voice, memory, screen pointers and companion approvals are foundations;
+workspace plan. Existing voice, memory, screen annotations and companion approvals are foundations;
 they do not mean these expanded capabilities are complete.
 It does not implement features, connect accounts or authorize runtime actions.
 
@@ -15,7 +16,9 @@ Make Ivy useful from anywhere on the Mac: follow tasks in a small panel, inspect
 repeat work, choose specialist assistants, dictate into other apps, open a compact overview, follow screen
 walkthroughs and connect external tools/accounts. Interview the user to create assistants around their
 goals, offer useful daily suggestions, run independent jobs concurrently and retain follow-up context.
-Support selected-region questions, richer screen drawing and companion arrows tied to real targets.
+Support questions about explicitly attached screenshots/windows, richer explanatory screen drawing
+and companion arrows tied to real targets. Cursor-follow decoration, shortcut-based hover/circle/rectangle
+selection and automatic image-before-voice capture are excluded. Do not restore them through another workstream.
 
 Keep Ivy's native visual language, existing chat/library/tasks and single approval surface. Reuse current
 voice, memory, tool cards, screen annotations and task engine. These are additions to existing foundations,
@@ -223,7 +226,7 @@ private context merely because model output requests it.
 
 ## 20.6 — Compact notch/menu-bar overview
 
-The [supplied-media review](../../tasks/interface-reference-review.md) adds explicit collapsed,
+The overview design includes collapsed,
 hover-peek and expanded Home states, an assistant avatar list and an expand action. The peek must use
 real owned data; keep hover configurable and the equivalent menu-bar entry on displays without a notch.
 
@@ -403,7 +406,7 @@ Stop clears overlays and idle/hidden UI performs no persistent cursor polling.
 
 **Applies at every milestone; final review after the new surfaces exist.**
 
-- Apply the [supplied-media requirements](../../tasks/interface-reference-review.md): collapsible
+- Apply the native interface requirements below: collapsible
   assistant rail, clear voice/text entry, provider-backed voice previews, real microphone selection
   with a bounded level test, grouped shortcut controls and recording-visibility preferences with
   accurate limits. Unsupported options are not presented as functioning settings.
@@ -459,8 +462,9 @@ is separate and uses authorized test accounts and disposable files. Do not weake
 - [ ] Daily suggestions respect sources, dismissals and quiet hours; voice/text task acceptance never approves a risky tool.
 - [ ] Concurrent research/draft workers keep histories, budgets and files separate; desktop input remains serialized.
 - [ ] A finished assistant accepts a linked follow-up without losing context or reusing live control consent.
-- [ ] Circled-region questions attach the exact crop; polygons/curves/arrows stay click-through and clear on Stop.
-- [ ] Companion/cursor arrows use fresh targets and stop tracking when guidance ends.
+- [ ] Explicit screen attachments remain available; removed Pointer settings, selectors and voice-selection callbacks stay absent.
+- [ ] Polygons/curves/arrows use validated explicit capture mapping, stay click-through and clear on Stop.
+- [ ] Companion/edge arrows use fresh targets and clear when guidance ends; no persistent cursor-follow decoration.
 - [ ] Compact Home shows actual suggestions, assistants, tasks and recent files on notch and no-notch displays.
 - [ ] Existing PTT, tool cards, archive, file tools, migrations and native accessibility modes still pass.
 - [ ] Docs/changelog and measured limitations match the milestone; preserve previous DMGs when packaging.

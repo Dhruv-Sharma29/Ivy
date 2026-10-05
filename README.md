@@ -4,7 +4,7 @@ Ivy combines text chat, live voice, screen help and local Mac tools in a native 
 
 ## Current status
 
-The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 2)**, with an updated app and DMG in `dist/`.
+The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 4)**, with an updated app and DMG in `dist/`.
 
 The local package includes the initial Ivy UI refresh: shared rounded cards in Home,
 Library, Tasks and Settings, roomier navigation, and a floating quick-chat bar with draft suggestions
@@ -12,12 +12,29 @@ and explicit Send/Open/Close controls. The DMG was rebuilt on **2026-10-05** wit
 confirmations and push-to-talk missed-release recovery. Quit the running Ivy and replace it with this
 updated app before testing the fix; older packages remain in `dist/Previous-Builds/`.
 See [the UI refresh report](tasks/ui-refresh.md) for the changes and verification limits.
+See [the latest package verification](tasks/ptt-startup-recovery.md) for artifact checks and rollback location.
 
 **Latest update:** the Pointer feature has been removed, including its Settings page, floating
 cursor decoration and hover/circle selection. Push-to-talk is voice-only. Enable it in
 **Settings → General**, hold **⌘⇧Space** while another app is open, speak, then release.
 The toggle now applies immediately; microphone release and approval safeguards remain in place.
+Ordinary screenshot/window attachments, Screen Help annotation arrows and the animated companion remain available.
+Pointer hover/circle selection is excluded from future work unless requested again.
 See [the shortcut/removal report](tasks/pointer-removal.md) for verification limits.
+
+**Push-to-talk startup recovery (build 4):** A Carbon press can arrive before physical keyboard-state
+inspection confirms the hold. Ivy now treats an unobserved reading as unknown, rather than ending
+voice immediately. Verified release, the release callback and Stop still close capture. A fresh press
+works after a recovered release or Stop. Hardware acceptance over another app remains a manual check.
+See [startup recovery verification](tasks/ptt-startup-recovery.md).
+
+**Push-to-talk shortcut recovery (build 3):** Settings → General now shows registration errors and a
+**Voice shortcut** picker. Keep the default **⌘⇧Space**, or choose **⌃⌥⌘Space** if the default conflicts.
+Changes apply immediately. Ivy requests exclusive ownership of the selected PTT shortcut so another
+app cannot silently suppress its notifications while registration appears successful. Quit the app
+using a conflicting shortcut, choose the alternative, or toggle Push to talk off/on to retry.
+This addresses a reproduced registration conflict; physical PTT operation in another app remains
+a manual acceptance check. See [shortcut recovery verification](tasks/ptt-shortcut-recovery.md).
 
 **This is a development build, not a notarized public release.** The current DMG contains an **Apple silicon (`arm64`)** app. Its executable targets macOS 14 or newer; an Intel binary is not included. The v1.1 artifact has passed packaging and signature checks, but a reported launch failure on another Apple silicon Mac remains under investigation. Do not treat the minimum deployment target as proof that every supported OS version has been tested.
 
@@ -27,7 +44,9 @@ The [next-feature plan](docs/roadmap/phase-20-assistant-workspace.md) covers com
 dictation, personal/specialist assistants, concurrent jobs, daily suggestions, generated files, routines,
 multi-account connectors, spatial guidance and a compact overview. These expanded capabilities are
 planned; the roadmap includes their dependencies and acceptance
-checks, plus an explicit Ivy design direction for original layouts, leaf branding and copy.
+checks, plus an explicit Ivy design direction for original layouts, leaf branding and copy. Computer-control
+components and offline tests exist, but the production task engine has no desktop coordinator configured.
+Autonomous clicking, typing, scrolling and dragging are not available in this packaged app.
 
 ## Features
 
@@ -39,8 +58,8 @@ checks, plus an explicit Ivy design direction for original layouts, leaf brandin
   A physical-key check while the shortcut is held also recovers missed release events. Releasing Space
   or a required modifier stops PTT capture; Stop resets the shortcut state for the next request.
 - **Tool feedback:** collapsible live tool cards with status, masked arguments and expandable output; diff **Apply…** drafts a file change for review without executing it.
-- **Screen help:** attach a screenshot, selected region, image or PDF. The screen-help shortcut can show a capture to an active Live session. Inside the floating Command Bar, **Command–Shift–S** attaches the front window for review and explicit send.
-- **Screen pointer:** Ivy can draw a temporary arrow and labelled highlight to show where a button, menu or other area is on the screen you shared.
+- **Screen help:** attach a screenshot, a region captured with the macOS screenshot picker, an image or a PDF. The picker is separate from the removed hover/circle Pointer feature. The screen-help shortcut can show a capture to an active Live session. Inside the floating Command Bar, **Command–Shift–S** attaches the front window for review and explicit send.
+- **Screen annotations:** Ivy can draw a temporary arrow and labelled highlight to show where a button, menu or other area is on the screen you shared.
 - **Tasks and Mac tools:** plan multi-step work with `/agent <goal>`, review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
 - **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet. Pending tool actions replace the companion's status pill with the action reason and **Do it / Cancel** controls.
 - **Secure credentials:** keys saved through Settings live in macOS Keychain, outside plaintext settings and conversation history. Voice, macros, plans and external links cannot approve risky actions.
@@ -146,7 +165,8 @@ Configure keys in Settings. For development, the launcher also forwards `GEMINI_
 
 | Shortcut | Action |
 |---|---|
-| Command–Shift–Space, held | Push-to-talk; release to submit |
+| Command–Shift–Space, held (default) | Push-to-talk; release to submit |
+| Control–Option–Command–Space, held | Optional PTT alternative selected in General settings |
 | Control–Option–Command–S | Screen help |
 | Control–Option–Command–K | Command bar |
 | Command–Shift–S inside the command bar | Attach the front window for review; does not send it |
@@ -187,7 +207,7 @@ git diff --check
 
 Tests use isolated fixtures for network, credentials and audio. Native interface tests render previews in `/private/tmp/ivy-ui-review`; those tests do not establish behavior on a real microphone, AirPods or another Mac.
 
-The 2026-10-04 build-2 verification passed **1,182 core tests and 20 native interface tests** (the combined test execution was about 29 seconds). The screen-guidance changes have **90.6% changed executable-line coverage** (163/180), not total project coverage. Strict debug and release builds passed without warnings. Native previews include capture-permission recovery at compact widths and stationary arrows with Reduce Motion. Real Gemini/desktop pointing, hardware, accessibility, performance and broader release acceptance checks still need manual verification.
+The 2026-10-05 Pointer-removal and global-shortcut build passed **1,286 core tests and 29 native interface tests** (1,315 total; combined execution 34.449 seconds). Changed executable-line coverage was **100% (28/28)**, not total project coverage. Strict debug and release builds passed without warnings; the warm build took 0.18 seconds. Signature, DMG integrity, checksum and mounted-binary comparison passed. These are existing build results, not fresh hardware verification. Real keyboard/microphone behavior in other apps, Gemini screen pointing, accessibility, performance and broader release acceptance checks remain pending. See [the verification report](tasks/pointer-removal.md).
 
 To package from source:
 

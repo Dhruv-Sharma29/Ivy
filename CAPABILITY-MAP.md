@@ -1,5 +1,11 @@
 # Capability Map: Ivy (macOS Assistant)
 
+The table below is the original v1 module map, not a complete current feature inventory. For current
+shipping status use [README](README.md) and [remaining work](tasks/remaining.md).
+As of 2026-10-05, the Pointer visual/settings and hover/circle selection modules are removed.
+Voice-only push-to-talk, explicit capture attachments, Screen Help annotations and the companion remain.
+Computer-control source components are separate and still need production integration.
+
 | Module id | Responsibility | Depends on |
 |---|---|---|
 | `core-chat` | Menu bar popover UI, Ivy system prompt, Gemini 2.0 Flash REST client & streaming/turn management | — |

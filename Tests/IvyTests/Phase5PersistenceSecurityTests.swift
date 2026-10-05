@@ -429,6 +429,65 @@ struct Phase5StartupTests {
         await env.shutdown()
     }
 
+    @Test("voice shortcut changes persist and take effect without microphone startup")
+    func shortcutChoiceChangesImmediately() async throws {
+        let (env, capture, _, hotkey) = environment()
+        #expect(hotkey.registeredShortcut == .defaultPushToTalk)
+        env.settings.settings.pushToTalkShortcut = .controlOptionCommandSpace
+        #expect(hotkey.registrationCount == 2)
+        #expect(hotkey.registeredShortcut == HotkeyShortcut(keyCode: 49, modifiers: [.control, .option, .command]))
+        #expect(capture.startCaptureCallCount == 0)
+        let decoded = try JSONDecoder().decode(IvySettings.self, from: JSONEncoder().encode(env.settings.settings))
+        #expect(decoded.pushToTalkShortcut == .controlOptionCommandSpace)
+        #expect(PushToTalkShortcut.commandShiftSpace.label == "⌘⇧Space")
+        #expect(PushToTalkShortcut.controlOptionCommandSpace.label == "⌃⌥⌘Space")
+        env.settings.settings.pushToTalkEnabled = false
+        env.settings.settings.pushToTalkShortcut = .commandShiftSpace
+        #expect(!hotkey.isRegistered && hotkey.registrationCount == 2)
+        env.settings.settings.pushToTalkEnabled = true
+        #expect(hotkey.registeredShortcut == .defaultPushToTalk)
+        await env.shutdown()
+    }
+
+    @Test("changing a held voice shortcut closes old input even after immediate re-registration")
+    func switchingHeldShortcutClosesInput() async throws {
+        let (env, capture, _, hotkey) = environment()
+        hotkey.simulateKeyDown()
+        for _ in 0..<100 {
+            if capture.isCapturing { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(capture.isCapturing)
+        env.settings.settings.pushToTalkShortcut = .controlOptionCommandSpace
+        for _ in 0..<100 {
+            if !capture.isCapturing && env.liveCoordinator.state == .idle { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(!capture.isCapturing && env.liveCoordinator.state == .idle)
+        #expect(hotkey.isRegistered && hotkey.registeredShortcut == PushToTalkShortcut.controlOptionCommandSpace.hotkey)
+        hotkey.simulateKeyDown()
+        for _ in 0..<100 {
+            if capture.isCapturing { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(capture.isCapturing)
+        hotkey.simulateKeyUp()
+        await env.shutdown()
+    }
+
+    @Test("missing, unknown and wrongly typed shortcut choices recover to the default")
+    func shortcutChoiceCompatibility() throws {
+        for text in ["{}", #"{"pushToTalkShortcut":"retired","pushToTalkEnabled":false}"#,
+                     #"{"pushToTalkShortcut":3,"pushToTalkEnabled":false}"#] {
+            let decoded = try JSONDecoder().decode(IvySettings.self, from: Data(text.utf8))
+            #expect(decoded.pushToTalkShortcut == .commandShiftSpace)
+            if text != "{}" { #expect(!decoded.pushToTalkEnabled) }
+        }
+        #expect(HotkeyError.registrationFailed(-9878).localizedDescription.contains("choose another"))
+        #expect(HotkeyError.registrationFailed(-9878).localizedDescription.contains("already registered"))
+        #expect(HotkeyError.registrationFailed(-42).localizedDescription.contains("-42"))
+    }
+
     @Test("the latest conversation is restored when enabled, and not otherwise")
     func restore() throws {
         let store = InMemoryConversationStore()

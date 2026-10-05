@@ -1,6 +1,12 @@
 # Phase 19 — Computer Control
 
-Status: **planned; not implemented or included in a DMG**.
+Status: **source components and offline tests exist; production integration and hardware acceptance pending**.
+Audited 2026-10-05: `IvyAppEnvironment` constructs `TaskEngine` without a desktop coordinator.
+Adaptive execution requires that coordinator and otherwise returns a failed report. Do not describe
+autonomous click/type/scroll/drag as usable in the current app/DMG.
+
+The removed Pointer decoration/hover/circle feature is separate and remains excluded from scope.
+Explicit screen attachments, Screen Help annotations and the animated companion remain available.
 Created 2026-10-04 at the user's request. This plan covers the cursor/computer-control feature discussed
 in chat, including clicking, typing, scrolling, dragging, browser workflows and longer tasks.
 
@@ -15,7 +21,7 @@ not part of this implementation. The full complementary workspace feature set is
 [Phase 20 — Assistant Workspace](phase-20-assistant-workspace.md), which includes the combined build
 order. Phase 19 supplies shared input/observation/session foundations; Phase 20 adds the floating task
 panel, files, routines, screen-aware dictation, specialist creation/memory, concurrent workers, daily
-suggestions, a compact overview, spatial questions, richer drawing, anchored arrows and connectors.
+suggestions, a compact overview, explicit screen questions, richer drawing, anchored arrows and connectors.
 
 ## Baseline and dependencies
 
@@ -201,24 +207,26 @@ Retry. Do not take screenshots, start a microphone or control another app on lau
 
 ## Build slices and acceptance
 
-All items implemented, tested, and verified:
+The rows below are acceptance requirements, not shipped-feature claims. Source and fixture work
+exists, but each slice needs an integration acceptance audit before being marked complete.
+The production coordinator wiring and real Mac input checks are still pending:
 
 | Slice | Deliverable | Required acceptance | Status |
 | --- | --- | --- | --- |
-| 19.1 | Session model, feature disabled by default, scope/permission lifecycle | No input/capture without a live authorized scope; finish/decline/expiry invalidates tokens; existing chat unchanged. | [x] Completed |
-| 19.2 | Read-only AX inspection and coordinate mapping | Bounded traversal/timeouts; sensitive fields excluded; Retina/non-Retina and negative display origins; stale IDs rejected. | [x] Completed |
-| 19.3 | Native click, type, key, scroll and move primitives | Dispatch through SafetyGate; correct event order; Unicode and focus checks; denied permission never emits input; every key released. | [x] Completed |
-| 19.4 | Pointer feedback, control panel and takeover | Visible current action/Stop; keyboard/voice cancellation; no overlay hit interception; physical input pauses; accessibility variants work. | [x] Completed |
-| 19.5 | Adaptive TaskEngine mode and model decisions | One action per decision; invalid/unknown output cannot execute; observed state follows each action; budgets and all primitive calls tracked. | [x] Completed |
-| 19.6 | Result verification and bounded recovery | API success is not task success; changed targets invalidate requests; no duplicate text/submit after timeout; Stop works while model/AX waits. | [x] Completed |
-| 19.7 | Screenshot-guided custom controls and browser tasks | Only scoped fresh images; coordinate transforms tested; page prompt injection cannot expand scope or approve actions; local-browser fixture passes. | [x] Completed |
-| 19.8 | Dragging, selections and longer cross-app tasks | Bounded paths; cancellation releases mouse; selecting/replacing text is explicit; new apps require scope review; existing budgets remain enforced. | [x] Completed |
-| 19.9 | Chat, Command Bar and voice integration | Same session/approval surface across entry points; PTT release works; concurrent sessions cannot race; redacted tool cards and partial-result reports. | [x] Completed |
-| 19.10 | Regression, manual reliability evaluation and friend-test package | Quality floor and manual gates below pass; docs describe limits; new app/DMG verified without claiming notarization or Windows support. | [x] Completed |
+| 19.1 | Session model, feature disabled by default, scope/permission lifecycle | No input/capture without a live authorized scope; finish/decline/expiry invalidates tokens; existing chat unchanged. | [ ] Integration acceptance pending |
+| 19.2 | Read-only AX inspection and coordinate mapping | Bounded traversal/timeouts; sensitive fields excluded; Retina/non-Retina and negative display origins; stale IDs rejected. | [ ] Integration acceptance pending |
+| 19.3 | Native click, type, key, scroll and move primitives | Dispatch through SafetyGate; correct event order; Unicode and focus checks; denied permission never emits input; every key released. | [ ] Integration acceptance pending |
+| 19.4 | Pointer feedback, control panel and takeover | Visible current action/Stop; keyboard/voice cancellation; no overlay hit interception; physical input pauses; accessibility variants work. | [ ] Integration acceptance pending |
+| 19.5 | Adaptive TaskEngine mode and model decisions | One action per decision; invalid/unknown output cannot execute; observed state follows each action; budgets and all primitive calls tracked. | [ ] Integration acceptance pending |
+| 19.6 | Result verification and bounded recovery | API success is not task success; changed targets invalidate requests; no duplicate text/submit after timeout; Stop works while model/AX waits. | [ ] Integration acceptance pending |
+| 19.7 | Screenshot-guided custom controls and browser tasks | Only scoped fresh images; coordinate transforms tested; page prompt injection cannot expand scope or approve actions; local-browser fixture passes. | [ ] Integration acceptance pending |
+| 19.8 | Dragging, selections and longer cross-app tasks | Bounded paths; cancellation releases mouse; selecting/replacing text is explicit; new apps require scope review; existing budgets remain enforced. | [ ] Integration acceptance pending |
+| 19.9 | Chat, Command Bar and voice integration | Same session/approval surface across entry points; PTT release works; concurrent sessions cannot race; redacted tool cards and partial-result reports. | [ ] Integration acceptance pending |
+| 19.10 | Regression, manual reliability evaluation and friend-test package | Quality floor and manual gates below pass; docs describe limits; new app/DMG verified without claiming notarization or Windows support. | [ ] Integration acceptance pending |
 
 Within computer control: 19.1 → 19.2 → 19.3 → 19.4 → 19.5 → 19.6 → 19.7 → 19.8 → 19.9 → 19.10.
 Use Phase 20's combined milestone order when building the whole selected feature set. Slice 19.4 and
-20.1 share one panel; dictation, walkthroughs and spatial/drawing features reuse the driver/observations
+20.1 share one panel; dictation, walkthroughs and explanatory drawing reuse the driver/observations
 rather than duplicate them. Phase 20.11 permits parallel independent jobs but retains one exclusive
 desktop-input lane; multiple assistants must never compete for the cursor, keyboard or focused app.
 Do not enable broad model-driven control before scope validation, cancellation and the panel work.

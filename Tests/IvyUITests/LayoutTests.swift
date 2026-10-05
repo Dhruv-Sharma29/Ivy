@@ -9,6 +9,32 @@ import os
 @MainActor
 @Suite("Native interface layouts", .serialized)
 struct LayoutTests {
+    @Test("push-to-talk registration failures and alternate shortcut remain visible in General")
+    func pushToTalkRegistrationFeedback() async throws {
+        let status = PushToTalkShortcutStatus()
+        let settings = SettingsModel(store: LayoutSettingsStore())
+        settings.settings.pushToTalkEnabled = true
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for scheme in [ColorScheme.light, .dark] {
+            settings.settings.pushToTalkShortcut = .commandShiftSpace
+            status.error = HotkeyError.registrationFailed(-9878).localizedDescription
+            try await snapshot(GeneralSettingsSection(settings: settings, shortcutStatus: status)
+                .environment(\.ivyOpaqueSurfaces, true).padding(20).background(IvyTheme.canvas), scheme: scheme,
+                size: NSSize(width: 580, height: 600), url: directory.appendingPathComponent("ptt-conflict-\(scheme).png"))
+            settings.settings.pushToTalkShortcut = .controlOptionCommandSpace
+            status.error = nil
+            try await snapshot(GeneralSettingsSection(settings: settings, shortcutStatus: status)
+                .environment(\.ivyOpaqueSurfaces, true).padding(20).background(IvyTheme.canvas), scheme: scheme,
+                size: NSSize(width: 580, height: 600), url: directory.appendingPathComponent("ptt-ready-\(scheme).png"))
+            settings.settings.pushToTalkEnabled = false
+            try await snapshot(GeneralSettingsSection(settings: settings, shortcutStatus: status)
+                .environment(\.ivyOpaqueSurfaces, true).padding(20).background(IvyTheme.canvas), scheme: scheme,
+                size: NSSize(width: 580, height: 600), url: directory.appendingPathComponent("ptt-off-\(scheme).png"))
+            settings.settings.pushToTalkEnabled = true
+        }
+    }
+
     @Test("settings search finds voice, credentials and permission sections")
     func settingsSearch() {
         #expect(SettingsPane.allCases.count == 9)

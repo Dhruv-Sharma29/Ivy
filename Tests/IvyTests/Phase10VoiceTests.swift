@@ -1065,6 +1065,34 @@ private final class PushToTalkPollClock: @unchecked Sendable {
 @Suite("Push-to-talk recovers a missed shortcut release")
 @MainActor
 struct PushToTalkReleaseRecoveryTests {
+    @Test("An unknown initial hardware reading keeps listening until the real release callback")
+    func unknownInitialHold() async throws {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector(),
+            hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.simulateKeyDown()
+        hotkey.setShortcutHeld(nil)
+        #expect(await waitUntil { c.state == .listening })
+        for tick in 1...3 {
+            clock.advance()
+            #expect(await waitUntil { clock.completedPolls == tick })
+            #expect(c.isPushToTalkActive && capture.isCapturing && session.isConnected)
+        }
+        capture.simulateAudioChunk(loud)
+        #expect(await waitUntil { session.sentAudioChunks == [loud] })
+        hotkey.simulateKeyUp()
+        #expect(await waitUntil { c.state == .thinking && !capture.isCapturing })
+        #expect(session.audioInputEndCount == 1 && session.isConnected)
+        session.simulateEvent(.turnComplete)
+        #expect(await waitUntil { c.state == .idle && c.activeTaskCount == 0 })
+        await c.shutdown()
+    }
+
     @Test("Lost key-up closes the mic, preserves replies/approval and submits at most once",
           arguments: ["silence", "speech", "reply", "approval"])
     func missedRelease(stage: String) async throws {

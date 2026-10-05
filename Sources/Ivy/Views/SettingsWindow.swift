@@ -96,7 +96,7 @@ struct SettingsWindowView: View {
     private var settingsContent: some View {
         switch selection ?? .general {
         case .general:
-            GeneralSettingsSection(settings: settings)
+            GeneralSettingsSection(settings: settings, shortcutStatus: environment.pushToTalkShortcutStatus)
             SettingsCard(title: "Getting started", symbol: "sparkles", subtitle: "Revisit the basics whenever you need a refresher.") {
                 Button("Show introduction") {
                     environment.onboarding.restart()

@@ -5,14 +5,15 @@ Current source audit and prioritized backlog: [remaining work](../../tasks/remai
 Planned next capabilities: [Phase 19 — Computer Control](phase-19-computer-control.md) and
 [Phase 20 — Assistant Workspace](phase-20-assistant-workspace.md). Together they cover Mac input,
 adaptive tasks, a floating panel, generated files, routines, screen-aware dictation, goal interviews,
-specialist memory, concurrent work, daily suggestions, spatial selection/drawing, anchored companion
+specialist memory, concurrent work, daily suggestions, explanatory screen drawing, anchored companion
 arrows, a compact overview, tracked walkthroughs and multi-account connectors. Phase 20 provides the
-complete capability matrix, fifteen workstreams and combined build order. These features are planned,
+complete capability matrix, fourteen active workstreams (20.12 cancelled) and combined build order. These features are planned,
 not shipped; the first milestone is reviewed Calculator/TextEdit control with a shared floating panel.
 
 v1.0 (Phases 1–7) shipped the core: menu-bar chat on Gemini REST, five SafetyGate-guarded macOS tools,
 ElevenLabs TTS, Gemini Live voice (Kore) with "Hey Ivy" barge-in and idle wake, ⌘⇧Space push-to-talk,
-Keychain credentials, persisted settings/history, hardened-runtime signing and notarization.
+Keychain credentials, persisted settings/history and hardened-runtime packaging. The current friend-testing
+package is ad-hoc signed; notarization is deferred.
 
 v1.1 turns Ivy from a capable menu-bar utility into a real Mac companion app: reliable, context-aware,
 screen-aware, agentic, and with a proper app window of its own.
@@ -35,10 +36,14 @@ screen-aware, agentic, and with a proper app window of its own.
 
 | Phase | Plan | Goal | Status |
 | --- | --- | --- | --- |
-| 19 | [Computer Control](phase-19-computer-control.md) | Scoped Mac clicking/typing, adaptive execution, verification and cancellation. | Implemented & Verified |
-| 20 | [Assistant Workspace](phase-20-assistant-workspace.md) | Fifteen workstreams covering personal assistants, concurrent work, spatial guidance and connected task UI. | Planned / Initial Slice |
+| 19 | [Computer Control](phase-19-computer-control.md) | Scoped Mac clicking/typing, adaptive execution, verification and cancellation. | Source/tests exist; production integration and hardware acceptance pending |
+| 20 | [Assistant Workspace](phase-20-assistant-workspace.md) | Fourteen active workstreams covering personal assistants, concurrent work, screen guidance and connected task UI; 20.12 cancelled. | Planned; existing UI foundations retained |
 
-Phase 19 is fully implemented, strictly verified across Slices 19.1–19.10, and validated by the 30-task reliability evaluation. Phase 20 has an optional floating-pointer visual/settings slice included in the latest 2026-10-04 local app/DMG rebuild; its broader workstreams remain open. Phase numbering does not assign a release version. New surfaces follow [Ivy's own interface requirement](phase-20-assistant-workspace.md#ivys-own-interface--design-requirement).
+Phase 19 source components and fixture tests exist, but production wiring is incomplete: the app
+constructs its task engine without a desktop coordinator. Offline evaluations do not establish working
+control of real apps. Phase 20's floating Pointer and hover/circle selection were removed on 2026-10-05;
+push-to-talk is voice-only. Explicit screen attachments, annotation arrows and the companion remain.
+The broader workspace additions remain planned, including the notch overview. Phase numbering does not assign a release version. New surfaces follow [Ivy's own interface requirement](phase-20-assistant-workspace.md#ivys-own-interface--design-requirement).
 
 ## Recommended order
 

@@ -1,11 +1,20 @@
 # Ivy keyboard map
 
-## Anywhere (global, registered at launch; each can be switched off in Settings › General / Screen)
+## Anywhere (global; switches in Settings › General / Screen)
+
+Push-to-talk registration changes immediately when its General setting is toggled. It is voice-only:
+release submits speech and closes PTT capture. The removed Pointer feature has no selection shortcuts
+or screen-question menu action. Screen Help remains a separate explicit capture action.
 | Keys | Does |
 |---|---|
-| ⌘⇧Space (hold) | Push-to-talk: talk while held, Ivy answers when you let go |
+| ⌘⇧Space (hold, default) | Push-to-talk: talk while held, Ivy answers when you let go |
 | ⌃⌥⌘S | "What am I looking at?" — captures the front window, opens Ivy with it attached (during a voice session, shows it to Ivy Live) |
 | ⌃⌥⌘K | Command bar |
+
+In build 3, **General → Voice shortcut** also offers **⌃⌥⌘Space**. Choosing it replaces the default;
+Ivy listens for one PTT shortcut at a time. The picker applies immediately. General shows registration
+failures, including an already-used shortcut. Quit the conflicting app or choose the other key;
+toggling Push to talk off/on retries. The selected PTT shortcut requests exclusive registration.
 
 Global shortcuts avoid ⌘⇧S and ⌘K on purpose: as global hotkeys they would stop working in every other app.
 

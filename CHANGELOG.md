@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Local v1.1.0 build 4 fixes premature PTT release inference: unobserved keyboard state stays unknown
+  until a key/modifier hold is verified. Carbon release remains authoritative, physical release recovery
+  unlocks the next press, and later press notifications remain deliverable after Stop. Native notification
+  and deterministic voice tests cover the race; physical cross-app key/audio acceptance remains pending.
+
+- Local v1.1.0 build 3: push-to-talk offers ⌘⇧Space or ⌃⌥⌘Space, applies changes immediately and shows
+  registration failures in General settings. Exclusive PTT registration detects shortcut ownership
+  conflicts that non-exclusive registration can silently accept. An isolated two-process registration
+  probe reproduced that failure and verified conflict detection/recovery without sending keyboard events.
+  Changing a held shortcut closes the old capture. Cross-app physical key/audio acceptance remains pending.
+
 - Removed the whole Pointer feature at the user's request: Settings page, floating cursor decoration,
   hover/circle/rectangle selection, selection shortcuts and image-before-voice callbacks. Existing
   saved preferences remain compatible; obsolete keys disappear on the next settings save.

@@ -1,18 +1,27 @@
 # Remaining work
 
-Updated 2026-10-04 for the v1.1.0 build-2 friend-testing build. Original phase checklists are acceptance criteria,
+Updated 2026-10-05 for the v1.1.0 build-4 friend-testing build. Original phase checklists are acceptance criteria,
 not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.md) for implemented scope.
 
 ## Implemented in this release
 
-- Chat tool cards, diff-to-composer drafts, Command Bar front-window attachment and screen-edge pointer.
+- Chat tool cards, diff-to-composer drafts, Command Bar front-window attachment and screen-edge annotation arrows.
 - One-time pre-load rollback backup, v1.1.0 build 1 metadata, changelog and packaging that keeps old DMGs.
 - Push-to-talk capture release during replies/approval, with output-only reply playback.
 - Build 2 adds screen-pointing instructions, image IDs/dimensions, multiple-capture mapping, permission
   recovery actions and an animated arrow with Reduce Motion support. Core/UI fixtures pass; real
   screen capture and Gemini pointing still need the manual checks below.
-- The 2026-10-04 local rebuild includes the UI refresh, compact companion confirmations and a
-  physical-shortcut release check for PTT. 1,212 offline tests pass; real keyboard/TCC verification is pending.
+- The 2026-10-05 local rebuild includes the UI refresh, compact companion confirmations, Pointer removal,
+  dispatcher-based global shortcut routing and immediate PTT settings updates. 1,315 tests pass;
+  real keyboard/microphone/TCC verification remains pending.
+
+- Build 3 adds a configurable voice shortcut, visible registration feedback and exclusive PTT ownership.
+  A two-process native registration probe verifies conflict detection/recovery; test a held physical
+  shortcut over another app and verify microphone release separately. See [shortcut recovery](ptt-shortcut-recovery.md).
+
+- Build 4 guards against immediate PTT cancellation from unobserved keyboard-state readings and
+  preserves next-press recovery after release/Stop. See [startup recovery](ptt-startup-recovery.md) for
+  native notification tests and the still-pending physical cross-app acceptance check.
 
 ## Before broader distribution
 
@@ -34,17 +43,20 @@ not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.
 
 ## Planned computer-control feature
 
-- [Phase 19 — Computer Control](../docs/roadmap/phase-19-computer-control.md) is the 2026-10-04 build plan
-  for scoped Mac clicking, typing, scrolling, dragging, browser workflows and adaptive task execution.
-  All ten slices are pending. Begin with session/permissions, read-only interface inspection, native
-  input primitives and Stop/takeover controls, tested in Calculator and an unsaved TextEdit document.
-- The current screen annotation points only; creating this plan does not enable cursor control or
-  change the existing DMG. Phase 20 now plans the complementary features and their shared build order.
+- [Phase 19 — Computer Control](../docs/roadmap/phase-19-computer-control.md) has source components and
+  offline tests, but is not wired into production: `IvyAppEnvironment` creates `TaskEngine` without a
+  `ComputerControlCoordinator`; adaptive execution fails when it is absent. Source/fixture checks
+  are not proof of working Mac control in the packaged app.
+- Next: integrate the coordinator, scoped authorization, input tools and Stop/takeover controls into
+  the actual app, then verify reviewed Calculator/TextEdit tasks and all affected entry points.
+  Re-audit slice acceptance and perform real permission/input testing before marking it shipped.
+- Current Screen Help annotations only point; they cannot click, type, scroll or drag. Removing the
+  Pointer decoration/selection feature does not cancel the separately planned computer-control work.
 
 ## Planned assistant-workspace features
 
-Expanded 2026-10-04 to cover both requested feature lists. All fifteen complete workstreams remain open; existing
-voice, memory, pointers and companion confirmations provide foundations only. See
+Expanded 2026-10-04 to cover both requested feature lists. Fourteen active workstreams remain open and 20.12 is cancelled; existing
+voice, memory, screen annotations and companion confirmations provide foundations only. See
 [Phase 20 — Assistant Workspace](../docs/roadmap/phase-20-assistant-workspace.md) for the full coverage
 matrix, dependencies, acceptance criteria and combined Phase 19/20 milestones.
 The floating Pointer feature and 20.12 hover/circle selection were removed on 2026-10-05 at the

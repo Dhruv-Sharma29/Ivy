@@ -1,5 +1,9 @@
 # Implementation Plan: Ivy macOS Assistant
 
+> Scope update (2026-10-05): Pointer settings, cursor decoration and hover/circle/rectangle selection
+> are removed; push-to-talk is voice-only. Explicit screen attachments, annotation arrows and the
+> companion remain. See [the removal report](pointer-removal.md); do not restore cancelled work from historical checklists.
+
 > Historical v1 plan. The Phase 5–7 status table below predates the current implementation. Use [remaining.md](remaining.md) and [the v1.1 roadmap](../docs/roadmap/README.md) for current work.
 
 > Current expansion plan (2026-10-04): [Computer Control](../docs/roadmap/phase-19-computer-control.md)

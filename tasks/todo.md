@@ -1,5 +1,9 @@
 # Task List: Ivy Development Roadmap
 
+> Scope update (2026-10-05): Pointer settings, cursor decoration and hover/circle/rectangle selection
+> are removed; push-to-talk is voice-only. Explicit screen attachments, annotation arrows and the
+> companion remain. See [the removal report](pointer-removal.md); do not restore cancelled work from historical checklists.
+
 > Historical v1 checklist. Its unchecked Phase 5–7 items are not the current backlog. See [remaining.md](remaining.md) for the source-audited status and [the v1.1 roadmap](../docs/roadmap/README.md) for module acceptance criteria.
 
 ## Phase 1: Core Menu Bar Chat [Complete]

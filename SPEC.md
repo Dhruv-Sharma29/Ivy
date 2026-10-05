@@ -476,16 +476,32 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 - Enabling/disabling push-to-talk updates the global registration immediately. Disabling during a held
   press uses the existing release watchdog to close capture without approving or cancelling a reply.
 - Explicit screen attachments and screen-help tools continue using their existing permission and review flow.
+- Build 3 adds a persisted choice of ⌘⇧Space (default) or ⌃⌥⌘Space for voice-only PTT.
+  Changing the key re-registers immediately and ends any old held press without closing a newer press.
+  Production PTT registration requests exclusive ownership; a conflict remains unregistered and its
+  error is visible in General settings. Existing settings recover to the default when the choice is
+  absent, unknown or wrongly typed. A ready label confirms registration, not microphone/network health.
+  No extra keyboard-monitoring permission, screen selection or automatic fallback is introduced.
+- Build 4 treats Carbon press/release callbacks as authoritative. Physical-state polling only
+  infers a missed release after observing the key or modifiers held during that specific press;
+  unobserved state is unknown, not released. Press notifications reset this evidence and remain
+  deliverable after Stop; the coordinator ignores duplicate starts. Actual release, disabling PTT
+  and explicit Stop still close input. If both physical
+  inspection and release delivery are unavailable, use Stop; polling cannot prove that release.
 
 ## 13. Computer Control Architecture (Phase 19)
 
-Ivy provides an adaptive, user-authorized computer control subsystem for executing tasks in foreground macOS applications, implemented and verified across Slices 19.1 through 19.10:
+The following describes the computer-control subsystem design and source components. It is not a
+shipped capability: the production `IvyAppEnvironment` does not configure a `ComputerControlCoordinator`
+on its `TaskEngine`, so adaptive desktop runs fail without that dependency. Source/fixture tests do not
+establish real-app or hardware acceptance. Integrate and verify the entry points before claiming completion.
+The removed Pointer visual and hover/circle selectors remain outside this design's scope:
 
 1. **Explicit Session Authorization & Exclusivity**:
    - Desktop control requires explicit user consent scoped to a specific target application and window.
    - The session model enforces strict validity tokens; expired, stopped, or paused sessions cannot emit input events.
    - Exclusivity: Enforces a single desktop-input lane (`isDesktopControlActive`). Concurrent desktop sessions cannot race and are rejected with explicit user-facing conflict explanations.
-   - Entry points: Main Window Chat (`/desktop <goal>`), Command Bar (`/desktop <goal>`), and Gemini Live Voice (`ControlAppTool`, voice stop cancellation via `onStopRequested`).
+   - Intended entry points: Main Window Chat (`/desktop <goal>`), Command Bar and Gemini Live Voice. Their production coordinator/tool wiring and end-to-end acceptance remain pending.
 
 2. **SafetyGate Invariants & Injection Defense**:
    - All synthetic input actions (`ui_click`, `ui_type`, `ui_key`, `ui_scroll`, `ui_move`, `ui_drag`) default to risky and require exact SafetyGate confirmation or explicit session bounds.
@@ -509,7 +525,7 @@ Ivy provides an adaptive, user-authorized computer control subsystem for executi
    - **Tested Architecture**: Apple Silicon (`arm64`); Intel (`x86_64`) untargeted and untested.
    - **Windows / Linux**: Explicitly unsupported (macOS native AppKit / CoreGraphics only).
    - **Execution Budgets**: 20 actions/steps, 40 total primitive calls (including observation), 15-minute duration cap, and maximum 2 replans per task run.
-   - **Reliability Evaluation**: Validated with a 30-task evaluation across Calculator, TextEdit, local browser fixtures, Finder, and safety edge cases:
+   - **Offline Reliability Evaluation**: The 30-task fixture evaluation models Calculator, TextEdit, a local browser, Finder and safety edge cases; it is not real-app acceptance:
      * Task completion / safe gate enforcement rate: 100% (30 / 30, target ≥90%).
      * False success rate: 0%.
      * Wrong-app input rate: 0%.

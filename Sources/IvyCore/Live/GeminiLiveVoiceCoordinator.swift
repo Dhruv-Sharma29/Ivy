@@ -315,6 +315,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Unregisters the global push-to-talk hotkey.
     public func unregisterHotkey() {
         hotkeyManager?.unregister()
+        // Replacing a shortcut can re-register before the release watchdog observes the gap.
+        // End only the old held press; never close a subsequent press or approve a tool.
+        guard let pressID = pushToTalkPressID else { return }
+        Task { @MainActor [weak self] in
+            guard let self, self.pushToTalkPressID == pressID else { return }
+            await self.endPushToTalk()
+        }
     }
 
     /// Begins push-to-talk listening (idempotent key-down event).

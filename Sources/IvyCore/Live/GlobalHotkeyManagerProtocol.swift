@@ -70,6 +70,8 @@ public enum HotkeyError: Error, LocalizedError, Equatable, Sendable {
         switch self {
         case .alreadyRegistered:
             return "Global hotkey is already registered."
+        case .registrationFailed(let status) where status == -9878:
+            return "This shortcut is already registered. Quit the app using it or choose another push-to-talk shortcut in General settings."
         case .registrationFailed(let status):
             return "Failed to register global hotkey with system (OSStatus \(status))."
         case .eventHandlerInstallationFailed(let status):
@@ -152,7 +154,7 @@ public final class MockGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked Sen
     }
 
     /// Changes hardware state without delivering a callback, to simulate a lost key-up event.
-    public func setShortcutHeld(_ held: Bool) {
+    public func setShortcutHeld(_ held: Bool?) {
         state.withLock { $0.shortcutHeld = held }
     }
 

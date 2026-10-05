@@ -51,7 +51,8 @@ public final class IvyAppEnvironment {
     /// Idle "Hey Ivy" wake-up; only listens when the user has turned it on in settings.
     public let wakeWord: WakeWordController
     /// Why push-to-talk isn't available, if registration failed (shown in the UI; no secrets).
-    public private(set) var hotkeyError: String? = nil
+    public let pushToTalkShortcutStatus = PushToTalkShortcutStatus()
+    public var hotkeyError: String? { pushToTalkShortcutStatus.error }
 
     private var settingsSubscription: AnyCancellable?
     private var systemObservers: [(NotificationCenter, NSObjectProtocol)] = []
@@ -209,7 +210,7 @@ public final class IvyAppEnvironment {
             }
         }
 
-        updatePushToTalkShortcut(enabled: settings.settings.pushToTalkEnabled)
+        updatePushToTalkShortcut(enabled: settings.settings.pushToTalkEnabled, shortcut: settings.settings.pushToTalkShortcut)
 
         personalizationSubscription = personalization.$profile.sink { [weak brain] profile in
             brain?.personalization = profile
@@ -224,8 +225,8 @@ public final class IvyAppEnvironment {
         var previous = settings.settings
         settingsSubscription = settings.$settings.sink { [weak self, weak brain, weak wakeWord, weak liveCoordinator, weak proactive] new in
             defer { previous = new }
-            if new.pushToTalkEnabled != previous.pushToTalkEnabled {
-                self?.updatePushToTalkShortcut(enabled: new.pushToTalkEnabled)
+            if new.pushToTalkEnabled != previous.pushToTalkEnabled || new.pushToTalkShortcut != previous.pushToTalkShortcut {
+                self?.updatePushToTalkShortcut(enabled: new.pushToTalkEnabled, shortcut: new.pushToTalkShortcut)
             }
             proactiveRelay.setAcceptingTriggers(new.proactiveEnabled)
             if new.proactiveEnabled, !previous.proactiveEnabled {
@@ -252,17 +253,17 @@ public final class IvyAppEnvironment {
         }
     }
 
-    private func updatePushToTalkShortcut(enabled: Bool) {
+    private func updatePushToTalkShortcut(enabled: Bool, shortcut: PushToTalkShortcut) {
+        liveCoordinator.unregisterHotkey()
         if !enabled {
-            liveCoordinator.unregisterHotkey()
-            hotkeyError = nil
+            pushToTalkShortcutStatus.error = nil
             return
         }
         do {
-            try liveCoordinator.registerHotkey()
-            hotkeyError = nil
+            try liveCoordinator.registerHotkey(shortcut: shortcut.hotkey)
+            pushToTalkShortcutStatus.error = nil
         } catch {
-            hotkeyError = error.localizedDescription
+            pushToTalkShortcutStatus.error = error.localizedDescription
             print("[HOTKEY] push-to-talk unavailable: \(error.localizedDescription)")
         }
     }
@@ -342,7 +343,7 @@ public final class IvyAppEnvironment {
                 systemInstruction: LiveVoiceStyle.instruction(
                     base: ScreenPointingGuidance.appending(to: SystemPromptBuilder.build(profile: profileStore.load(), region: .current)),
                     length: settings.voiceResponseLength, pace: settings.voiceSpeakingPace),
-                hotkeyManager: SystemGlobalHotkeyManager(),
+                hotkeyManager: SystemGlobalHotkeyManager(exclusive: true),
                 // Always on: spoken commands ("Hey Ivy, goodbye") are read from the transcript. Whether
                 // transcripts are *saved* is the brain's decision (`saveVoiceTranscripts`).
                 transcribesAudio: true,

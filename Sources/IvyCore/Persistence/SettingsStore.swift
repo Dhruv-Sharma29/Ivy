@@ -12,6 +12,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var echoCancellation: Bool
     /// Enable the global push-to-talk shortcut; changes apply immediately.
     public var pushToTalkEnabled: Bool
+    public var pushToTalkShortcut: PushToTalkShortcut
     /// Show the live transcript line in the voice bar.
     public var showLiveTranscript: Bool
     /// "Hey Ivy" wakes Ivy while idle (like "Hey Siri"). Keeps the mic open with on-device recognition, so opt-in.
@@ -99,6 +100,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
         echoCancellation: Bool,
         pushToTalkEnabled: Bool,
         showLiveTranscript: Bool,
+        pushToTalkShortcut: PushToTalkShortcut = .commandShiftSpace,
         wakeWordEnabled: Bool = false,
         saveVoiceTranscripts: Bool = true,
         autoTitleConversations: Bool = true,
@@ -138,6 +140,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
         self.restoreLastConversation = restoreLastConversation
         self.echoCancellation = echoCancellation
         self.pushToTalkEnabled = pushToTalkEnabled
+        self.pushToTalkShortcut = pushToTalkShortcut
         self.showLiveTranscript = showLiveTranscript
         self.wakeWordEnabled = wakeWordEnabled
         self.saveVoiceTranscripts = saveVoiceTranscripts
@@ -194,6 +197,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
         func other<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
             (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback
         }
+        pushToTalkShortcut = other(.pushToTalkShortcut, d.pushToTalkShortcut)
         voicePatience = other(.voicePatience, d.voicePatience)
         voiceResponseLength = other(.voiceResponseLength, d.voiceResponseLength)
         voiceSpeakingPace = other(.voiceSpeakingPace, d.voiceSpeakingPace)

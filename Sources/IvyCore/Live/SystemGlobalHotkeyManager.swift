@@ -15,6 +15,7 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
         var onKeyDown: (@Sendable () -> Void)? = nil
         var onKeyUp: (@Sendable () -> Void)? = nil
         var isChordDown: Bool = false
+        var physicalHold = PhysicalHoldObservation()
         #if os(macOS)
         var hotKeyRef: EventHotKeyRef? = nil
         var handlerRef: EventHandlerRef? = nil
@@ -31,7 +32,10 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
     let hotKeyNumber: UInt32
     private static let nextNumber = OSAllocatedUnfairLock(initialState: UInt32(1))
 
-    public init() {
+    private let exclusive: Bool
+
+    public init(exclusive: Bool = false) {
+        self.exclusive = exclusive
         hotKeyNumber = Self.nextNumber.withLock { n in
             defer { n += 1 }
             return n
@@ -60,11 +64,26 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
         } else {
             keyIsDown = true
         }
-        return Self.shortcutHeld(shortcut, keyIsDown: keyIsDown,
-                                 flags: CGEventSource.flagsState(.combinedSessionState))
+        let flags = CGEventSource.flagsState(.combinedSessionState)
+        let modifiersHeld = Self.shortcutHeld(shortcut, keyIsDown: true, flags: flags)
+        return observePhysicalHold(shortcut: shortcut, keyIsDown: keyIsDown, modifiersHeld: modifiersHeld)
         #else
         return nil
         #endif
+    }
+
+    /// Shares the release decision with deterministic tests without posting physical keyboard events.
+    func observePhysicalHold(shortcut: HotkeyShortcut, keyIsDown: Bool, modifiersHeld: Bool) -> Bool? {
+        return state.withLock { s in
+            guard s.isRegistered, s.registeredShortcut == shortcut else { return nil }
+            guard s.isChordDown else { return false }
+            // Carbon's press is authoritative. A keyboard-state table may not yet reflect it,
+            // especially across app focus changes; an initial false is not evidence of release.
+            let held = s.physicalHold.observe(keyIsDown: keyIsDown, modifiersHeld: modifiersHeld)
+            // A recovered release also unlocks the next Carbon press when key-up never arrives.
+            if held == false { s.isChordDown = false }
+            return held
+        }
     }
 
     public func register(
@@ -87,6 +106,7 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
             s.onKeyDown = onKeyDown
             s.onKeyUp = onKeyUp
             s.isChordDown = false
+            s.physicalHold = PhysicalHoldObservation()
         }
         #else
         throw HotkeyError.unsupportedPlatform
@@ -112,10 +132,25 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
             s.onKeyDown = nil
             s.onKeyUp = nil
             s.isChordDown = false
+            s.physicalHold = PhysicalHoldObservation()
             return Box(value: monitors)
         }
         monitors.value.forEach(NSEvent.removeMonitor)
         #endif
+    }
+
+    /// Only a held-to-released transition in a verified component can recover a missed key-up.
+    /// Unavailable/unobserved physical state stays unknown; the normal Carbon release still ends PTT.
+    struct PhysicalHoldObservation {
+        private var sawKeyDown = false
+        private var sawModifiersHeld = false
+
+        mutating func observe(keyIsDown: Bool, modifiersHeld: Bool) -> Bool? {
+            if (sawKeyDown && !keyIsDown) || (sawModifiersHeld && !modifiersHeld) { return false }
+            sawKeyDown = sawKeyDown || keyIsDown
+            sawModifiersHeld = sawModifiersHeld || modifiersHeld
+            return keyIsDown && modifiersHeld ? true : nil
+        }
     }
 
     #if os(macOS)
@@ -172,7 +207,7 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
 
         let hotKeyID = EventHotKeyID(signature: OSType(0x49565921), id: hotKeyNumber) // 'IVY!'
         var hotKeyRef: EventHotKeyRef? = nil
-        let regStatus = RegisterEventHotKey(keyCode, modifiers.rawValue, hotKeyID, target, 0, &hotKeyRef)
+        let regStatus = RegisterEventHotKey(keyCode, modifiers.rawValue, hotKeyID, target, exclusive ? UInt32(kEventHotKeyExclusive) : 0, &hotKeyRef)
         guard regStatus == noErr else {
             if let handlerRef {
                 RemoveEventHandler(handlerRef)
@@ -210,15 +245,22 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
     }
 
     private func dispatchCarbonEvent(kind: UInt32) {
-        let (downHandler, upHandler) = state.withLock { s in
-            (s.onKeyDown, s.onKeyUp)
+        let handler = state.withLock { s -> (@Sendable () -> Void)? in
+            guard s.isRegistered else { return nil }
+            if kind == UInt32(kEventHotKeyPressed) {
+                s.isChordDown = true
+                // Keep delivery idempotency in the coordinator: a new press must still reach it
+                // after explicit Stop, even if the previous Carbon release was never delivered.
+                s.physicalHold = PhysicalHoldObservation()
+                return s.onKeyDown
+            }
+            if kind == UInt32(kEventHotKeyReleased) {
+                s.isChordDown = false
+                return s.onKeyUp
+            }
+            return nil
         }
-
-        if kind == UInt32(kEventHotKeyPressed) {
-            downHandler?()
-        } else if kind == UInt32(kEventHotKeyReleased) {
-            upHandler?()
-        }
+        handler?()
     }
 
     private func dispatchFlagsChanged(_ flags: NSEvent.ModifierFlags) {
@@ -227,6 +269,7 @@ public final class SystemGlobalHotkeyManager: GlobalHotkeyManaging, @unchecked S
             let held = Self.chordHeld(flags, required: required)
             guard held != s.isChordDown else { return nil }
             s.isChordDown = held
+            if held { s.physicalHold = PhysicalHoldObservation() }
             return held ? s.onKeyDown : s.onKeyUp
         }
         handler?()
