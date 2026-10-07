@@ -434,7 +434,7 @@ struct Phase15IntegrationTests {
     @MainActor
     @Test("the app's tasks use the brain's dispatcher, and a finished task's report joins the conversation")
     func environment() async {
-        let planner = ScriptedPlanner([plan(step("1", "open_app", ["name": "Notes"]))])
+        let planner = ScriptedPlanner([plan(step("1", "open_app", ["name": "Notes"])), plan(step("1", "open_app", ["name": "Notes"]))])
         let env = IvyAppEnvironment(
             settingsStore: InMemorySettingsStore(), credentials: FixedCredentialProvider([.geminiAPIKey: "k"]),
             conversationStore: InMemoryConversationStore(), geminiClient: RecordingGeminiClient(),
@@ -447,6 +447,13 @@ struct Phase15IntegrationTests {
         #expect(env.tasks.run?.phase == .awaitingApproval)
         env.tasks.cancel()
         #expect(env.brain.messages.last?.text.hasPrefix("Task stopped by you") == true)
+        let ordinaryChat = env.brain.messages
+        let workspace = TaskWorkspaceSession(engine: env.tasks)
+        workspace.newTask(prompt: "Open Notes in a task")
+        #expect(await workspace.send())
+        env.tasks.cancel()
+        #expect(env.tasks.run?.origin == .taskWorkspace && workspace.thread.count == 1)
+        #expect(env.brain.messages == ordinaryChat, "Task-panel reports cannot leak into an unrelated chat")
     }
 
     @Test("a cancelled shell command is killed and reported as stopped")

@@ -9,11 +9,13 @@ public struct MessageInputBar: View {
     public let onToggleVoice: (() -> Void)?
     public let onSend: () -> Void
     public let attachmentTray: AttachmentTray?
+    public let placeholder: String
 
     public init(
         text: Binding<String>, isThinking: Bool, isVoiceActive: Bool = false,
         hasAttachments: Bool = false, onToggleVoice: (() -> Void)? = nil,
         attachmentTray: AttachmentTray? = nil,
+        placeholder: String = "Message Ivy…",
         onSend: @escaping () -> Void
     ) {
         self._text = text
@@ -23,6 +25,7 @@ public struct MessageInputBar: View {
         self.onToggleVoice = onToggleVoice
         self.onSend = onSend
         self.attachmentTray = attachmentTray
+        self.placeholder = placeholder
     }
 
     var canSend: Bool {
@@ -45,7 +48,7 @@ public struct MessageInputBar: View {
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .leading) {
                     if text.isEmpty {
-                        Text("Message Ivy…")
+                        Text(placeholder)
                             .font(.body).foregroundStyle(.secondary)
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)

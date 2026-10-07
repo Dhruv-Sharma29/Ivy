@@ -160,7 +160,7 @@ public final class IvyAppEnvironment {
         let voice = voiceManager ?? VoicePlaybackManager(credentials: credentials, voiceSettings: { ttsVoice.withLock { $0 } })
         self.voiceManager = voice
         tasks.onFinished = { [weak brain, weak proactive] run in
-            if let report = run.report { brain?.appendProactiveMessage(report) }
+            if run.origin != .taskWorkspace, let report = run.report { brain?.appendProactiveMessage(report) }
             let summary: String
             switch run.phase {
             case .finished(.succeeded): summary = "done"

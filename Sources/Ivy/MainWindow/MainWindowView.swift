@@ -16,6 +16,7 @@ struct MainWindowView: View {
     @State private var destination: WorkspaceDestination
     @State private var selectedTaskID: UUID?
     @State private var promptRequest: WorkspacePrompt?
+    @State private var isNewTaskDraft = false
 
     init(brain: IvyBrain, library: ConversationLibrary, voiceManager: VoicePlaybackManager,
          liveVoiceCoordinator: GeminiLiveVoiceCoordinator, proactive: ProactiveEngine,
@@ -47,14 +48,17 @@ struct MainWindowView: View {
             NavigationSplitView(columnVisibility: $columns) {
                 SidebarView(library: library, brain: brain, workspaces: workspaces, tasks: tasks, destination: $destination,
                             selectedTaskID: $selectedTaskID, onNewTask: {
-                                promptRequest = WorkspacePrompt(text: "/agent "); destination = .chat
-                            })
+                                selectedTaskID = nil; isNewTaskDraft = true
+                                promptRequest = WorkspacePrompt(text: "/agent "); destination = .tasks
+                            }, isNewTaskDraft: isNewTaskDraft)
                     .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
             } detail: {
                 ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator,
                              proactive: proactive, attachments: attachments, tasks: tasks,
                              library: library, destination: destination, selectedTaskID: selectedTaskID, promptRequest: promptRequest,
-                             onShowChat: { destination = .chat }, onShowTask: { selectedTaskID = $0; destination = .tasks })
+                             onShowChat: { destination = .chat }, onShowTask: {
+                                 selectedTaskID = $0; isNewTaskDraft = $0 == nil; destination = .tasks
+                             })
                     .frame(minWidth: 320)
             }
             .navigationSplitViewStyle(.balanced)
@@ -66,6 +70,7 @@ struct MainWindowView: View {
             if live { destination = .chat }
         }
         .onChange(of: router.chatNavigationID) { destination = .chat }
+        .onChange(of: selectedTaskID) { if selectedTaskID != nil { isNewTaskDraft = false } }
         .accessibilityIdentifier("ivy.mainWindow")
     }
 }
@@ -83,13 +88,27 @@ struct ChatPaneView: View {
     var selectedTaskID: UUID? = nil
     var promptRequest: WorkspacePrompt? = nil
     var onShowChat: (() -> Void)? = nil
-    var onShowTask: ((UUID) -> Void)? = nil
+    var onShowTask: ((UUID?) -> Void)? = nil
+    @StateObject private var taskSession: TaskWorkspaceSession
     @State private var inputText = ""
     @State private var drafts: [UUID: String] = [:]
     @State private var editingInstructions = false
     @State private var instructionsDraft = ""
     @State private var instructionsError: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(brain: IvyBrain, voiceManager: VoicePlaybackManager, liveVoiceCoordinator: GeminiLiveVoiceCoordinator,
+         proactive: ProactiveEngine, attachments: AttachmentTray, tasks: TaskEngine,
+         library: ConversationLibrary? = nil, showsHome: Bool = false, destination: WorkspaceDestination? = nil,
+         selectedTaskID: UUID? = nil, promptRequest: WorkspacePrompt? = nil,
+         onShowChat: (() -> Void)? = nil, onShowTask: ((UUID?) -> Void)? = nil) {
+        self.brain = brain; self.voiceManager = voiceManager; self.liveVoiceCoordinator = liveVoiceCoordinator
+        self.proactive = proactive; self.attachments = attachments; self.tasks = tasks
+        self.library = library; self.showsHome = showsHome; self.destination = destination
+        self.selectedTaskID = selectedTaskID; self.promptRequest = promptRequest
+        self.onShowChat = onShowChat; self.onShowTask = onShowTask
+        _taskSession = StateObject(wrappedValue: TaskWorkspaceSession(engine: tasks))
+    }
 
     private var isBlocked: Bool {
         brain.isThinking || brain.pendingConfirmation != nil || liveVoiceCoordinator.state.isLive
@@ -112,15 +131,15 @@ struct ChatPaneView: View {
             }
             if currentDestination == .home, let library {
                 IvyHomeView(library: library, brain: brain, tasks: tasks,
-                            onPrompt: { inputText = $0; onShowChat?() }, onOpenConversation: { onShowChat?() },
+                            onPrompt: routePrompt, onOpenConversation: { onShowChat?() },
                             onCapture: { Task { await attachments.capture(.frontWindow) } })
             } else if currentDestination == .library, let library {
                 LibraryWorkspaceView(library: library, tasks: tasks, blocked: isBlocked,
                     onOpenConversation: { onShowChat?() }, onOpenTask: { onShowTask?($0) },
-                    onPrompt: { inputText = $0; onShowChat?() })
+                    onPrompt: routePrompt)
             } else if currentDestination == .tasks {
-                TasksWorkspaceView(tasks: tasks, selectedTaskID: selectedTaskID,
-                                   blocked: isBlocked, onPrompt: { inputText = $0; onShowChat?() })
+                TasksWorkspaceView(tasks: tasks, session: taskSession, selectedTaskID: selectedTaskID,
+                                   blocked: isBlocked, onSelect: onShowTask)
             } else {
                 messages
             }
@@ -178,8 +197,8 @@ struct ChatPaneView: View {
             return true
         }
         .onPasteCommand(of: [.fileURL, .png, .tiff, .jpeg], perform: accept)
-        .onChange(of: promptRequest?.id) {
-            if let promptRequest { inputText = promptRequest.text }
+        .onChange(of: promptRequest?.id, initial: true) {
+            if let promptRequest { routePrompt(promptRequest.text) }
         }
         .onAppear(perform: takeSuggestedPrompt)
         .onChange(of: attachments.suggestedPrompt) { takeSuggestedPrompt() }
@@ -187,6 +206,18 @@ struct ChatPaneView: View {
         .onChange(of: brain.conversationID) { old, new in
             drafts[old] = inputText
             inputText = drafts[new] ?? ""
+            onShowChat?()
+        }
+    }
+
+    func routePrompt(_ prompt: String) {
+        let command = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if command == "/agent" || command.hasPrefix("/agent ") {
+            guard !isBlocked else { return }
+            taskSession.newTask(prompt: prompt == "/agent " ? "" : prompt)
+            onShowTask?(nil)
+        } else {
+            inputText = prompt
             onShowChat?()
         }
     }
@@ -346,14 +377,14 @@ struct ChatPaneView: View {
         guard !isBlocked else { return }
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.attachments.isEmpty else { return }
-        onShowChat?()
         // "/agent <goal>" plans a multi-step task; nothing runs until the plan is approved.
         if trimmed.lowercased().hasPrefix("/agent ") {
-            let goal = String(trimmed.dropFirst("/agent ".count))
             guard tasks.run?.isActive != true, !brain.isThinking, brain.pendingConfirmation == nil else { return }
             inputText = ""
             drafts[brain.conversationID] = ""
-            Task { await tasks.start(goal: goal) }
+            taskSession.newTask(prompt: trimmed)
+            onShowTask?(nil)
+            Task { await taskSession.send() }
             return
         }
         // "/desktop <goal>" plans an adaptive desktop control task.
@@ -362,6 +393,7 @@ struct ChatPaneView: View {
             guard tasks.run?.isActive != true, !brain.isThinking, brain.pendingConfirmation == nil else { return }
             inputText = ""
             drafts[brain.conversationID] = ""
+            onShowTask?(nil)
             let (bundleID, goal) = CommandBarSession.parseDesktopCommand(commandText)
             Task {
                 let targetApp: String
@@ -373,7 +405,11 @@ struct ChatPaneView: View {
                     targetApp = "com.apple.finder"
                 }
                 let scope = ComputerControlScope(bundleIdentifier: targetApp, isAuthorized: true)
-                await tasks.startAdaptiveDesktop(goal: goal, scope: scope)
+                let result = await tasks.startAdaptiveDesktop(goal: goal, scope: scope)
+                if result.isStarted, let id = tasks.run?.id {
+                    taskSession.select(id)
+                    onShowTask?(id)
+                }
             }
             return
         }
@@ -384,6 +420,7 @@ struct ChatPaneView: View {
         inputText = ""
         drafts[brain.conversationID] = ""
         let attached = attachments.take()
+        onShowChat?()
         Task { await brain.send(trimmed, attachments: attached) }
     }
 

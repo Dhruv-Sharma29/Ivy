@@ -5,6 +5,8 @@ public enum TaskOutcome: String, Codable, Sendable {
     case succeeded, failed, cancelled
 }
 
+public enum TaskRunOrigin: String, Codable, Sendable { case taskWorkspace }
+
 /// Why a running task stopped to ask the user.
 public enum TaskPause: Codable, Equatable, Sendable {
     /// A step failed (or the user declined its card); the user picks skip / retry / stop.
@@ -36,14 +38,20 @@ public struct TaskRun: Codable, Identifiable, Equatable, Sendable {
     /// Time spent running (not waiting for approval), for the duration budget.
     public var activeSeconds: TimeInterval = 0
     public var report: String?
+    /// A user-requested follow-up, not an execution dependency or authorization.
+    public var parentTaskID: UUID?
+    public var origin: TaskRunOrigin?
 
     public var goal: String { plan.goal }
 
-    public init(id: UUID = UUID(), plan: TaskPlan, phase: TaskPhase, createdAt: Date) {
+    public init(id: UUID = UUID(), plan: TaskPlan, phase: TaskPhase, createdAt: Date,
+                parentTaskID: UUID? = nil, origin: TaskRunOrigin? = nil) {
         self.id = id
         self.plan = plan
         self.phase = phase
         self.createdAt = createdAt
+        self.parentTaskID = parentTaskID
+        self.origin = origin
     }
 
     public var isActive: Bool {
@@ -140,7 +148,8 @@ public final class TaskEngine: ObservableObject {
 
     /// Asks for a plan and shows it for approval. Nothing runs yet.
     @discardableResult
-    public func start(goal rawGoal: String, budget: TaskBudget = TaskBudget()) async -> TaskStartResult {
+    public func start(goal rawGoal: String, budget: TaskBudget = TaskBudget(),
+                      context: String = "", parentTaskID: UUID? = nil, origin: TaskRunOrigin? = nil) async -> TaskStartResult {
         let goal = rawGoal.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !goal.isEmpty else { return .rejected(reason: "Goal cannot be empty.") }
         guard run?.isActive != true else {
@@ -150,12 +159,14 @@ public final class TaskEngine: ObservableObject {
             return .rejected(reason: "A task is already running in Ivy. Stop or finish the current task before starting a new one.")
         }
         let id = UUID()
-        run = TaskRun(id: id, plan: TaskPlan(goal: goal, steps: [], budget: budget), phase: .planning, createdAt: now())
+        run = TaskRun(id: id, plan: TaskPlan(goal: goal, steps: [], budget: budget), phase: .planning,
+                      createdAt: now(), parentTaskID: parentTaskID, origin: origin)
 
-        var context = ""
+        let initialContext = String(SecretRedactor.redact(context).prefix(4_096))
+        var planningContext = initialContext
         for attempt in 0..<2 {
             do {
-                let raw = try await planner.plan(goal: goal, context: context, tools: tools)
+                let raw = try await planner.plan(goal: goal, context: planningContext, tools: tools)
                 guard run?.id == id, run?.phase == .planning else { return .rejected(reason: "Task planning was superseded or cancelled.") }
                 let steps = try PlannerOutput.parse(raw).steps()
                 let valid = try PlanValidator.validate(steps, registry: dispatcher.registry, budget: budget)
@@ -166,7 +177,7 @@ public final class TaskEngine: ObservableObject {
                 finish(.failed, report: "I can't do that with the tools I have. Try asking in chat instead.")
                 return .rejected(reason: "I can't do that with the tools I have. Try asking in chat instead.")
             } catch let error as PlanValidationError where attempt == 0 {
-                context = "The previous plan was rejected: \(error.localizedDescription) Produce a corrected plan."
+                planningContext = initialContext + "\nThe previous plan was rejected: \(error.localizedDescription) Produce a corrected plan."
             } catch {
                 guard run?.id == id else { return .rejected(reason: "Task planning was cancelled.") }
                 finish(.failed, report: "I couldn't make a usable plan: \(error.localizedDescription)")
@@ -283,7 +294,7 @@ public final class TaskEngine: ObservableObject {
         if previous.plan.mode == .adaptiveDesktop, let scope = previous.plan.scope {
             await startAdaptiveDesktop(goal: previous.goal, scope: scope, budget: previous.plan.budget)
         } else {
-            await start(goal: previous.goal, budget: previous.plan.budget)
+        await start(goal: previous.goal, budget: previous.plan.budget, origin: previous.origin)
         }
     }
 

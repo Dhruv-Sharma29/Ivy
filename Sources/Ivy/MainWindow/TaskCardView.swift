@@ -13,7 +13,7 @@ struct TaskCardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: icon(run.phase)).foregroundStyle(color(run.phase))
-                    Text(run.goal).font(expanded ? .headline : .system(size: 12, weight: .semibold)).lineLimit(2)
+                    Text(expanded ? "Task plan" : run.goal).font(expanded ? .headline : .system(size: 12, weight: .semibold)).lineLimit(2)
                     Spacer()
                     Text(phaseText(run.phase)).font(expanded ? .caption : .system(size: 10)).foregroundStyle(.secondary)
                 }
@@ -25,7 +25,10 @@ struct TaskCardView: View {
                     }
                 }
 
-                ForEach(run.plan.steps) { step in
+                if expanded {
+                    TaskFlowDiagram(steps: run.plan.steps, phase: run.phase)
+                } else {
+                  ForEach(run.plan.steps) { step in
                     HStack(alignment: .top, spacing: expanded ? 12 : 6) {
                         Image(systemName: stepIcon(step.status))
                             .foregroundStyle(stepColor(step.status))
@@ -47,6 +50,7 @@ struct TaskCardView: View {
                         }
                     }
                 }
+                }
 
                 controls(run)
             }
@@ -62,7 +66,9 @@ struct TaskCardView: View {
         HStack {
             switch run.phase {
             case .awaitingApproval:
-                Text("Risky steps will still ask you one by one.").font(expanded ? .caption : .system(size: 10)).foregroundStyle(.secondary)
+                if !expanded {
+                    Text("Risky steps will still ask you one by one.").font(.system(size: 10)).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Cancel", role: .cancel) { engine.cancel() }
                 Button("Run this plan") { engine.approvePlan() }

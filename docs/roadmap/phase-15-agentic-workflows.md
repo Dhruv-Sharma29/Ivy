@@ -147,3 +147,14 @@ Tests: `Tests/IvyTests/Phase15AgentTests.swift` — validation, ordering, parsin
 in-order runs, one card per risky step (titles can't approve), decline/skip/dependents, retry/ask, re-plan,
 abort and checks, budget pause/continue, stop during a card and during a tool, re-run, history, wiring, and a real
 cancelled `sleep 30`.
+
+## Task workspace update (2026-10-07)
+
+Tasks now has an in-panel goal composer. New task and starters draft here; sending proposes a plan.
+Each live or saved plan uses a connected vertical execution flow with status text/icons, dependency
+labels and expandable redacted arguments/output. Arrows show sequential execution order.
+Follow-ups start a new plan with bounded/redacted previous goal, report and step results, requiring
+fresh approval. Optional parent/origin metadata restores recent task threads and isolates their results
+from ordinary Chat; old task JSON remains compatible. This implements the main-window conversation
+and flow presentation, not the proposed floating panel, recurring autonomy or parallel agent execution.
+See [verification](../../tasks/task-panel-flow.md).

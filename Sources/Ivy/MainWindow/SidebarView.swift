@@ -10,6 +10,7 @@ struct SidebarView: View {
     @Binding var destination: WorkspaceDestination
     @Binding var selectedTaskID: UUID?
     let onNewTask: () -> Void
+    var isNewTaskDraft = false
 
     @State private var query = ""
     @State private var searchVisible = false
@@ -150,7 +151,7 @@ struct SidebarView: View {
     }
 
     private func taskRow(_ run: TaskRun) -> some View {
-        let selected = selectedTaskID == run.id || (selectedTaskID == nil && tasks.run?.id == run.id)
+        let selected = selectedTaskID == run.id || (!isNewTaskDraft && selectedTaskID == nil && tasks.run?.id == run.id)
         return Button { selectedTaskID = run.id } label: {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: TaskRunDisplay.symbol(run.phase)).frame(width: 16).foregroundStyle(.secondary)
