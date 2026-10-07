@@ -9,6 +9,74 @@ import os
 @MainActor
 @Suite("Native interface layouts", .serialized)
 struct LayoutTests {
+    @Test("Task conversation stays in Tasks and real step flows render at narrow/wide widths")
+    func taskConversationsAndFlows() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-task-ui-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let store = InMemoryTaskStore()
+        let statuses: [StepStatus] = [.succeeded, .running, .failed("Couldn't read a file."), .skipped("Skipped after review."), .cancelled, .pending]
+        let steps = statuses.enumerated().map { index, status in
+            var step = TaskStep(id: String(index + 1), title: "Review stage \(index + 1)", tool: index == 0 ? "ui_type" : "file_op",
+                arguments: index == 0 ? ["text": AnyCodable("private fixture text")] : ["path": AnyCodable("/tmp/fixture.txt")],
+                dependsOn: index == 0 ? [] : [String(index)])
+            step.status = status; step.output = "Fixture output for stage \(index + 1)."
+            return step
+        }
+        var saved = TaskRun(plan: TaskPlan(goal: "Review my project and explain the next steps", steps: steps),
+                            phase: .finished(.failed), createdAt: .distantPast, origin: .taskWorkspace)
+        saved.report = "The review found one unavailable file. **No files were changed.**"
+        try store.save(saved)
+        let environment = IvyAppEnvironment(settingsStore: LayoutSettingsStore(),
+            credentials: FixedCredentialProvider([.geminiAPIKey: "fixture-not-a-real-key"]),
+            conversationStore: FileConversationStore(directory: directory.appendingPathComponent("history-" + UUID().uuidString)), geminiClient: LayoutOfflineClient(),
+            taskPlanner: LayoutFlowPlanner(), taskStore: store) { _, _ in
+                GeminiLiveVoiceCoordinator(session: MockGeminiLiveSession(), audioCapture: MockAudioCapture(), audioPlayer: MockLiveAudioPlayer())
+            }
+        let session = TaskWorkspaceSession(engine: environment.tasks)
+        var selections: [UUID?] = []
+        let actions = TasksWorkspaceView(tasks: environment.tasks, session: session, blocked: false, onSelect: { selections.append($0) })
+        actions.draft("/agent Review my folder")
+        #expect(session.draft == "Review my folder" && environment.tasks.run == nil && selections.count == 1)
+        actions.newTask()
+        var blocked = actions; blocked = TasksWorkspaceView(tasks: environment.tasks, session: session, blocked: true)
+        blocked.draft("Must not overwrite"); blocked.newTask()
+        #expect(session.draft == "Review my folder")
+        var chatNavigations = 0, taskNavigations = 0
+        let pane = ChatPaneView(brain: environment.brain, voiceManager: environment.voiceManager,
+            liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
+            attachments: environment.attachments, tasks: environment.tasks, destination: .tasks,
+            promptRequest: WorkspacePrompt(text: "/agent "), onShowChat: { chatNavigations += 1 },
+            onShowTask: { _ in taskNavigations += 1 })
+        try await snapshot(pane.environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas), scheme: .dark,
+            size: NSSize(width: 760, height: 800), url: directory.appendingPathComponent("task-new-dark.png"))
+        #expect(taskNavigations == 1 && chatNavigations == 0 && environment.brain.messages.isEmpty)
+        session.draft = "Review this project"
+        actions.send()
+        for _ in 0..<1000 where environment.tasks.run?.phase != .awaitingApproval { await Task.yield() }
+        #expect(environment.tasks.run?.phase == .awaitingApproval)
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(350), 840] {
+                try await snapshot(TasksWorkspaceView(tasks: environment.tasks, session: session, blocked: true)
+                    .environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas), scheme: scheme,
+                    size: NSSize(width: width, height: 800), url: directory.appendingPathComponent("task-review-\(scheme)-\(Int(width)).png"))
+            }
+            try await snapshot(ScrollView { TaskFlowDiagram(steps: steps, expandedDetails: true).padding(20) }
+                .environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas), scheme: scheme,
+                size: NSSize(width: 700, height: 1400), url: directory.appendingPathComponent("task-flow-details-\(scheme).png"))
+            try await snapshot(VStack(spacing: 16) {
+                TaskFlowDiagram(steps: [], phase: .planning)
+                TaskFlowDiagram(steps: [], phase: .finished(.failed))
+                TaskFlowDiagram(steps: [])
+            }.padding(20).environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas), scheme: scheme,
+                size: NSSize(width: 650, height: 740), url: directory.appendingPathComponent("task-flow-empty-\(scheme).png"))
+            let historySession = TaskWorkspaceSession(engine: environment.tasks)
+            try await snapshot(TasksWorkspaceView(tasks: environment.tasks, session: historySession,
+                selectedTaskID: saved.id, blocked: true).environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas),
+                scheme: scheme, size: NSSize(width: 840, height: 1050), url: directory.appendingPathComponent("task-history-\(scheme).png"))
+        }
+        environment.tasks.cancel()
+    }
+
     @Test("push-to-talk registration failures and alternate shortcut remain visible in General")
     func pushToTalkRegistrationFeedback() async throws {
         let status = PushToTalkShortcutStatus()
@@ -195,7 +263,7 @@ struct LayoutTests {
                 category: .conversations, onOpenConversation: {}, onOpenTask: { _ in }, onPrompt: { _ in }),
                 scheme: scheme, size: NSSize(width: 350, height: 640),
                 url: directory.appendingPathComponent("library-empty-\(name).png"))
-            try await snapshot(TasksWorkspaceView(tasks: environment.tasks, selectedTaskID: savedTask.id, blocked: false, onPrompt: { _ in }),
+            try await snapshot(TasksWorkspaceView(tasks: environment.tasks, session: TaskWorkspaceSession(engine: environment.tasks), selectedTaskID: savedTask.id, blocked: false),
                 scheme: scheme, size: NSSize(width: 350, height: 740),
                 url: directory.appendingPathComponent("task-report-compact-\(name).png"))
             let region = SystemRegionalPreferences(locale: Locale(identifier: "en_GB"), timeZone: .gmt)
@@ -281,7 +349,7 @@ struct LayoutTests {
         #expect(environment.tasks.run?.phase == .awaitingApproval, "external links cannot dismiss a task approval")
         environment.router.dismissNavigationError()
         for scheme in [ColorScheme.light, .dark] {
-            try await snapshot(TasksWorkspaceView(tasks: environment.tasks, blocked: true, onPrompt: { _ in }),
+            try await snapshot(TasksWorkspaceView(tasks: environment.tasks, session: TaskWorkspaceSession(engine: environment.tasks), blocked: true),
                 scheme: scheme, size: NSSize(width: 650, height: 740),
                 url: directory.appendingPathComponent("task-awaiting-plan-\(scheme).png"))
             try await snapshot(SidebarView(library: environment.library, brain: environment.brain,
@@ -541,6 +609,103 @@ struct LayoutTests {
         let invalid = CompanionAnimationSample.sample(mood: .speaking, elapsed: .infinity, level: .nan, reduceMotion: false)
         #expect(invalid == CompanionAnimationSample(frame: 6, verticalOffset: 0, scale: 1))
         #expect(CompanionPose.allCases.count == 8)
+    }
+
+    @Test("random idle moments are brief, reproducible, spaced apart and safe at invalid times")
+    func companionIdleSchedule() {
+        var activities: Set<Int> = []
+        var starts: Set<Double> = []
+        for seed in UInt64(0)..<64 {
+            for cycle in [0.0, 48.0, 96.0] {
+                let samples = (0..<48).compactMap { second -> (Double, CompanionIdleMoment)? in
+                    let time = cycle + Double(second)
+                    guard let sample = CompanionIdleMoment.sample(elapsed: time, seed: seed) else { return nil }
+                    #expect(sample == CompanionIdleMoment.sample(elapsed: time, seed: seed))
+                    #expect(sample.elapsed >= 0 && sample.elapsed < sample.activity.duration)
+                    #expect((16..<28).contains(sample.animation.frame))
+                    return (time, sample)
+                }
+                #expect(!samples.isEmpty)
+                if let first = samples.first, let last = samples.last {
+                    activities.insert(first.1.activity.rawValue)
+                    starts.insert(first.0 - cycle)
+                    #expect(first.0 - cycle >= 12 && first.0 - cycle <= 24)
+                    #expect(samples.count == Int(first.1.activity.duration))
+                    #expect(CompanionIdleMoment.sample(elapsed: first.0 - 0.01, seed: seed) == nil)
+                    #expect(CompanionIdleMoment.sample(elapsed: last.0 + 1, seed: seed) == nil)
+                    #expect(last.0 - cycle < 35)
+                }
+            }
+        }
+        #expect(activities == Set(CompanionIdleActivity.allCases.map(\.rawValue)))
+        #expect(starts.count > 1)
+        for time in [-1.0, .infinity, -.infinity, .nan] {
+            #expect(CompanionIdleMoment.sample(elapsed: time, seed: 0) == nil)
+        }
+        // Extreme but finite elapsed values cannot overflow an integer conversion.
+        _ = CompanionIdleMoment.sample(elapsed: 1e300, seed: .max)
+    }
+
+    @Test("idle activities yield immediately to real states, dragging, hiding and Reduce Motion")
+    func companionIdleInterruption() {
+        let time = 12.5 // Seed zero selects the phone at 12 seconds.
+        let idle = CompanionAnimationSample.sample(mood: .idle, elapsed: time, level: 0, reduceMotion: false, idleSeed: 0)
+        #expect((16..<20).contains(idle.frame))
+        for activity in CompanionIdleActivity.allCases {
+            let frames = Set((0..<4).map {
+                CompanionIdleMoment(activity: activity, elapsed: Double($0) * (activity == .dance ? 0.24 : 0.4)).animation.frame
+            })
+            #expect(frames == Set(activity.firstFrame..<(activity.firstFrame + 4)))
+        }
+        for mood in [CompanionMood.hidden, .listening, .thinking, .speaking, .working(0.5), .needsApproval, .error("Offline")] {
+            let actual = CompanionAnimationSample.sample(mood: mood, elapsed: time, level: 0.5, reduceMotion: false, idleSeed: 0)
+            let original = CompanionAnimationSample.sample(mood: mood, elapsed: time, level: 0.5, reduceMotion: false)
+            #expect(actual == original && actual.frame < 16)
+        }
+        let reduced = CompanionAnimationSample.sample(mood: .idle, elapsed: time, level: 1, reduceMotion: true, idleSeed: 0)
+        #expect(reduced == CompanionAnimationSample(frame: 0, verticalOffset: 0, scale: 1))
+        let dragged = CompanionAnimationSample.sample(mood: .idle, elapsed: time, level: 0, reduceMotion: false, isMoving: true, idleSeed: 0)
+        #expect([14, 15].contains(dragged.frame))
+    }
+
+    @Test("all idle artwork frames load transparently and render at companion size")
+    func companionIdleArtwork() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-idle-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #expect(CompanionSpriteSheet.idleFrames.count == 12)
+        #expect(CompanionSpriteSheet.image(for: -1) == nil && CompanionSpriteSheet.image(for: 28) == nil)
+        #expect(CompanionSpriteSheet.image(for: 0) === CompanionSpriteSheet.frames[0])
+        for index in 16..<28 {
+            let frame = try #require(CompanionSpriteSheet.image(for: index))
+            let cg = try #require(frame.cgImage(forProposedRect: nil, context: nil, hints: nil))
+            let bitmap = NSBitmapImageRep(cgImage: cg)
+            #expect(bitmap.hasAlpha && cg.width >= 300 && cg.height >= 300)
+            #expect((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.1)
+            #expect((bitmap.colorAt(x: cg.width / 2, y: cg.height / 2)?.alphaComponent ?? 0) > 0.5)
+        }
+        for scheme in [ColorScheme.light, .dark] {
+            let gallery = VStack(spacing: 16) {
+                ForEach(CompanionIdleActivity.allCases, id: \.rawValue) { activity in
+                    VStack(spacing: 8) {
+                        Text(String(describing: activity).capitalized).font(.headline)
+                        HStack(spacing: 16) {
+                            ForEach(0..<4, id: \.self) { index in
+                                let sample = CompanionIdleMoment(activity: activity,
+                                    elapsed: Double(index) * (activity == .dance ? 0.24 : 0.4)).animation
+                                if let image = CompanionSpriteSheet.image(for: sample.frame) {
+                                    Image(nsImage: image).resizable().interpolation(.none).scaledToFit()
+                                        .frame(width: 96, height: 96)
+                                        .rotationEffect(.degrees(sample.rotationDegrees), anchor: .bottom)
+                                        .offset(y: sample.verticalOffset)
+                                }
+                            }
+                        }
+                    }
+                }
+            }.padding(24).background(IvyTheme.canvas)
+            try await snapshot(gallery, scheme: scheme, size: NSSize(width: 510, height: 465),
+                               url: directory.appendingPathComponent("idle-\(scheme).png"))
+        }
     }
 
     @Test("drag tracking moves in desktop coordinates and does not open Ivy when released")
@@ -935,5 +1100,12 @@ private struct LayoutOfflineClient: GeminiClientProtocol {
 private struct LayoutTaskPlanner: TaskPlanning {
     func plan(goal: String, context: String, tools: [FunctionDeclaration]) async throws -> String {
         #"{"steps":[{"id":"1","title":"Review folder metadata","tool":"run_shell","arguments":{"command":"echo fixture"}}]}"#
+    }
+}
+
+/// Native flow previews propose three harmless commands; tests never approve this plan.
+private struct LayoutFlowPlanner: TaskPlanning {
+    func plan(goal: String, context: String, tools: [FunctionDeclaration]) async throws -> String {
+        #"{"steps":[{"id":"1","title":"Review project files","tool":"run_shell","arguments":{"command":"echo fixture"}},{"id":"2","title":"Summarize the findings","tool":"run_shell","arguments":{"command":"echo fixture"},"dependsOn":["1"]},{"id":"3","title":"Prepare next steps","tool":"run_shell","arguments":{"command":"echo fixture"},"dependsOn":["2"]}]}"#
     }
 }

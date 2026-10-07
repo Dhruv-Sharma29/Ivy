@@ -292,7 +292,18 @@ public protocol GeminiClientProtocol: Sendable {
 - Neutral graphite and white surfaces use a muted indigo accent. The sidebar selection, controls, composer and Settings share this palette. Colors adapt to light, dark and increased-contrast appearances.
 - Home is a compact workspace with a text introduction, six everyday prompt-drafting shortcuts (Research, Summarize, Write, Files, Explain and Plan a task), real current task state and recent conversations. Character artwork, neon gradients and playful slogans are excluded from the workspace. The professional leaf icon appears only as compact app branding. The navigation rail contains Home, Library, Tasks and a native Settings link. All rows have aligned symbols, equal heights and full-row click targets; navigation occupies a compact icon rail beside the scrollable history. Tasks uses the real task engine. File attachments, pasted text, browsing and coding remain available through Chat without separate sidebar destinations. Drafting an action opens Chat without sending. Home never simulates progress or executes a shortcut immediately.
 - Library browses real saved conversations and finished task reports in adaptive cards or compact list rows. All, Conversations, Pinned, Task reports and Archived filters combine with title/preview search and newest/title sorting. All excludes archived conversations; Archived is explicit. Cards open the corresponding saved chat or task report; conversation menus pin, archive and export through existing library operations. New offers Conversation and Task. Attachments remain memory-only and are not presented as saved files.
-- Tasks has its own searchable Current and Recent tasks sidebar, real live task controls, and selectable saved reports with actual outcomes and steps. Its empty workspace offers six Ivy-specific starters for day planning, files, research, documents, writing and project review. New task and starters open drafts in Chat without executing. Library and Tasks use the full detail area without the chat composer; dropping or pasting an attachment opens Chat. Background scheduling is not implied by this interface.
+- Tasks has its own searchable Current and Recent tasks sidebar and an in-panel task conversation/composer.
+  New task and the six starter cards draft goals here without contacting the planner or executing tools.
+  Sending a goal proposes a plan; Run this plan remains explicit and risky steps keep their own confirmation.
+  Each plan/report shows a connected vertical execution flow: numbered nodes, tool, textual live status,
+  dependency labels and expandable redacted arguments/output. Arrows show sequential execution order,
+  not parallel work or invented dependency edges. Existing empty/planning/failed tasks show their actual state.
+  Saved runs can be reopened and followed up in Tasks; a follow-up creates a new reviewable plan using bounded,
+  redacted previous-goal/result context. Optional parent/origin metadata restores the thread without breaking
+  old task JSON. Missing/cyclic parent links terminate safely. Per-run/new-task drafts remain separate from Chat.
+  Tasks-origin results stay in Tasks rather than being appended to an unrelated Chat conversation. Compact
+  cards outside Tasks retain their layout. Library has no composer; file drops/pastes keep their explicit Chat
+  attachment path. Background scheduling and free-form non-task chat are not implied by this interface.
 - On macOS 26+, native Liquid Glass is shared across navigation selections, Home action cards, Settings cards and disclosure controls, task and confirmation surfaces, user message bubbles, attachment chips, composer controls, the command bar and companion labels. Related surfaces use GlassEffectContainer, static content never receives interactive hover behavior, and task cards embedded in another card omit their own glass surface. Workspace and Settings backgrounds use native behind-window vibrancy so wallpaper subtly influences the interface. Buttons use native glass styles while retaining their keyboard, disabled and confirmation behavior. Older systems use regular material and bordered buttons. Reduce Transparency and increased contrast replace glass and window vibrancy with opaque surfaces. Long replies, code blocks and text editors retain readable text treatments.
 - Conversation sidebar: a 52-point icon rail for Home, Library and Tasks with Settings at its foot; compact Ivy branding, a search toggle and labeled New chat action; one-line Pinned and Recents lists with neutral selection and visible action menus; a separate Archived folder and workspace selection. Chat opens through New chat, a saved conversation or a drafted action, without a separate rail icon. Full conversation titles, timestamps and previews remain available in tooltips; search results include matching snippets. Archived starts collapsed; clicking anywhere on its header shows or hides its own scrolling list.
 - Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. Action buttons briefly pulse on click; Copy shows a checkmark and “Copied” for two seconds, resetting on repeated clicks. Read Aloud immediately shows cancellable “Preparing…” progress, then Stop Reading during playback. Reduce Motion suppresses movement while retaining status feedback. User messages use a subtle indigo-tinted bubble.
@@ -326,10 +337,17 @@ public protocol GeminiClientProtocol: Sendable {
 - Existing secure credential storage and on-demand permission behavior remain intact.
 - The old `alwaysShowInDock` preference is decoded for compatibility; it no longer controls desktop app presence.
 
-### On-screen companion (revised 2026-10-02)
+### On-screen companion (revised 2026-10-07)
 - The optional floating companion is a transparent, chunky pixel-art Ivy with dark hair, an ivy-leaf clip and a charcoal outfit. Character artwork stays in the companion; the main workspace retains its professional design.
 - Real idle, listening, thinking, speaking, working, approval and error states choose distinct poses. Idle includes occasional blinking and a brief greeting on appearance; thinking has a skeptical side-eye, working uses a tablet, and approval folds her arms. Speaking reacts to output audio without inventing speech or progress.
 - Cached sprite frames animate at a modest update rate, with visible idle breathing, blinking and gentle sway. Dragging adds a small lift, bob and tilt; non-idle activity poses remain recognizable and speaking still follows actual audio. Reduce Motion pauses the timeline and uses a static pose even during dragging; status text, captions and real task progress remain available.
+- When shown while idle, Ivy occasionally checks a phone, types on a laptop or dances using additional
+  matching pixel-art frames. A seed chosen for each idle episode gives repeatable frame sampling with
+  random activity/timing: one 5–11-second moment per 48-second window, after 12–24 seconds of quiet.
+  Phone/laptop moments are more frequent than dancing. These are decorative; status stays Ready,
+  no tools or devices are accessed, and real activity/approval or dragging takes priority immediately.
+  Hidden companions pause animation; Reduce Motion uses the ordinary static idle pose. Returning
+  to idle or turning motion back on starts with a quiet interval rather than resuming an interrupted dance.
 - Drag the character or status pill freely; a four-point threshold distinguishes dragging from clicking. A drag never opens the app. Dropped positions are remembered relative to their display and clamped by visible content bounds, allowing the character and status pill to reach the screen edges despite the panel's transparent margins. Bounds adapt when captions change size; a main-display fallback handles a saved display disappearing. There is no automatic corner snap. The panel is non-activating; a normal click opens Ivy and right-click provides Open Ivy, end voice, stop task and hide actions. Animation stops while hidden. All approvals remain in the existing confirmation flow.
 - A pending chat/task or Live tool approval replaces the companion's status pill below the character
   with only its action reason and Do it / Cancel buttons in a 240×96-point bubble. The original request
@@ -350,6 +368,11 @@ Tools are declared via JSON Schema in `tools: [{functionDeclarations: [...]}]`:
 3. `run_shell(command: String)`
 4. `calendar_event(title: String, date: String)`
 5. `file_op(action: String, path: String)`
+
+Application lookup prefers the exact installed bundle name (case-insensitive, with optional `.app`).
+Known names `VS Code`/`vscode` resolve to `Visual Studio Code.app`; `VS Code Insiders` resolves
+separately to `Visual Studio Code - Insiders.app`. Aliases search the existing system/user application
+directories and never install software, use fuzzy matches or substitute another edition.
 
 ### Execution Loop:
 1. Gemini generates response containing a `functionCall`.

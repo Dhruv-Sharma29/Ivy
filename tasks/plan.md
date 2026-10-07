@@ -1,5 +1,13 @@
 # Implementation Plan: Ivy macOS Assistant
 
+> Companion update (2026-10-07): Brief random phone/laptop/dance idle moments use matching sprite
+> frames. Real activity interrupts immediately and Reduce Motion stays static.
+> See [idle animation verification](companion-idle-animation.md).
+
+> UI update (2026-10-07): Tasks owns its composer, goal/plan/result thread and follow-up drafts.
+> Active and saved plans render connected execution flows. Approval remains explicit.
+> See [task-panel verification](task-panel-flow.md); this does not complete the planned floating task panel.
+
 > Scope update (2026-10-05): Pointer settings, cursor decoration and hover/circle/rectangle selection
 > are removed; push-to-talk is voice-only. Explicit screen attachments, annotation arrows and the
 > companion remain. See [the removal report](pointer-removal.md); do not restore cancelled work from historical checklists.

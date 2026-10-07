@@ -4,17 +4,35 @@ Ivy combines text chat, live voice, screen help and local Mac tools in a native 
 
 ## Current status
 
-The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 4)**, with an updated app and DMG in `dist/`.
+The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 7)**, with an updated app and DMG in `dist/`.
 
 The local package includes the initial Ivy UI refresh: shared rounded cards in Home,
 Library, Tasks and Settings, roomier navigation, and a floating quick-chat bar with draft suggestions
-and explicit Send/Open/Close controls. The DMG was rebuilt on **2026-10-05** with compact companion
-confirmations and push-to-talk missed-release recovery. Quit the running Ivy and replace it with this
-updated app before testing the fix; older packages remain in `dist/Previous-Builds/`.
+and explicit Send/Open/Close controls. The DMG was rebuilt on **2026-10-07** with task conversations
+and execution flows, retaining compact companion confirmations and push-to-talk recovery.
+Quit the running Ivy and replace it with this updated app before testing; older packages remain
+in `dist/Previous-Builds/`.
 See [the UI refresh report](tasks/ui-refresh.md) for the changes and verification limits.
-See [the latest package verification](tasks/ptt-startup-recovery.md) for artifact checks and rollback location.
+See [the latest package verification](tasks/companion-idle-animation.md) for artifact checks and rollback location.
 
-**Latest update:** the Pointer feature has been removed, including its Settings page, floating
+**Idle companion animations (build 7):** Ivy occasionally checks a phone, types on a laptop or
+dances while idle. Enable the companion and its idle visibility in Settings → General, then leave
+Ivy ready for 12–24 seconds. The brief animations have quiet pauses between them and stop immediately
+for voice, tasks, approvals or dragging. Reduce Motion keeps the companion still.
+
+**App lookup fix (build 6):** “Open VS Code” now finds `Visual Studio Code.app` in the existing
+application directories. `vscode` and optional `.app` suffixes work too; the Insiders edition has
+its own aliases. Exact installed names take priority, and Ivy does not substitute another edition.
+
+**Task panel update (build 5):** Choose **Tasks → New task**, type your goal in this panel and send.
+Ivy proposes a flow of numbered steps with live statuses and expandable redacted tool details.
+Review the flow, then choose **Run this plan**; individual risky actions still ask for approval.
+After a task finishes, type a follow-up here to propose another plan using the earlier result.
+Saved follow-up threads reopen from Recent tasks; new-task and per-task drafts stay separate from Chat.
+Arrows show execution order; dependency labels show each step's actual prerequisites.
+See [task-panel verification](tasks/task-panel-flow.md).
+
+**Pointer removal:** the Pointer feature has been removed, including its Settings page, floating
 cursor decoration and hover/circle selection. Push-to-talk is voice-only. Enable it in
 **Settings → General**, hold **⌘⇧Space** while another app is open, speak, then release.
 The toggle now applies immediately; microphone release and approval safeguards remain in place.
@@ -60,7 +78,7 @@ Autonomous clicking, typing, scrolling and dragging are not available in this pa
 - **Tool feedback:** collapsible live tool cards with status, masked arguments and expandable output; diff **Apply…** drafts a file change for review without executing it.
 - **Screen help:** attach a screenshot, a region captured with the macOS screenshot picker, an image or a PDF. The picker is separate from the removed hover/circle Pointer feature. The screen-help shortcut can show a capture to an active Live session. Inside the floating Command Bar, **Command–Shift–S** attaches the front window for review and explicit send.
 - **Screen annotations:** Ivy can draw a temporary arrow and labelled highlight to show where a button, menu or other area is on the screen you shared.
-- **Tasks and Mac tools:** plan multi-step work with `/agent <goal>`, review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
+- **Tasks and Mac tools:** plan multi-step work inside Tasks (or use `/agent <goal>`), follow connected step flows, review results and propose follow-ups. Review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
 - **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet. Pending tool actions replace the companion's status pill with the action reason and **Do it / Cancel** controls.
 - **Secure credentials:** keys saved through Settings live in macOS Keychain, outside plaintext settings and conversation history. Voice, macros, plans and external links cannot approve risky actions.
 - **Conversation links:** `ivy://new` and `ivy://conversation/<UUID>` reveal Chat. Links never send messages or run tools; active requests, approvals, tasks and voice sessions block conversation switching.

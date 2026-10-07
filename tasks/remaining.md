@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 2026-10-05 for the v1.1.0 build-4 friend-testing build. Original phase checklists are acceptance criteria,
+Updated 2026-10-07 for the v1.1.0 build-7 friend-testing build. Original phase checklists are acceptance criteria,
 not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.md) for implemented scope.
 
 ## Implemented in this release
@@ -22,6 +22,12 @@ not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.
 - Build 4 guards against immediate PTT cancellation from unobserved keyboard-state readings and
   preserves next-press recovery after release/Stop. See [startup recovery](ptt-startup-recovery.md) for
   native notification tests and the still-pending physical cross-app acceptance check.
+
+- Build 7 adds brief random phone/laptop/dance idle animations; see [companion idle verification](companion-idle-animation.md).
+- Build 6 fixes VS Code/vscode app aliases and keeps Insiders separate; see [app lookup verification](app-name-resolution.md).
+- Build 5 adds in-panel task conversations, follow-up plan context, separate drafts and live execution
+  flows in active/saved tasks. See [the task-panel report](task-panel-flow.md). The Phase 20 floating
+  task panel and unattended/recurring execution remain pending.
 
 ## Before broader distribution
 

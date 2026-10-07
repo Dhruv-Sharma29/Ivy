@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Local v1.1.0 build 7 adds matching phone, laptop and dance idle sprites with randomly timed,
+  brief activities and quiet pauses. Real activity, dragging, hiding and Reduce Motion take
+  priority; returning to idle restarts the quiet interval. Idle props do not access any device or tool.
+
+- Local v1.1.0 build 6: `open_app` resolves VS Code/vscode aliases to Visual Studio Code and handles
+  `.app` suffixes case-insensitively. Insiders resolves separately; exact installed names take
+  priority. Missing-app feedback explains extracted app placement without claiming a download
+  or installation status that the lookup cannot determine.
+
+- Local v1.1.0 build 5: Tasks now has its own goal composer and conversation. New task, starters and
+  main-window `/agent` requests stay here. Plans and saved reports show connected execution flows
+  with numbered steps, textual live status, dependencies and expandable redacted arguments/output.
+  Follow-ups propose a new plan using bounded earlier goal/result/output context; saved parent links
+  restore recent threads. Tasks-origin reports no longer append to an unrelated Chat conversation.
+  Old task JSON remains compatible. Plan approval and per-action safety gates remain explicit.
+
 - Local v1.1.0 build 4 fixes premature PTT release inference: unobserved keyboard state stays unknown
   until a key/modifier hold is verified. Carbon release remains authoritative, physical release recovery
   unlocks the next press, and later press notifications remain deliverable after Stop. Native notification

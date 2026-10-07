@@ -1,5 +1,9 @@
 # Push-to-talk startup recovery — 2026-10-05
 
+Build 4 is now preserved in `dist/Previous-Builds/Before-Task-Panel-Build5-2026-10-07-ziOkxd/`.
+The current artifacts are build 7; see [idle companion verification](companion-idle-animation.md).
+The results and checksums below describe the original build 4 verification.
+
 ## Report and reproduced failure path
 
 The user reported that PTT starts and then quits. It remains unconfirmed whether only Listening stops
@@ -42,7 +46,7 @@ This proves a cancellation path in the code, not its frequency on the user's key
 
 ## Package verification
 
-- Current artifacts: `dist/Ivy.app` and `dist/Ivy-1.1.0.dmg`, 1.1.0/build 4, arm64,
+- Artifacts at verification: `dist/Ivy.app` and `dist/Ivy-1.1.0.dmg`, 1.1.0/build 4, arm64,
   ad-hoc signature with Hardened Runtime. Release compile: 28.79 s, no compiler warnings/errors.
 - Package credential scan found zero leaks. Deep/strict app signatures, DMG integrity and SHA-256
   sidecar pass. Read-only mount verifies metadata, matching executable and Applications link;
