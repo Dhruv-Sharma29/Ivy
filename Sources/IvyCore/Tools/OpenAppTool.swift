@@ -58,7 +58,7 @@ public final class OpenAppTool: IvyTool, Sendable {
         let validatedName = try ToolValidation.validateAppName(nameArg)
 
         guard let appURL = workspace.findApplicationURL(named: validatedName) else {
-            return ToolResult.failure("Application '\(validatedName)' not found. Make sure it is installed in /Applications.")
+            return ToolResult.failure("Application '\(validatedName)' not found in the searched application folders. Check its installed name and move the extracted .app to /Applications or ~/Applications; downloading an archive alone does not install it.")
         }
 
         do {

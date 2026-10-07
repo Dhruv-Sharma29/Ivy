@@ -32,18 +32,31 @@ public final class SystemWorkspace: WorkspaceProtocol, Sendable {
 
     public func findApplicationURL(named name: String) -> URL? {
         let fm = FileManager.default
-        let target = name.hasSuffix(".app") ? name : "\(name).app"
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseName = trimmed.lowercased().hasSuffix(".app") ? String(trimmed.dropLast(4)) : trimmed
+        // Exact names take precedence. Known aliases never use fuzzy/substring matching,
+        // which could launch an unrelated app (or the Insiders edition by mistake).
+        var names = [baseName]
+        let aliasKey = baseName.lowercased().filter { !$0.isWhitespace }
+        switch aliasKey {
+        case "vscode": names.append("Visual Studio Code")
+        case "vscodeinsiders", "vscode-insiders": names.append("Visual Studio Code - Insiders")
+        default: break
+        }
 
-        for dir in searchDirectories {
-            let directPath = (dir as NSString).appendingPathComponent(target)
-            if fm.fileExists(atPath: directPath) {
-                return URL(fileURLWithPath: directPath)
-            }
+        for candidate in names {
+            let target = "\(candidate).app"
+            for dir in searchDirectories {
+                let directPath = (dir as NSString).appendingPathComponent(target)
+                if fm.fileExists(atPath: directPath) {
+                    return URL(fileURLWithPath: directPath)
+                }
 
-            // Case-insensitive fallback
-            if let contents = try? fm.contentsOfDirectory(atPath: dir) {
-                for item in contents where item.localizedCaseInsensitiveCompare(target) == .orderedSame {
-                    return URL(fileURLWithPath: (dir as NSString).appendingPathComponent(item))
+                // Case-insensitive fallback
+                if let contents = try? fm.contentsOfDirectory(atPath: dir) {
+                    for item in contents where item.localizedCaseInsensitiveCompare(target) == .orderedSame {
+                        return URL(fileURLWithPath: (dir as NSString).appendingPathComponent(item))
+                    }
                 }
             }
         }

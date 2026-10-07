@@ -75,7 +75,8 @@ struct OpenAppToolTests {
         let result = try await tool.execute(arguments: ["name": "UnknownApp"])
 
         #expect(result.isError == true)
-        #expect(result.output.contains("not found"))
+        #expect(result.output.contains("Application 'UnknownApp' not found"))
+        #expect(result.output.contains("~/Applications"))
         #expect(mock.openedURLs.isEmpty)
     }
 
@@ -190,5 +191,50 @@ struct OpenAppToolTests {
     func testCustomEmptySearchDirectory() {
         let emptyWS = SystemWorkspace(searchDirectories: ["/nonexistent_test_dir_12345"])
         #expect(emptyWS.findApplicationURL(named: "Safari") == nil)
+    }
+
+    @Test("VS Code aliases resolve the installed bundle without launching it", arguments: [
+        "VS Code", "vscode", "Vs CoDe.APP", "  VS Code  ", "Visual Studio Code.app"
+    ])
+    func testVSCodeAliases(request: String) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = root.appendingPathComponent("Visual Studio Code.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let workspace = SystemWorkspace(searchDirectories: [root.path])
+        #expect(workspace.findApplicationURL(named: request)?.standardizedFileURL == app.standardizedFileURL)
+        #expect(workspace.findApplicationURL(named: "Code Studio") == nil)
+        #expect(workspace.findApplicationURL(named: "VS Code Insiders") == nil)
+    }
+
+    @Test("Insiders aliases stay separate and compare names case-insensitively", arguments: [
+        "VS Code Insiders", "vscode-insiders.app", "VSCODEINSIDERS"
+    ])
+    func testInsidersAliases(request: String) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = root.appendingPathComponent("visual studio code - insiders.APP")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let workspace = SystemWorkspace(searchDirectories: [root.path])
+        let resolved = try #require(workspace.findApplicationURL(named: request))
+        let resolvedID = try resolved.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier as? NSObject
+        let appID = try app.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier as? NSObject
+        #expect(resolvedID != nil && resolvedID == appID)
+        #expect(workspace.findApplicationURL(named: "VS Code") == nil)
+    }
+
+    @Test("Exact installed names take priority over known aliases across directories")
+    func testAliasPrecedence() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let first = root.appendingPathComponent("First")
+        let second = root.appendingPathComponent("Second")
+        let canonical = first.appendingPathComponent("Visual Studio Code.app")
+        let exact = second.appendingPathComponent("VS Code.app")
+        try FileManager.default.createDirectory(at: canonical, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: exact, withIntermediateDirectories: true)
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let workspace = SystemWorkspace(searchDirectories: [first.path, second.path])
+        #expect(workspace.findApplicationURL(named: "VS Code")?.standardizedFileURL == exact.standardizedFileURL)
+        #expect(workspace.findApplicationURL(named: "Visual Studio Code")?.standardizedFileURL == canonical.standardizedFileURL)
     }
 }
