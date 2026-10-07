@@ -27,7 +27,8 @@ struct CompanionAnimationSample: Equatable {
     let scale: Double
     var rotationDegrees: Double = 0
 
-    static func sample(mood: CompanionMood, elapsed: TimeInterval, level: Float, reduceMotion: Bool, isMoving: Bool = false) -> Self {
+    static func sample(mood: CompanionMood, elapsed: TimeInterval, level: Float, reduceMotion: Bool, isMoving: Bool = false,
+                       idleSeed: UInt64? = nil) -> Self {
         let pose = CompanionPose(mood: mood)
         guard !reduceMotion, mood.isVisible else {
             return Self(frame: pose.firstFrame, verticalOffset: 0, scale: 1)
@@ -40,6 +41,9 @@ struct CompanionAnimationSample: Equatable {
             let alternate = pose == .speaking ? (audio > 0.025 ? 1 : 0) : (step >= 0 ? 0 : 1)
             return Self(frame: base + alternate,
                         verticalOffset: -abs(step) * 4, scale: 1.025, rotationDegrees: step * 4)
+        }
+        if mood == .idle, let idleSeed, let moment = CompanionIdleMoment.sample(elapsed: time, seed: idleSeed) {
+            return moment.animation
         }
         let frame: Int
         switch pose {
@@ -82,6 +86,27 @@ enum CompanionSpriteSheet {
             return NSImage(cgImage: frame, size: NSSize(width: 96, height: 96))
         }
     }()
+
+    static let idleFrames: [NSImage] = {
+        guard let url = Bundle.module.url(forResource: "IvyCompanionIdleSprites", withExtension: "png"),
+              let image = NSImage(contentsOf: url),
+              let sheet = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return [] }
+        return (0..<12).compactMap { index in
+            let left = sheet.width * (index % 4) / 4
+            let right = sheet.width * (index % 4 + 1) / 4
+            let top = sheet.height * (index / 4) / 3
+            let bottom = sheet.height * (index / 4 + 1) / 3
+            guard let frame = sheet.cropping(to: CGRect(x: left, y: top, width: right - left, height: bottom - top)) else { return nil }
+            return NSImage(cgImage: frame, size: NSSize(width: 96, height: 96))
+        }
+    }()
+
+    static func image(for frame: Int) -> NSImage? {
+        if frames.indices.contains(frame) { return frames[frame] }
+        let idleIndex = frame - 16
+        if idleFrames.indices.contains(idleIndex) { return idleFrames[idleIndex] }
+        return nil
+    }
 }
 
 struct CompanionSpriteView: View {
@@ -92,6 +117,7 @@ struct CompanionSpriteView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // A timestamp belongs to this view's lifetime, rather than to the parent model's state.
     @State private var startedAt = Date()
+    @State private var idleSeed = UInt64.random(in: .min ... .max)
 
     private var pose: CompanionPose { CompanionPose(mood: mood) }
     private var motionReduced: Bool { reduceMotion || motionDisabled }
@@ -106,10 +132,11 @@ struct CompanionSpriteView: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: isMoving ? 0.07 : 0.12, paused: motionReduced || !mood.isVisible)) { timeline in
             let sample = CompanionAnimationSample.sample(mood: mood, elapsed: timeline.date.timeIntervalSince(startedAt),
-                                                         level: level, reduceMotion: motionReduced, isMoving: isMoving)
+                                                         level: level, reduceMotion: motionReduced, isMoving: isMoving,
+                                                         idleSeed: idleSeed)
             Group {
-                if CompanionSpriteSheet.frames.indices.contains(sample.frame) {
-                    Image(nsImage: CompanionSpriteSheet.frames[sample.frame])
+                if let frame = CompanionSpriteSheet.image(for: sample.frame) {
+                    Image(nsImage: frame)
                         .resizable().interpolation(.none).scaledToFit()
                 } else {
                     Image(nsImage: IvyLogoImage.template).resizable().scaledToFit().foregroundStyle(IvyTheme.moss)
@@ -120,10 +147,16 @@ struct CompanionSpriteView: View {
             .rotationEffect(.degrees(sample.rotationDegrees), anchor: .bottom)
             .offset(y: sample.verticalOffset)
         }
-        .onAppear { startedAt = Date() }
-        .onChange(of: pose) { startedAt = Date() }
-        .onChange(of: mood.isVisible) { startedAt = Date() }
-        .onChange(of: isMoving) { startedAt = Date() }
+        .onAppear { resetClock() }
+        .onChange(of: pose) { resetClock() }
+        .onChange(of: mood.isVisible) { resetClock() }
+        .onChange(of: isMoving) { resetClock() }
+        .onChange(of: motionReduced) { resetClock() }
         .accessibilityHidden(true)
+    }
+
+    private func resetClock() {
+        startedAt = Date()
+        if mood == .idle, !isMoving { idleSeed = UInt64.random(in: .min ... .max) }
     }
 }

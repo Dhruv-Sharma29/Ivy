@@ -2,6 +2,10 @@
 
 > **Desktop shell revision — 2026-10-02:** The user's request supersedes the original menu-bar-first activation design below. Ivy now uses a native SwiftUI main Window, opens at launch and stays in the Dock after closing it. The menu bar is a shortcut menu. Settings uses searchable sidebar navigation. Legacy implementation status below is retained as history; the current UI contract is in SPEC.md §5. Native render checks and composer regressions live in `Tests/IvyUITests`.
 
+> **Idle companion update — 2026-10-07:** Matching phone, laptop and dancing sprites add brief,
+> randomly timed idle moments. Real activity and dragging interrupt immediately; Reduce Motion
+> remains static. No tools or microphone access are implied by the decorative poses.
+
 # Phase 17 — Ivy UI/UX 2.0: a real Ivy app
 
 ## Goal
