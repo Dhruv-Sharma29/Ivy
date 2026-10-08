@@ -183,6 +183,7 @@ struct IvyBrainTests {
         #expect(brain.messages[0].text == "Open Safari please")
         #expect(brain.messages[1].role == .model)
         #expect(brain.messages[1].text == "Safari is open. What now?")
+        #expect(dispatcher.activity.records.first?.requestMessageID == brain.messages[0].id)
         #expect(brain.isThinking == false)
         #expect(brain.errorMessage == nil)
     }
@@ -944,5 +945,4 @@ struct IvyBrainTests {
         #expect(brain.messages[1].text == "Both operations completed.")
     }
 }
-
 

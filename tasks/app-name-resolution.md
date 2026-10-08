@@ -1,7 +1,10 @@
 # Installed app name resolution — 2026-10-07
 
-The current artifacts are build 7, which retain this fix and add
-[idle companion animations](companion-idle-animation.md). The verification below describes build 6.
+The current artifacts are build 17, which retain this fix, phone/laptop
+[idle companion animations](companion-idle-animation.md) and [chat ordering](chat-feed-ordering.md).
+[Dancing has been removed](companion-dance-removal.md).
+[Blushing/clasped hands](companion-blush-animation.md) is an additional idle moment.
+The verification below describes build 6.
 
 ## Report and cause
 
@@ -60,3 +63,14 @@ Quit the older Ivy copy and replace it with the app from the updated DMG. About 
 retrying creates a new result rather than rewriting its history.
 
 No installed Ivy copy, macOS permissions, user data or GitHub release was modified.
+
+## Follow-up verification after installing build 7
+
+The user quoted another missing-app reply. Its exact text and failed `open_app(name: VS Code)`
+records were found in saved voice history from 2026-10-07 at 18:56 (Asia/Calcutta), before the
+build-7 installation. The running `/Applications/Ivy.app` was verified as build 7 with the same
+executable as `dist/Ivy.app`. A separate read-only lookup again found the installed bundle.
+An explicit launch probe using the production `SystemWorkspace` resolver and launcher then
+opened `/Applications/Visual Studio Code.app` successfully. This verifies native resolution and
+launch, not a fresh Gemini voice turn; old failed history remains unchanged. No additional code
+change or package rebuild was needed for this follow-up.

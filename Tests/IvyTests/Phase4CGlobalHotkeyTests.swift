@@ -957,8 +957,8 @@ struct Phase4CGlobalHotkeyTests {
     // MARK: - 6. Speaking State & Interruption Invariance
     // =========================================================================
 
-    @Test("31. Pressing push-to-talk key while speaking does NOT accidentally trigger arbitrary interruption")
-    func testSpeakingStatePressDoesNotTriggerInterruption() async throws {
+    @Test("31. A fresh push-to-talk key press explicitly interrupts speaking")
+    func testSpeakingStatePressInterruptsForNewRequest() async throws {
         let mockSession = MockGeminiLiveSession()
         let mockCapture = MockAudioCapture(isPermissionGranted: true)
         let mockPlayer = MockLiveAudioPlayer(autoDrain: false)
@@ -968,6 +968,7 @@ struct Phase4CGlobalHotkeyTests {
             session: mockSession,
             audioCapture: mockCapture,
             audioPlayer: mockPlayer,
+            wakeWordDetector: MockWakeWordDetector(),
             hotkeyManager: mockHotkey
         )
 
@@ -981,14 +982,21 @@ struct Phase4CGlobalHotkeyTests {
         }
         #expect(coordinator.state == .speaking)
 
-        // Hotkey down does NOT interrupt
+        // A new hold interrupts the reply and opens a fresh recording.
         mockHotkey.simulateKeyDown()
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(coordinator.state == .speaking)
-        #expect(!mockPlayer.isStopped)
+        for _ in 0..<50 {
+            if coordinator.state == .listening && coordinator.isPushToTalkActive { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .listening && coordinator.isPushToTalkActive)
+        #expect(mockPlayer.isStopped && mockCapture.isCapturing)
 
         mockHotkey.simulateKeyUp()
-        #expect(coordinator.state == .speaking)
+        for _ in 0..<50 {
+            if coordinator.state == .idle { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(coordinator.state == .idle && !mockCapture.isCapturing)
 
         await coordinator.shutdown()
     }

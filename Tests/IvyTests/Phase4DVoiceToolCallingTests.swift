@@ -796,9 +796,9 @@ struct Phase4DVoiceToolCallingTests {
     // MARK: - 7. Push-to-Talk (PTT) Integration
     // =========================================================================
 
-    @Test("22. Push-to-talk hotkey press while in .toolConfirmation does not restart session")
-    func testPushToTalkDuringToolConfirmationDoesNotRestart() async throws {
-        let (coordinator, session, _, _, _, hotkey, _, _, _, _, _) = createTestCoordinator()
+    @Test("22. A fresh push-to-talk hold cancels pending confirmation and records a new request")
+    func testPushToTalkDuringToolConfirmationCancelsApproval() async throws {
+        let (coordinator, session, capture, _, _, hotkey, _, shell, _, _, _) = createTestCoordinator()
 
         try coordinator.registerHotkey()
         await coordinator.startSession()
@@ -813,18 +813,17 @@ struct Phase4DVoiceToolCallingTests {
 
         // Hotkey down
         hotkey.simulateKeyDown()
-        try await Task.sleep(nanoseconds: 20_000_000)
-
-        // Session must remain intact and state must remain .toolConfirmation
-        #expect(coordinator.state == .toolConfirmation)
+        #expect(await waitForCondition { coordinator.state == .listening && coordinator.isPushToTalkActive })
+        #expect(coordinator.pendingConfirmation == nil)
         #expect(session.isConnected)
+        #expect(capture.isCapturing)
+        coordinator.respondToPendingConfirmation(approved: true) // withdrawn approval cannot execute
 
         // Hotkey up
         hotkey.simulateKeyUp()
-        try await Task.sleep(nanoseconds: 20_000_000)
-
-        #expect(coordinator.state == .toolConfirmation)
-        #expect(session.isConnected)
+        #expect(await waitForCondition { coordinator.state == .idle })
+        #expect(!session.isConnected && !capture.isCapturing)
+        #expect(shell.recordedCommands.isEmpty)
 
         // Clean up
         coordinator.respondToPendingConfirmation(id: coordinator.pendingConfirmation?.id, approved: false)

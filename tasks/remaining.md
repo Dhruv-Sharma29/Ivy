@@ -1,10 +1,45 @@
 # Remaining work
 
-Updated 2026-10-07 for the v1.1.0 build-7 friend-testing build. Original phase checklists are acceptance criteria,
+Updated 2026-10-08 for the v1.1.0 build-20 friend-testing build. Original phase checklists are acceptance criteria,
 not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.md) for implemented scope.
 
 ## Implemented in this release
 
+- Build 20 makes the companion the default launch surface without a Dock/Command-Tab entry.
+  The workspace opens on demand. See [verification](companion-first-launch.md).
+
+- Build 19 removes the sidebar background icon while retaining menu actions and close-to-background.
+  See [verification](sidebar-background-button-removal.md).
+
+- Build 18 refreshes Personality and Answer length in Personalization with explanatory choice cards.
+  See [previews and verification](personality-settings-refresh.md).
+
+- Build 17 bounds voice reply inactivity and recognition failure, preserving approvals and real tool
+  execution without replaying commands. See [voice recovery verification](voice-reply-recovery.md).
+
+- Build 16 adds detailed workspace approval review with scrollable action details and pinned decisions,
+  preserving the compact companion card. See [verification](app-approval-details.md).
+
+- Build 15 refines companion reason, decision buttons, speech captions and status typography with
+  readable surfaces. See [companion text verification](companion-text-refresh.md).
+
+- Build 14 refreshes the three Live voice preferences with explanatory option cards and keyboard/
+  accessibility support. See [voice settings verification](voice-settings-refresh.md).
+
+- Build 13 fixes task draft creation while voice/chat or another task is active, retaining submission
+  and approval guards. See [drafting verification](new-task-drafting.md).
+
+- Build 12 adds explicit background workspace controls and companion approval handoff while resident
+  work continues. See [background verification](background-companion.md). Full login/notch/recurring agent
+  execution remain separate planned work.
+
+- Build 11 adds shortcut interruption and release-to-submit for a replacement question;
+  see [PTT interruption verification](ptt-interrupt-reply.md). Physical cross-app audio checks remain pending.
+
+- Build 10 adds a gentle blushing/clasped-hands idle moment; see [blush verification](companion-blush-animation.md).
+- Build 9 removes companion dancing; phone/laptop idle moments remain. See [removal verification](companion-dance-removal.md).
+- Build 8 fixes request/card ordering, including late voice transcription and stable status updates;
+  see [chat ordering verification](chat-feed-ordering.md).
 - Chat tool cards, diff-to-composer drafts, Command Bar front-window attachment and screen-edge annotation arrows.
 - One-time pre-load rollback backup, v1.1.0 build 1 metadata, changelog and packaging that keeps old DMGs.
 - Push-to-talk capture release during replies/approval, with output-only reply playback.
@@ -23,7 +58,8 @@ not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.
   preserves next-press recovery after release/Stop. See [startup recovery](ptt-startup-recovery.md) for
   native notification tests and the still-pending physical cross-app acceptance check.
 
-- Build 7 adds brief random phone/laptop/dance idle animations; see [companion idle verification](companion-idle-animation.md).
+- Build 7 introduced brief random idle animations; build 9 retains phone/laptop and removes dancing.
+  See [companion idle verification](companion-idle-animation.md).
 - Build 6 fixes VS Code/vscode app aliases and keeps Insiders separate; see [app lookup verification](app-name-resolution.md).
 - Build 5 adds in-panel task conversations, follow-up plan context, separate drafts and live execution
   flows in active/saved tasks. See [the task-panel report](task-panel-flow.md). The Phase 20 floating

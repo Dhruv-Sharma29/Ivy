@@ -1,8 +1,53 @@
 # Implementation Plan: Ivy macOS Assistant
 
-> Companion update (2026-10-07): Brief random phone/laptop/dance idle moments use matching sprite
+> Companion launch (2026-10-08, build 20): Launch/reopen shows only the companion, with no Dock icon.
+> Menu/companion actions open the full workspace on demand; first-run onboarding remains available.
+> See [verification](companion-first-launch.md).
+
+> Sidebar update (2026-10-08, build 19): Removed the background icon above Settings.
+> Menu actions and closing the workspace retain background behavior.
+> See [verification](sidebar-background-button-removal.md).
+
+> Settings update (2026-10-08, build 18): Personality and profile answer length now use the same
+> explanatory choice cards as Voice settings, preserving saved values and adaptive keyboard controls.
+> See [verification](personality-settings-refresh.md).
+
+> Voice recovery update (2026-10-08, build 17): Missing recognition and stalled model replies now
+> close cleanly with a retry notice. Response deadlines renew on progress and exclude approval review,
+> tool execution and completed reply playback. See [verification](voice-reply-recovery.md).
+
+> App approval update (2026-10-08, build 16): The workspace shows the explanation and original
+> action details in a scrollable review sheet with pinned Cancel / Do it controls. Companion layout
+> stays unchanged. See [verification](app-approval-details.md).
+
+> Companion text update (2026-10-08, build 15): Compact approval reasons and equal-sized decisions,
+> larger left-aligned captions and clearer status type use adaptive opaque bubble surfaces. Existing
+> confirmation and drag routing are retained. See [verification](companion-text-refresh.md).
+
+> Voice UI update (2026-10-08, build 14): Pause tolerance, answer length and speaking pace now use
+> explanatory choice cards with selected checkmarks, equal columns and narrow-window stacking.
+> Saved values and voice behavior remain intact. See [verification](voice-settings-refresh.md).
+
+> Task update (2026-10-08, build 13): New task and starter cards can prepare a goal while Ivy is busy.
+> Existing work continues; sending waits until the active request ends. No concurrent execution or
+> approval inheritance is added. See [verification](new-task-drafting.md).
+
+> Background update (2026-10-08, build 12): Work in Background or closing the workspace leaves voice,
+> chat and approved tasks running with companion progress/approval. The same pending approval hands
+> off without an implicit Cancel; suggestions stay background until explicitly opening Ivy.
+> See [verification](background-companion.md). This is resident-app behavior, not execution after Quit.
+
+> Voice update (2026-10-08, build 11): A new PTT hold interrupts an old reply or pending approval
+> and records a replacement question. Release submits once; Stop cancels an in-flight restart.
+> See [PTT interruption verification](ptt-interrupt-reply.md).
+
+> Chat update (2026-10-07): Tool/script cards stay under their triggering typed or voice question.
+> Late voice chunks merge into the same request; display records remain session-only.
+> See [chat ordering verification](chat-feed-ordering.md).
+
+> Companion update (2026-10-07, build 10): Brief random phone/laptop/blushing idle moments use matching sprite
 > frames. Real activity interrupts immediately and Reduce Motion stays static.
-> See [idle animation verification](companion-idle-animation.md).
+> Dancing remains removed; see [blush verification](companion-blush-animation.md) and [removal verification](companion-dance-removal.md).
 
 > UI update (2026-10-07): Tasks owns its composer, goal/plan/result thread and follow-up drafts.
 > Active and saved plans render connected execution flows. Approval remains explicit.

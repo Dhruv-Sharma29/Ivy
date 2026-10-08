@@ -1,5 +1,11 @@
 # Phase 20 — Assistant Workspace
 
+> **2026-10-08, build 12:** Existing voice/chat/approved Tasks can continue with the workspace hidden
+> or closed; Work in Background keeps the companion available and pending approval remains explicit.
+> See [verification](../../tasks/background-companion.md). This does not implement the new floating task
+> panel, notch overview, concurrent agents or recurring work after Quit.
+
+
 Status: **fourteen active workstreams remain open; 20.12 is cancelled**.
 Existing UI foundations are implemented; the full workspace additions below are planned.
 Expanded 2026-10-04; revised 2026-10-05 at the user's request. The floating Pointer feature and

@@ -4,19 +4,50 @@ Ivy combines text chat, live voice, screen help and local Mac tools in a native 
 
 ## Current status
 
-The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 7)**, with an updated app and DMG in `dist/`.
+The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 20)**, with an updated app and DMG in `dist/`.
+
+**Companion-first launch (build 20):** Opening Ivy starts only its on-screen companion and menu-bar icon. Choose **Open Ivy** from the menu bar or click the companion to open the workspace; it stays out of the Dock. Closing the workspace keeps voice and approved work running. First-run setup can open onboarding. See [verification and testing](tasks/companion-first-launch.md).
+
+**Personalization settings (build 18):** Personality and Answer length now use the same explanatory option cards as Voice settings, with a selected checkmark, subtle outline and narrow-window stacking. Existing preferences are retained. See [previews and verification](tasks/personality-settings-refresh.md).
+
+**Voice reply recovery (build 17):** A released push-to-talk request times out after 8 seconds without recognition or reply progress, with a notice to try again. Recognized requests and streaming replies recover after 15 seconds of inactivity. Approvals, actual tool execution and completed reply playback have separate lifetimes. Failed commands are never automatically repeated. See [verification](tasks/voice-reply-recovery.md).
+
+**Detailed app approvals (build 16):** The workspace shows the action explanation and selectable, scrollable details with fixed Cancel / Do it controls. The companion keeps its compact approval bubble. See [previews and verification](tasks/app-approval-details.md).
+
+**Companion text refresh (build 15):** Smaller approval bubbles have a clear reason and equal-width Cancel / Do it controls. Speech captions use larger, left-aligned text; adaptive opaque bubbles prevent desktop colours from washing it out. See [previews and verification](tasks/companion-text-refresh.md).
+
+**Voice settings refresh (build 14):** Pause tolerance, answer length and speaking pace use rounded option cards with short explanations, a checkmark and a restrained selection outline. Cards adapt to narrow windows and support keyboard selection. See [previews and verification](tasks/voice-settings-refresh.md).
+
+**New task fix (build 13):** You can open a new task draft or choose a starter while voice or another task is active. The current request continues; sending the next goal waits until it finishes or you stop it. See [verification](tasks/new-task-drafting.md).
+
+**Background companion (build 12):** Choose **Work in Background** from the File menu or Ivy menu-bar icon, or close the workspace with its red close button. Ivy keeps voice and approved tasks running with the companion visible. Approvals stay on the companion; suggestions won’t reopen the workspace. Click Ivy or **Open Ivy** to return. **Quit Ivy** stops the app. See [testing and verification](tasks/background-companion.md).
+
+**Voice interruption (build 11):** Hold **⌘⇧Space** while Ivy is thinking or speaking to stop that reply and ask a new question. Release to submit. A new hold also cancels a pending approval; it never approves it. See [verification and testing](tasks/ptt-interrupt-reply.md).
+
+**Blushing companion (build 10, included in build 11):** Ivy occasionally holds her hands together at her chest, blushes
+and softly blinks while idle. The eight-second animation joins the phone and laptop moments and
+stops for real activity, dragging or Reduce Motion. See [blush verification](tasks/companion-blush-animation.md).
+
+**Companion update (build 9):** The dance animation has been removed. Phone and laptop idle moments,
+ordinary breathing/blinking, and real listening/working/approval poses remain.
+See [animation removal verification](tasks/companion-dance-removal.md).
+
+**Chat ordering (build 8):** Tool and script cards appear below the question that triggered them,
+including voice requests whose transcription arrives after a tool starts. Late chunks of the same
+spoken question merge into one message. Cards remain session-only, with redacted details and stable
+identity as their status changes. See [chat ordering verification](tasks/chat-feed-ordering.md).
 
 The local package includes the initial Ivy UI refresh: shared rounded cards in Home,
 Library, Tasks and Settings, roomier navigation, and a floating quick-chat bar with draft suggestions
-and explicit Send/Open/Close controls. The DMG was rebuilt on **2026-10-07** with task conversations
-and execution flows, retaining compact companion confirmations and push-to-talk recovery.
-Quit the running Ivy and replace it with this updated app before testing; older packages remain
-in `dist/Previous-Builds/`.
+and explicit Send/Open/Close controls. The app and DMG were updated on **2026-10-08** to
+**1.1.0 (build 20)**, including companion-only launch, the sidebar background-button removal, personalization card refresh, detailed app approvals and voice reply recovery. The companion
+keeps its compact approval layout. Quit and relaunch Ivy after installing an update; closing the
+workspace only switches to background work. Older packages remain in `dist/Previous-Builds/`.
 See [the UI refresh report](tasks/ui-refresh.md) for the changes and verification limits.
-See [the latest package verification](tasks/companion-idle-animation.md) for artifact checks and rollback location.
+See [the latest package verification](tasks/companion-first-launch.md) for artifact checks and rollback location.
 
-**Idle companion animations (build 7):** Ivy occasionally checks a phone, types on a laptop or
-dances while idle. Enable the companion and its idle visibility in Settings → General, then leave
+**Idle companion animations:** Ivy occasionally checks a phone, types on a laptop or blushes with clasped hands
+while idle. Enable the companion and its idle visibility in Settings → General, then leave
 Ivy ready for 12–24 seconds. The brief animations have quiet pauses between them and stop immediately
 for voice, tasks, approvals or dragging. Reduce Motion keeps the companion still.
 
@@ -68,18 +99,21 @@ Autonomous clicking, typing, scrolling and dragging are not available in this pa
 
 ## Features
 
-- **Native workspace:** resizable main window, Dock presence, outline-leaf menu bar shortcut, Home, Library, Tasks and searchable Settings.
+- **Companion-first launch:** Ivy opens only the companion and menu-bar icon, without a Dock or Command-Tab entry. The full workspace opens on demand.
+- **Native workspace:** resizable main window, outline-leaf menu bar shortcut, Home, Library, Tasks and searchable Settings.
 - **Conversation history:** search, pinned conversations, export and an Archived section that expands when opened.
 - **Compact composer:** attachments, microphone and send controls. Return sends; Shift–Return inserts a newline at the cursor. Drafts are retained per conversation while the main view remains open.
-- **Live voice:** Gemini voice sessions, local “Hey Ivy” interruption and global push-to-talk. Hold **Command–Shift–Space** while speaking, then release; Ivy submits the captured speech and stays connected to answer. Silent presses cancel. Speech queued during microphone or connection startup is preserved.
+- **Live voice:** Gemini voice sessions, local “Hey Ivy” interruption and global push-to-talk. Hold **Command–Shift–Space** while speaking, then release; Ivy submits the captured speech and stays connected to answer. Press again during a reply to interrupt it and record a new question. Silent presses cancel. Speech queued during microphone or connection startup is preserved.
   Push-to-talk replies use output-only playback, so releasing the shortcut closes the microphone even if Ivy has already started answering or is waiting for approval. If idle “Hey Ivy” listening is enabled, that separate feature continues using the microphone.
   A physical-key check while the shortcut is held also recovers missed release events. Releasing Space
   or a required modifier stops PTT capture; Stop resets the shortcut state for the next request.
+  Missing recognition and stalled replies close with a retry notice rather than stay Thinking;
+  see [voice recovery and testing](#voice-recovery-and-testing).
 - **Tool feedback:** collapsible live tool cards with status, masked arguments and expandable output; diff **Apply…** drafts a file change for review without executing it.
 - **Screen help:** attach a screenshot, a region captured with the macOS screenshot picker, an image or a PDF. The picker is separate from the removed hover/circle Pointer feature. The screen-help shortcut can show a capture to an active Live session. Inside the floating Command Bar, **Command–Shift–S** attaches the front window for review and explicit send.
 - **Screen annotations:** Ivy can draw a temporary arrow and labelled highlight to show where a button, menu or other area is on the screen you shared.
 - **Tasks and Mac tools:** plan multi-step work inside Tasks (or use `/agent <goal>`), follow connected step flows, review results and propose follow-ups. Review the plan, approve risky steps and stop a running task. Tools cover files, applications, shell commands, AppleScript and other Mac services; developer tools use the selected workspace.
-- **Native presentation:** adaptive glass surfaces, a draggable animated companion, copy/read-aloud feedback and a compact approval sheet. Pending tool actions replace the companion's status pill with the action reason and **Do it / Cancel** controls.
+- **Native presentation:** adaptive surfaces, a draggable animated companion and copy/read-aloud feedback. App approvals show the explanation and selectable, scrollable action details with fixed **Cancel / Do it** controls. Companion approvals remain compact, showing the action reason and the same two decisions.
 - **Secure credentials:** keys saved through Settings live in macOS Keychain, outside plaintext settings and conversation history. Voice, macros, plans and external links cannot approve risky actions.
 - **Conversation links:** `ivy://new` and `ivy://conversation/<UUID>` reveal Chat. Links never send messages or run tools; active requests, approvals, tasks and voice sessions block conversation switching.
 
@@ -98,10 +132,40 @@ in the chat timeline when that action starts. Click its disclosure arrow to expa
 | Output | The result or error returned by the action | File contents, or “file not found” |
 
 Use these cards to check progress, understand a failure and see which action produced a result.
-A running card may be waiting for your approval. The small confirmation shows only the action reason and **Cancel / Do it**. Hover over the reason to see the original request. The approval sheet and companion answer the same pending request. Hovering, dragging, opening or hiding the companion never approves an action.
+A running card may be waiting for your approval. In the app, the approval sheet shows the action
+explanation and scrollable details, such as a calendar event's title, date/time and duration, or the
+requested script or command. **Cancel / Do it** stay visible while you review long details. On the
+companion, the compact card shows only the action reason and those two buttons; hover over the
+reason to see the original request. Both interfaces answer the same pending request. Hovering,
+dragging, opening or hiding the companion never approves an action.
 Expanding a card does not approve or rerun anything. Credential fields are masked and long details are
 clipped with a truncation notice. Detailed cards last for the current session/conversation; saved history
 keeps condensed tool notes rather than the raw arguments and output.
+
+### Voice recovery and testing
+
+Enable **Settings → General → Push to talk** and **Show the Ivy companion**. Open another app,
+hold **⌘⇧Space**, say **“Open Calculator”**, then release. Releasing submits the request and closes
+PTT microphone input; you do not need to hold the shortcut through Ivy's response. If you chose the
+alternative shortcut in Settings, use that instead.
+
+| Situation | What Ivy does |
+|---|---|
+| A silent press | Closes without submitting a voice turn |
+| Captured sound, but no recognized transcript, tool call or reply content | After 8 seconds of waiting, closes with “I couldn't confirm what you said. Please try again.” |
+| A recognized request or reply stops making progress | After 15 seconds of inactivity, closes with “Ivy's voice reply stalled. Please try again.” |
+| Reply content is still arriving | Renews the inactivity deadline |
+| An approval is pending or a tool is still running | Leaves that review or execution outside the reply deadline |
+| Generation is complete and audio is still playing | Lets playback finish normally |
+
+Hold the shortcut again while Ivy is thinking or speaking to interrupt and ask a different question.
+Release to submit it. After a retry notice, a fresh hold starts a new request. Ivy never automatically
+repeats a failed command: the action might already have finished before its spoken confirmation stalled.
+
+These deadlines bound recovery from missing progress; they do not guarantee an 8- or 15-second
+response time or detect every misheard question. **Live microphone and cross-app shortcut testing
+remain pending.** Offline coverage, packaging checks and manual test steps are recorded in
+[voice reply recovery](tasks/voice-reply-recovery.md).
 
 ### Annotation arrow: find something on your screen
 
@@ -136,10 +200,11 @@ The Swift package has no third-party package dependencies. Physical-device and c
 
 ## Install the current local build
 
-1. Open `dist/Ivy-1.1.0.dmg`.
-2. Drag **Ivy** onto the **Applications** shortcut.
-3. Launch Ivy from Applications.
-4. Open **Settings → API Keys** with **Command-comma** and save your Gemini key. Add ElevenLabs only if you want its Read Aloud playback.
+1. If Ivy is already running, finish active work and choose **Quit Ivy**. Closing its workspace keeps the app running in the background.
+2. Open `dist/Ivy-1.1.0.dmg`.
+3. Drag **Ivy** onto the **Applications** shortcut, replacing the older copy when updating.
+4. Launch Ivy from Applications and check **Settings → About** for **v1.1.0 (20)**.
+5. Open **Settings → API Keys** with **Command-comma** and save your Gemini key. Add ElevenLabs only if you want its Read Aloud playback. Existing saved keys are retained when updating.
 
 ### “Apple could not verify…”
 
@@ -183,7 +248,7 @@ Configure keys in Settings. For development, the launcher also forwards `GEMINI_
 
 | Shortcut | Action |
 |---|---|
-| Command–Shift–Space, held (default) | Push-to-talk; release to submit |
+| Command–Shift–Space, held (default) | Push-to-talk; hold to interrupt a reply, release to submit |
 | Control–Option–Command–Space, held | Optional PTT alternative selected in General settings |
 | Control–Option–Command–S | Screen help |
 | Control–Option–Command–K | Command bar |
@@ -225,7 +290,17 @@ git diff --check
 
 Tests use isolated fixtures for network, credentials and audio. Native interface tests render previews in `/private/tmp/ivy-ui-review`; those tests do not establish behavior on a real microphone, AirPods or another Mac.
 
-The 2026-10-05 Pointer-removal and global-shortcut build passed **1,286 core tests and 29 native interface tests** (1,315 total; combined execution 34.449 seconds). Changed executable-line coverage was **100% (28/28)**, not total project coverage. Strict debug and release builds passed without warnings; the warm build took 0.18 seconds. Signature, DMG integrity, checksum and mounted-binary comparison passed. These are existing build results, not fresh hardware verification. Real keyboard/microphone behavior in other apps, Gemini screen pointing, accessibility, performance and broader release acceptance checks remain pending. See [the verification report](tasks/pointer-removal.md).
+The **2026-10-08 build 20** passed **1,321 core tests and 43 native interface tests** (1,364 total;
+combined execution 39.618 seconds). Changed executable source lines across the local working tree
+were **98.31% covered (524/533)**; all 14 changed executable lines in the personalization panel were
+covered. These figures describe changed lines, not total project coverage. Strict debug and release
+builds passed without compiler warnings or errors; the final incremental build took 2.03 seconds.
+
+Signature, DMG integrity, checksum and mounted/installed executable comparisons passed. The installed
+app and DMG contain the same build 20 executable. Real keyboard/microphone behavior in other apps,
+Gemini screen pointing, accessibility, performance and broader release acceptance checks remain
+pending. See [the current verification report](tasks/companion-first-launch.md) and
+[remaining work](tasks/remaining.md).
 
 To package from source:
 

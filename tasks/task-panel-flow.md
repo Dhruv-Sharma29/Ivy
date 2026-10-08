@@ -1,7 +1,11 @@
 # Task conversations and execution flows — 2026-10-07
 
-The current package is build 7, which retains these changes and adds the app-name lookup fix
-and [idle companion animations](companion-idle-animation.md). The verification below describes build 5.
+The current package is build 15, which retains these changes, the app-name lookup fix, phone/laptop
+[idle companion animations](companion-idle-animation.md) and [chat ordering](chat-feed-ordering.md).
+[Dancing has been removed](companion-dance-removal.md).
+[Blushing/clasped hands](companion-blush-animation.md) is an additional idle moment.
+The verification below describes build 5.
+Build 13 also [fixes draft creation while Ivy is busy](new-task-drafting.md).
 
 ## Delivered in 1.1.0, build 5
 

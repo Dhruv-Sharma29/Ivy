@@ -10,10 +10,10 @@ struct Phase7VersionMetadataTests {
     @Test("IvyVersion constants are non-empty and well-formed")
     func versionConstants() {
         #expect(IvyVersion.marketingVersion == "1.1.0")
-        #expect(IvyVersion.buildNumber == "7")
+        #expect(IvyVersion.buildNumber == "20")
         #expect(IvyVersion.bundleIdentifier == "com.ivy.assistant")
         #expect(IvyVersion.appName == "Ivy")
-        #expect(IvyVersion.displayVersion == "v1.1.0 (7)")
+        #expect(IvyVersion.displayVersion == "v1.1.0 (20)")
         #expect(IvyVersion.userAgent.contains("Ivy/1.1.0"))
         #expect(IvyVersion.userAgent.contains("com.ivy.assistant"))
     }
@@ -30,6 +30,7 @@ struct Phase7VersionMetadataTests {
         #expect(info["CFBundleIdentifier"] as? String == IvyVersion.bundleIdentifier)
         #expect(info["CFBundleName"] as? String == IvyVersion.appName)
         #expect(info["CFBundleExecutable"] as? String == IvyVersion.appName)
+        #expect(info["LSUIElement"] as? Bool == true, "Ivy must launch without a Dock icon")
     }
 }
 

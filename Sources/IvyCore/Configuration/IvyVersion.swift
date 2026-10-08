@@ -6,7 +6,7 @@ public enum IvyVersion: Sendable {
     public static let marketingVersion = "1.1.0"
 
     /// Sequential build number.
-    public static let buildNumber = "7"
+    public static let buildNumber = "20"
 
     /// Formal macOS bundle identifier matching code signing and entitlements.
     public static let bundleIdentifier = "com.ivy.assistant"

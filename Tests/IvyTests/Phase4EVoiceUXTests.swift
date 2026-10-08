@@ -310,15 +310,17 @@ struct Phase4EVoiceUXTests {
 
     // MARK: - 8. PTT
 
-    @Test("PTT press during SPEAKING does not interrupt playback")
+    @Test("A new PTT hold during SPEAKING interrupts; silent release closes input")
     func pttDuringSpeaking() async {
         let h = makeHarness()
         await h.coordinator.startSession()
         await speak(h, Data([0x01, 0x02]))
         await h.coordinator.beginPushToTalk()
+        #expect(h.coordinator.state == .listening && h.capture.isCapturing)
+        #expect(h.player.isStopped && !h.player.isPlaying)
         await h.coordinator.endPushToTalk()
-        #expect(h.coordinator.state == .speaking)
-        #expect(!h.player.isStopped)
+        #expect(h.coordinator.state == .idle && !h.capture.isCapturing)
+        #expect(!h.session.isConnected)
         await h.coordinator.stopSession()
     }
 

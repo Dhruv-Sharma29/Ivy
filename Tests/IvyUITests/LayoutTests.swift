@@ -9,6 +9,29 @@ import os
 @MainActor
 @Suite("Native interface layouts", .serialized)
 struct LayoutTests {
+    @Test("late voice tool cards render below their triggering question in light and dark chat")
+    func lateVoiceToolOrdering() async throws {
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-feed-order-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let request = ChatMessage(role: .user, text: "Open DBS MS folder", timestamp: Date(timeIntervalSince1970: 5))
+        let reply = ChatMessage(role: .model, text: "I couldn't find that folder. Please check its location.", timestamp: Date(timeIntervalSince1970: 6))
+        let activity = ToolActivity()
+        let id = activity.begin(FunctionCall(name: "finder", args: ["action": "open", "path": "~/Documents/DBS MS"]),
+            now: Date(timeIntervalSince1970: 1), requestMessageID: request.id)
+        activity.complete(id, response: FunctionResponse(name: "finder", response: ["success": false, "error": "Folder not found."]))
+        let voice = VoicePlaybackManager(synthesizer: MockSpeechSynthesizer(), player: MockAudioPlayer())
+        #expect(ChatFeedTimeline.items(messages: [request, reply], records: activity.records).map(\.id) ==
+            ["message-\(request.id)", "tool-\(id)", "message-\(reply.id)"])
+        for scheme in [ColorScheme.light, .dark] {
+            try await snapshot(ScrollView {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    ChatFeedView(messages: [request, reply], activity: activity, voice: voice, onApplyDiff: nil)
+                }.padding(24)
+            }.environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas), scheme: scheme,
+                size: NSSize(width: 720, height: 430), url: directory.appendingPathComponent("chat-order-\(scheme).png"))
+        }
+    }
+
     @Test("Task conversation stays in Tasks and real step flows render at narrow/wide widths")
     func taskConversationsAndFlows() async throws {
         let directory = URL(fileURLWithPath: "/private/tmp/ivy-task-ui-review")
@@ -39,9 +62,14 @@ struct LayoutTests {
         #expect(session.draft == "Review my folder" && environment.tasks.run == nil && selections.count == 1)
         actions.newTask()
         var blocked = actions; blocked = TasksWorkspaceView(tasks: environment.tasks, session: session, blocked: true)
-        blocked.draft("Must not overwrite"); blocked.newTask()
-        #expect(session.draft == "Review my folder")
+        blocked.draft("Prepare the next task"); blocked.newTask()
+        #expect(session.draft == "Prepare the next task" && session.isNewTask)
+        blocked.send()
+        for _ in 0..<10 { await Task.yield() }
+        #expect(environment.tasks.run == nil, "Drafting while busy must not plan or execute")
         var chatNavigations = 0, taskNavigations = 0
+        await environment.liveCoordinator.beginPushToTalk()
+        #expect(environment.liveCoordinator.state.isLive)
         let pane = ChatPaneView(brain: environment.brain, voiceManager: environment.voiceManager,
             liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
             attachments: environment.attachments, tasks: environment.tasks, destination: .tasks,
@@ -50,6 +78,8 @@ struct LayoutTests {
         try await snapshot(pane.environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas), scheme: .dark,
             size: NSSize(width: 760, height: 800), url: directory.appendingPathComponent("task-new-dark.png"))
         #expect(taskNavigations == 1 && chatNavigations == 0 && environment.brain.messages.isEmpty)
+        #expect(environment.liveCoordinator.isPushToTalkActive, "Opening a task draft cannot interrupt voice")
+        await environment.liveCoordinator.stopSession()
         session.draft = "Review this project"
         actions.send()
         for _ in 0..<1000 where environment.tasks.run?.phase != .awaitingApproval { await Task.yield() }
@@ -164,34 +194,36 @@ struct LayoutTests {
         environment.brain.load(conversation)
         let app = IvyApp(environment: environment)
         _ = app.body
-        #expect(NSApplication.shared.activationPolicy() == .regular)
+        #expect(NSApplication.shared.activationPolicy() == .accessory)
         #expect(MainWindowController.shared != nil)
+        IvyAppDelegate().applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        #expect(MainWindowController.shared?.isWorkingInBackground == true)
         var opened = 0
         MainWindowController.shared?.openWindow = { opened += 1 }
-        #expect(IvyAppDelegate().applicationShouldHandleReopen(NSApplication.shared, hasVisibleWindows: false))
-        #expect(opened == 1)
+        #expect(!IvyAppDelegate().applicationShouldHandleReopen(NSApplication.shared, hasVisibleWindows: false))
+        #expect(opened == 0 && MainWindowController.shared?.isWorkingInBackground == true)
         MainWindowController.shared?.show()
-        #expect(opened == 2)
+        #expect(opened == 1)
         environment.proactive.pendingPrompt = "Fixture suggestion"
         try await Task.sleep(for: .milliseconds(30))
-        #expect(opened == 3)
+        #expect(opened == 2)
         environment.proactive.pendingPrompt = nil
         let delegate = IvyAppDelegate()
         let savedLink = try #require(URL(string: "ivy://conversation/\(conversation.id)"))
         delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://run_shell/rm")), savedLink])
-        #expect(opened == 4 && environment.router.selectedConversationID == conversation.id)
+        #expect(opened == 3 && environment.router.selectedConversationID == conversation.id)
         delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://new")), savedLink])
-        #expect(opened == 5 && environment.brain.messages.isEmpty)
+        #expect(opened == 4 && environment.brain.messages.isEmpty)
         #expect(environment.brain.conversationID != conversation.id, "only the first recognized URL in a batch is handled")
         delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://new?prompt=run"))])
-        #expect(opened == 5, "unexpected parameters cannot act or navigate")
+        #expect(opened == 4, "unexpected parameters cannot act or navigate")
         delegate.application(NSApplication.shared, open: [try #require(URL(string: "ivy://conversation/\(UUID())"))])
-        #expect(opened == 6 && environment.router.navigationError != nil)
-        try await snapshot(IvyWindowRoot(environment: environment), scheme: .dark,
+        #expect(opened == 5 && environment.router.navigationError != nil)
+        try await snapshot(IvyWindowRoot(environment: environment, windowController: try #require(MainWindowController.shared)), scheme: .dark,
             size: NSSize(width: 1080, height: 760), url: directory.appendingPathComponent("missing-conversation-link.png"))
         MainWindowController.shared?.openWindow = { opened += 1 }
         delegate.application(NSApplication.shared, open: [savedLink])
-        #expect(opened == 7 && environment.brain.conversationID == conversation.id)
+        #expect(opened == 6 && environment.brain.conversationID == conversation.id)
         #expect(environment.router.navigationError == nil)
         for scheme in [ColorScheme.light, .dark] {
             let name = scheme == .light ? "light" : "dark"
@@ -226,7 +258,7 @@ struct LayoutTests {
                     url: directory.appendingPathComponent("archive-\(expanded ? "expanded" : "collapsed")-\(name).png"))
             }
             for width in [CGFloat(560), 1080] {
-                let view = IvyWindowRoot(environment: environment)
+                let view = IvyWindowRoot(environment: environment, windowController: try #require(MainWindowController.shared))
                 try await snapshot(view, scheme: scheme, size: NSSize(width: width, height: 760),
                                    url: directory.appendingPathComponent("chat-\(name)-\(Int(width)).png"))
             }
@@ -293,7 +325,7 @@ struct LayoutTests {
             }
             let voice = VoiceSettingsSection(settings: environment.settings, wakeWord: environment.wakeWord, onPreviewVoice: {})
             try await snapshot(voice.padding(20).background(IvyTheme.canvas).tint(IvyTheme.leaf), scheme: scheme,
-                               size: NSSize(width: 600, height: 1120), url: directory.appendingPathComponent("voice-full-\(name).png"))
+                               size: NSSize(width: 600, height: 1380), url: directory.appendingPathComponent("voice-full-\(name).png"))
             environment.brain.startNewConversation()
             let empty = ChatPaneView(brain: environment.brain, voiceManager: environment.voiceManager,
                                      liveVoiceCoordinator: environment.liveCoordinator, proactive: environment.proactive,
@@ -310,7 +342,7 @@ struct LayoutTests {
         }
         await environment.liveCoordinator.startSession()
         #expect(environment.liveCoordinator.state.isLive)
-        try await snapshot(IvyWindowRoot(environment: environment), scheme: .dark,
+        try await snapshot(IvyWindowRoot(environment: environment, windowController: try #require(MainWindowController.shared)), scheme: .dark,
                            size: NSSize(width: 1080, height: 760), url: directory.appendingPathComponent("active-voice-chat.png"))
         await environment.liveCoordinator.stopSession()
         let multilineComposer = MessageInputBar(text: .constant("First line\nSecond line\nThird line"),
@@ -375,17 +407,26 @@ struct LayoutTests {
             detail: String(repeating: "-- Long script fixture\n", count: 100))
         for scheme in [ColorScheme.light, .dark] {
             try await snapshot(ConfirmationSheetView(request: longRequest, onConfirm: { _ in }), scheme: scheme,
-                size: NSSize(width: 280, height: 100),
+                size: NSSize(width: 460, height: 400),
                 url: directory.appendingPathComponent("approval-long-\(scheme == .light ? "light" : "dark").png"))
-            // Replace obsolete Details fixtures with reason-only approvals, as explicitly requested.
-            // Keep long/empty payload coverage and all identity/cancellation assertions.
+            // The user requested full details in the app only. Preserve compact companion fixtures
+            // and all identity/cancellation assertions while exercising long and empty app payloads.
             try await snapshot(ConfirmationCardView(request: longRequest, compact: true, onConfirm: { _ in }),
                 scheme: scheme, size: NSSize(width: 240, height: 96),
                 url: directory.appendingPathComponent("approval-reason-long-\(scheme).png"))
             try await snapshot(ConfirmationSheetView(request: ConfirmationRequest(
                 toolName: "open_app", title: "Open Calculator", prompt: "Open Calculator?", detail: ""),
-                onConfirm: { _ in }), scheme: scheme, size: NSSize(width: 280, height: 100),
+                onConfirm: { _ in }), scheme: scheme, size: NSSize(width: 460, height: 300),
                 url: directory.appendingPathComponent("approval-reason-empty-\(scheme).png"))
+        }
+        let calendarRequest = ConfirmationRequest(toolName: "calendar_event", title: "Create Calendar Event",
+            prompt: "Add ‘Project review’ to your calendar on 2026-10-09 at 10:00?",
+            detail: "Action: Create Calendar Event\nTitle: Project review\nDate/Time: 2026-10-09 10:00\nDuration: 1 hour")
+        for scheme in [ColorScheme.light, .dark] {
+            try await snapshot(ConfirmationSheetView(request: calendarRequest, onConfirm: { _ in
+                Issue.record("Rendering an approval must not answer it")
+            }), scheme: scheme, size: NSSize(width: 460, height: 400),
+                url: directory.appendingPathComponent("approval-calendar-\(scheme).png"))
         }
         #expect(approvalBrain.pendingConfirmation?.id == request.id, "rendering must never approve an action")
         #expect(approvalView.presentedSheet?.id == ChatSheet.approval(request, live: false).id)
@@ -406,6 +447,8 @@ struct LayoutTests {
         let directory = URL(fileURLWithPath: "/private/tmp/ivy-ui-review")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let requests = [
+            ConfirmationRequest(toolName: "calendar", title: "Create Calendar Event",
+                prompt: "Create the reviewed event?", detail: "Calendar fixture only."),
             ConfirmationRequest(toolName: "run_applescript", title: "AppleScript Execution",
                 prompt: "Review this action before running it.",
                 detail: "tell application \"Safari\"\n    activate\n    open location \"https://www.youtube.com\"\nend tell"),
@@ -428,9 +471,9 @@ struct LayoutTests {
                     url: directory.appendingPathComponent("companion-approval-\(index)-\(scheme).png"),
                     expectsCompanionApproval: true)
                 #expect(CGRect(origin: .zero, size: size).contains(visibleBounds))
-                #expect(visibleBounds.width >= 240 && visibleBounds.height >= 190,
+                #expect(visibleBounds.width >= 228 && visibleBounds.height >= 190,
                         "placement must include the review card, not only the character")
-                #expect(visibleBounds.width <= 240 && visibleBounds.height <= 224,
+                #expect(visibleBounds.width <= 228 && visibleBounds.height <= 224,
                         "approval must replace the status pill and stay compact even for long previews")
                 #expect(responses.isEmpty, "rendering or layout cannot approve an action")
             }
@@ -537,6 +580,80 @@ struct LayoutTests {
         }
     }
 
+    @Test("Voice preference cards save selections, support bounded arrow navigation and reflow")
+    func voiceChoiceCards() async throws {
+        let store = LayoutSettingsStore()
+        let model = SettingsModel(store: store)
+        let choices = SettingsChoiceCards(title: "Answer length", detail: "How much detail to include in a reply.",
+            selection: Binding(get: { model.settings.voiceResponseLength }, set: { model.settings.voiceResponseLength = $0 }),
+            options: [(.brief, "Brief", "Just the essentials"), (.normal, "Normal", "Enough context"), (.detailed, "Detailed", "More explanation")])
+        choices.select(.detailed)
+        #expect(store.load().voiceResponseLength == .detailed)
+        #expect(choices.moveSelection(by: -1) && model.settings.voiceResponseLength == .normal)
+        #expect(choices.moveSelection(by: -1) && model.settings.voiceResponseLength == .brief)
+        #expect(choices.moveSelection(by: -1) && model.settings.voiceResponseLength == .brief)
+        #expect(choices.moveSelection(by: 1) && store.load().voiceResponseLength == .normal)
+        let restored = SettingsModel(store: store)
+        #expect(restored.settings.voiceResponseLength == .normal)
+        var value = 1
+        let empty = SettingsChoiceCards(title: "Empty fixture", detail: "", selection: Binding(get: { value }, set: { value = $0 }),
+            options: [(value: Int, title: String, detail: String)]())
+        empty.select(2)
+        #expect(!empty.moveSelection(by: 1) && value == 1)
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-voice-style-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(300), 600] {
+                try await snapshot(SettingsCard(title: "Live conversation", symbol: "waveform",
+                    subtitle: "Choose how Ivy speaks during a voice session.") {
+                        SettingsChoiceCards(title: "Pause tolerance", detail: "How long Ivy waits when you pause.",
+                            selection: .constant(VoicePatience.normal),
+                            options: [(.short, "Short", "Quick turns"), (.normal, "Normal", "Natural pauses"), (.long, "Long", "More time to think")])
+                        choices
+                        SettingsChoiceCards(title: "Speaking pace", detail: "The rhythm of Ivy’s spoken replies.",
+                            selection: .constant(VoiceSpeakingPace.normal),
+                            options: [(.slow, "Slow", "Unhurried"), (.normal, "Normal", "Natural rhythm"), (.fast, "Fast", "Quicker delivery")])
+                    }.padding(20).environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas),
+                    scheme: scheme, size: NSSize(width: width, height: width == 300 ? 1080 : 520),
+                    url: directory.appendingPathComponent("voice-cards-\(scheme)-\(Int(width)).png"),
+                    increasedContrast: width == 300)
+            }
+        }
+    }
+
+    @Test("Personalization cards preserve saved personality and answer length and render adaptively")
+    func personalizationChoiceCards() async throws {
+        let store = InMemoryPersonalizationStore()
+        let model = PersonalizationModel(store: store)
+        let panel = PersonalizationPanel(model: model)
+        for value in 0...3 {
+            panel.personalityChoices.select(value)
+            #expect(PersonalizationModel(store: store).profile.sass == value)
+        }
+        #expect(panel.personalityChoices.moveSelection(by: 1) && model.profile.sass == 3)
+        #expect(panel.personalityChoices.moveSelection(by: -1) && model.profile.sass == 2)
+        panel.personalityChoices.select(99)
+        #expect(model.profile.sass == 2)
+        panel.answerLengthChoices.select(.detailed)
+        #expect(PersonalizationModel(store: store).profile.responseLength == .detailed)
+        #expect(panel.answerLengthChoices.moveSelection(by: -1) && model.profile.responseLength == .balanced)
+        #expect(store.load().sass == 2, "answer length must not replace personality")
+        let before = model.profile
+        let directory = URL(fileURLWithPath: "/private/tmp/ivy-personality-review")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(340), 720] {
+                try await snapshot(ScrollView {
+                    panel.padding(20)
+                }.environment(\.ivyOpaqueSurfaces, true).background(IvyTheme.canvas),
+                    scheme: scheme, size: NSSize(width: width, height: 900),
+                    url: directory.appendingPathComponent("personality-\(scheme)-\(Int(width)).png"),
+                    increasedContrast: width == 340)
+                #expect(model.profile == before, "rendering preferences must not change stored values")
+            }
+        }
+    }
+
     @Test("personal assistant navigation keeps essential destinations and actions only draft prompts")
     func navigationDestinations() {
         #expect(WorkspaceDestination.railDestinations == [.home, .library, .tasks])
@@ -613,6 +730,7 @@ struct LayoutTests {
 
     @Test("random idle moments are brief, reproducible, spaced apart and safe at invalid times")
     func companionIdleSchedule() {
+        #expect(CompanionIdleActivity.allCases == [.phone, .laptop, .blush])
         var activities: Set<Int> = []
         var starts: Set<Double> = []
         for seed in UInt64(0)..<64 {
@@ -622,7 +740,10 @@ struct LayoutTests {
                     guard let sample = CompanionIdleMoment.sample(elapsed: time, seed: seed) else { return nil }
                     #expect(sample == CompanionIdleMoment.sample(elapsed: time, seed: seed))
                     #expect(sample.elapsed >= 0 && sample.elapsed < sample.activity.duration)
-                    #expect((16..<28).contains(sample.animation.frame))
+                    #expect((16..<24).contains(sample.animation.frame) || (28..<32).contains(sample.animation.frame))
+                    #expect(sample.animation.verticalOffset == (sample.activity == .blush ? -4 : 0))
+                    #expect(sample.animation.scale == (sample.activity == .blush ? 0.88 : 1))
+                    #expect(sample.animation.rotationDegrees == 0)
                     return (time, sample)
                 }
                 #expect(!samples.isEmpty)
@@ -647,15 +768,32 @@ struct LayoutTests {
     }
 
     @Test("idle activities yield immediately to real states, dragging, hiding and Reduce Motion")
-    func companionIdleInterruption() {
+    func companionIdleInterruption() throws {
         let time = 12.5 // Seed zero selects the phone at 12 seconds.
         let idle = CompanionAnimationSample.sample(mood: .idle, elapsed: time, level: 0, reduceMotion: false, idleSeed: 0)
         #expect((16..<20).contains(idle.frame))
         for activity in CompanionIdleActivity.allCases {
             let frames = Set((0..<4).map {
-                CompanionIdleMoment(activity: activity, elapsed: Double($0) * (activity == .dance ? 0.24 : 0.4)).animation.frame
+                CompanionIdleMoment(activity: activity, elapsed: Double($0) * (activity == .blush ? 0.65 : 0.4)).animation.frame
             })
             #expect(frames == Set(activity.firstFrame..<(activity.firstFrame + 4)))
+            let events = (UInt64(0)..<64).lazy.compactMap { seed -> (UInt64, Double)? in
+                (12..<35).first { CompanionIdleMoment.sample(elapsed: Double($0), seed: seed)?.activity == activity }
+                    .map { (seed, Double($0)) }
+            }
+            let candidate = events.first
+            let event = try #require(candidate)
+            let active = CompanionAnimationSample.sample(mood: .idle, elapsed: event.1, level: 0, reduceMotion: false, idleSeed: event.0)
+            #expect(frames.contains(active.frame))
+            for mood in [CompanionMood.hidden, .listening, .thinking, .speaking, .working(0.5), .needsApproval, .error("Offline")] {
+                let actual = CompanionAnimationSample.sample(mood: mood, elapsed: event.1, level: 0.5, reduceMotion: false, idleSeed: event.0)
+                let original = CompanionAnimationSample.sample(mood: mood, elapsed: event.1, level: 0.5, reduceMotion: false)
+                #expect(actual == original && actual.frame < 16)
+            }
+            let reduced = CompanionAnimationSample.sample(mood: .idle, elapsed: event.1, level: 1, reduceMotion: true, idleSeed: event.0)
+            #expect(reduced == CompanionAnimationSample(frame: 0, verticalOffset: 0, scale: 1))
+            let moving = CompanionAnimationSample.sample(mood: .idle, elapsed: event.1, level: 0, reduceMotion: false, isMoving: true, idleSeed: event.0)
+            #expect([14, 15].contains(moving.frame))
         }
         for mood in [CompanionMood.hidden, .listening, .thinking, .speaking, .working(0.5), .needsApproval, .error("Offline")] {
             let actual = CompanionAnimationSample.sample(mood: mood, elapsed: time, level: 0.5, reduceMotion: false, idleSeed: 0)
@@ -672,10 +810,12 @@ struct LayoutTests {
     func companionIdleArtwork() async throws {
         let directory = URL(fileURLWithPath: "/private/tmp/ivy-idle-review")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        #expect(CompanionSpriteSheet.idleFrames.count == 12)
-        #expect(CompanionSpriteSheet.image(for: -1) == nil && CompanionSpriteSheet.image(for: 28) == nil)
+        #expect(CompanionSpriteSheet.idleFrames.count == 8)
+        #expect(CompanionSpriteSheet.blushFrames.count == 4)
+        #expect(CompanionSpriteSheet.image(for: -1) == nil && CompanionSpriteSheet.image(for: 32) == nil)
+        for retiredFrame in 24..<28 { #expect(CompanionSpriteSheet.image(for: retiredFrame) == nil) }
         #expect(CompanionSpriteSheet.image(for: 0) === CompanionSpriteSheet.frames[0])
-        for index in 16..<28 {
+        for index in Array(16..<24) + Array(28..<32) {
             let frame = try #require(CompanionSpriteSheet.image(for: index))
             let cg = try #require(frame.cgImage(forProposedRect: nil, context: nil, hints: nil))
             let bitmap = NSBitmapImageRep(cgImage: cg)
@@ -691,10 +831,11 @@ struct LayoutTests {
                         HStack(spacing: 16) {
                             ForEach(0..<4, id: \.self) { index in
                                 let sample = CompanionIdleMoment(activity: activity,
-                                    elapsed: Double(index) * (activity == .dance ? 0.24 : 0.4)).animation
+                                    elapsed: Double(index) * (activity == .blush ? 0.65 : 0.4)).animation
                                 if let image = CompanionSpriteSheet.image(for: sample.frame) {
                                     Image(nsImage: image).resizable().interpolation(.none).scaledToFit()
                                         .frame(width: 96, height: 96)
+                                        .scaleEffect(sample.scale, anchor: .bottom)
                                         .rotationEffect(.degrees(sample.rotationDegrees), anchor: .bottom)
                                         .offset(y: sample.verticalOffset)
                                 }
@@ -778,7 +919,7 @@ struct LayoutTests {
         let fixtures = named.map { name, mood in
             let presentation = CompanionPresentation()
             presentation.mood = mood
-            presentation.caption = "The change is ready. Review it before applying."
+            presentation.caption = "The event is ready. Check the date and time before I add it to your calendar."
             return CompanionFixture(id: name, presentation: presentation)
         }
         let movingPresentation = CompanionPresentation()
@@ -953,9 +1094,9 @@ struct LayoutTests {
             #expect(window.sheets.count == 1, "only one modal approval may be presented")
             #expect(window.frame.contains(sheet.frame), "the complete approval must fit even at minimum window size")
             let content = try #require(sheet.contentView)
-            #expect(content.bounds.width >= 280 && content.bounds.height >= 100)
-            #expect(content.bounds.width <= 300 && content.bounds.height <= 120,
-                    "confirmation must stay compact even when the action preview is long")
+            #expect(content.bounds.width >= 460 && content.bounds.height >= 300)
+            #expect(content.bounds.width <= 480 && content.bounds.height <= 420,
+                    "detailed app approvals must keep the decision controls inside the minimum window")
             content.layoutSubtreeIfNeeded()
             let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
             content.cacheDisplay(in: content.bounds, to: bitmap)

@@ -98,7 +98,7 @@ Ivy/
 │   │   │   ├── MessageInputBar.swift # TextEditor / TextField + Send action
 │   │   │   └── StatusIndicatorView.swift # Idle / Thinking / Error indicator
 │   │   └── Resources/
-│   │       └── Info.plist            # LSUIElement=false (desktop app)
+│   │       └── Info.plist            # LSUIElement=true (companion/menu-bar app)
 │   │
 │   └── IvyCore/                      # Domain logic, API client, Brain state
 │       ├── Models/
@@ -280,12 +280,12 @@ public protocol GeminiClientProtocol: Sendable {
 
 - Starting a live voice session opens Chat so its conversation and replies are visible.
 - The composer is a compact glass bar with a plus attachment menu, native multiline editor, microphone and circular send action. Its placeholder, short draft text and 36-point icon controls share a vertical center line, with neutral attachment and microphone icons, indigo send emphasis, and immediate hover/press feedback. Long drafts grow and scroll with equal vertical padding. Shift–Return inserts a newline at the current selection without sending; Return sends once, respecting blocked turns. No persistent keyboard hint is shown.
-- Ivy launches into a native SwiftUI `Window("Ivy", id: "main")`, with Dock and Command-Tab presence.
-- Closing the main window leaves the app in the Dock; clicking the Dock icon or choosing Open Ivy reopens the same window.
+- Ivy launches and reopens with its on-screen companion and menu-bar icon, without a Dock icon or Command-Tab entry. The native SwiftUI `Window("Ivy", id: "main")` opens only by explicit workspace actions, companion click, screen-help capture or a recognized deep link. On macOS 15+ workspace/settings scene launch and restoration are suppressed; macOS 14 hides its automatically created workspace through the existing window registration. First-run onboarding may still open for setup.
+- Closing the main workspace window or choosing Work in Background from the File menu or menu bar leaves Ivy running with the companion visible. The action enables companion/idle visibility and clears Hide for Now. Voice, held PTT, chat and approved Tasks remain owned by the app and continue; it never approves a plan or a tool. Explicit background mode suppresses automatic workspace opening for suggestions and retains them for later. Work in Background hides only the registered workspace and retains its drafts; other app windows are independent. Closing/replacing the native workspace is observed without replacing SwiftUI’s window delegate. Open Ivy or clicking the companion restores the workspace. Quit stops Ivy and releases resources; a closed window is not Quit.
 - Initial size: 1080 × 760 points; minimum content size: 560 × 480 points. Hidden title bar and toolbar remove the large top strip, while native window controls, resizing and full-screen support remain. A labeled New chat action is below the sidebar header; New Conversation remains in the File menu; Chat Instructions stays in the Conversation menu; Settings remains in the sidebar and Command-comma.
 - `NavigationSplitView`: conversation sidebar and chat detail. The native sidebar toggle supports a compact chat layout.
-- Menu bar extra: a small shortcut menu for opening Ivy, starting a conversation, ending voice, Settings and Quit.
-- Branding uses the professional paired-leaf app icon in the Dock, sidebar, empty state and Settings. The menu bar uses the outlined native leaf symbol, matching the companion's idle status icon, and keeps it visible across activity states. Icon packaging reads the same PNG master used by the app.
+- Menu bar extra: a small shortcut menu for Open Ivy, Work in Background, starting a conversation, ending voice, Settings and Quit.
+- Branding uses the professional paired-leaf app icon in the app bundle, sidebar, empty state and Settings. The menu bar uses the outlined native leaf symbol, matching the companion's idle status icon, and keeps it visible across activity states. Icon packaging reads the same PNG master used by the app.
 - Standard File commands: New Conversation (Command-N) and Open Ivy (Command-O). Settings uses the native Settings scene (Command-comma).
 
 ### Conversation interface
@@ -294,6 +294,10 @@ public protocol GeminiClientProtocol: Sendable {
 - Library browses real saved conversations and finished task reports in adaptive cards or compact list rows. All, Conversations, Pinned, Task reports and Archived filters combine with title/preview search and newest/title sorting. All excludes archived conversations; Archived is explicit. Cards open the corresponding saved chat or task report; conversation menus pin, archive and export through existing library operations. New offers Conversation and Task. Attachments remain memory-only and are not presented as saved files.
 - Tasks has its own searchable Current and Recent tasks sidebar and an in-panel task conversation/composer.
   New task and the six starter cards draft goals here without contacting the planner or executing tools.
+  Draft creation stays available during voice, chat, attachments and active tasks; it does not interrupt
+  existing work. Only task-plan submission is blocked by an active request. During the same session's
+  in-flight planning submission, draft replacement waits until planning returns. Existing run drafts
+  and the separate new-task draft are preserved when navigating between them.
   Sending a goal proposes a plan; Run this plan remains explicit and risky steps keep their own confirmation.
   Each plan/report shows a connected vertical execution flow: numbered nodes, tool, textual live status,
   dependency labels and expandable redacted arguments/output. Arrows show sequential execution order,
@@ -309,7 +313,7 @@ public protocol GeminiClientProtocol: Sendable {
 - Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. Action buttons briefly pulse on click; Copy shows a checkmark and “Copied” for two seconds, resetting on repeated clicks. Read Aloud immediately shows cancellable “Preparing…” progress, then Stop Reading during playback. Reduce Motion suppresses movement while retaining status feedback. User messages use a subtle indigo-tinted bubble.
 - Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
-- Push-to-talk records while the shortcut is held. Releasing it stops microphone input, drains the last recorded frames and sends the Live API audio-stream-end marker. Ivy remains connected to answer, then closes after playback or a silent completed turn. Speech captured while connecting is submitted once the socket is ready. A silent press cancels; an existing hands-free session remains continuous. Repeated release never submits twice, and pressing again during the pending reply does not leave an open microphone.
+- Push-to-talk records while the shortcut is held. Releasing it stops microphone input, drains the last recorded frames and sends the Live API audio-stream-end marker. Ivy remains connected to answer, then closes after playback or a silent completed turn. Speech captured while connecting is submitted once the socket is ready. A silent press cancels; an existing hands-free session remains continuous. Repeated release never submits twice, and a new hold during thinking, speech or approval interrupts the old session and starts a fresh PTT request. The original playback stops, partial reply transcripts are retained as interrupted, pending approval is denied, and stale events from the old socket cannot reach the new request. Key repeat cannot restart a held request. Release during interruption cleanup is retained; explicit Stop/shutdown or a monitor failure cancels the restart. A silent replacement closes without a turn, and every replacement release closes microphone input.
   Release also closes capture if the server has already started its reply or requested approval, without cancelling either or submitting the same utterance again. Push-to-talk replies use an output-only audio engine so playback cannot reopen the microphone. Session teardown always releases capture-engine resources, including an engine restarted after its input stream closed. Opt-in idle wake listening remains a separate microphone user.
   While a registered PTT shortcut is held, a 50-ms release watchdog checks its actual key/modifier state
   independently of Carbon/flagsChanged callbacks. Releasing the key or a required modifier, or removing
@@ -318,11 +322,18 @@ public protocol GeminiClientProtocol: Sendable {
   failure releases voice resources but retains the hold check until release, preventing key-repeat from
   reconnecting. Stop resets the held state so a missed callback cannot block the next press. The check
   never answers an approval or cancels a reply.
+- Voice replies have a session/connection/turn-bound inactivity deadline. After PTT release, a turn
+  without recognized transcription, a tool call or reply content times out after 8 seconds with a
+  retry notice. Once progress is confirmed, 15 seconds without further reply content or completion
+  closes the stale session and releases microphone, socket and playback resources. Real reply
+  chunks renew the deadline. Empty payloads do not. Approval review, running/queued tools and local
+  playback after turn completion are excluded. Tool results start a new reply deadline; interrupted,
+  finished or replaced requests cancel old deadlines. No failed request or executed action is replayed.
 - Sending waits during a chat response, an approval, a running task, attachment processing or a live voice session. Ending an active voice session remains available.
 - Draft text is retained separately for each conversation while the main view is alive.
 - Conversation instructions use a multiline sheet and show validation failures in place.
 - Storage notices and voice failures are visible. Confirmation state is shared with the existing safety gate; the UI never auto-approves an action.
-- Chat and live voice approvals use one centered native sheet, shared with the instructions presentation so sheets never stack. The 280×100-point sheet shows only the action reason (request title) and Cancel / Do it. Hovering the reason reveals the original request without running it. Escape refuses the action, and only an explicit click or Command-Return approves it. Responses retain the request identity so an old sheet cannot answer a newer action.
+- Chat and live voice approvals use one centered native sheet, shared with the instructions presentation so sheets never stack. The app-only detailed sheet shows the action title, original explanation and selectable action details in a scrollable review area. Cancel / Do it and the approval notice stay visible in a fixed footer. It is 460×400 points with details or 460×300 without details and fits the minimum workspace window. Long payloads scroll without truncating their content. The companion retains its separate compact reason-only card. Escape refuses the action, and only an explicit click or Command-Return approves it. Responses retain the request identity so an old sheet cannot answer a newer action.
 
 ### Settings
 
@@ -333,30 +344,36 @@ public protocol GeminiClientProtocol: Sendable {
 - Related controls sit in clearly titled cards with consistent spacing, readable descriptions and native switches. Voice preferences are separated into Live Conversation, Hey Ivy and Read Aloud.
 - Personalization disclosure rows are buttons across their full width, including their text and whitespace; clicking the chevron is optional.
 - Time zone, measurement system and preferred language come from macOS. Settings shows a read-only “From macOS” summary and only asks for optional name, pronouns and profession. Chat reads regional context for each request, and Live reads it at session configuration. System context overrides legacy manual regional fields in prompts without changing saved profiles or safety-layer precedence.
-- Pickers and sliders share one label column, with aligned numeric values; segmented pickers fill the same width and use equal segment widths and a consistent 28-point height. Narrow containers stack the label above the control. Speaking preferences that require a restart say so in their group.
+- Pickers and sliders share one label column, with aligned numeric values; remaining segmented pickers fill the same width and use equal segment widths and a consistent 28-point height. Narrow containers stack the label above the control. Personality (Polite, Light, Ivy, Roast), profile answer length (Brief, Balanced, Detailed), and Live voice pause tolerance, answer length and speaking pace use explanatory single-choice cards with equal widths, a subtle selection tint, outline and checkmark. Narrow containers stack these cards; keyboard focus, arrow navigation, selected accessibility state and increased-contrast outlines remain available. Speaking preferences that require a restart say so in their group.
 - Existing secure credential storage and on-demand permission behavior remain intact.
-- The old `alwaysShowInDock` preference is decoded for compatibility; it no longer controls desktop app presence.
+- The old `alwaysShowInDock` preference is decoded for compatibility; Ivy always uses accessory activation and does not appear in the Dock.
 
 ### On-screen companion (revised 2026-10-07)
-- The optional floating companion is a transparent, chunky pixel-art Ivy with dark hair, an ivy-leaf clip and a charcoal outfit. Character artwork stays in the companion; the main workspace retains its professional design.
+- The primary floating companion appears on launch and is a transparent, chunky pixel-art Ivy with dark hair, an ivy-leaf clip and a charcoal outfit. Character artwork stays in the companion; the main workspace retains its professional design.
 - Real idle, listening, thinking, speaking, working, approval and error states choose distinct poses. Idle includes occasional blinking and a brief greeting on appearance; thinking has a skeptical side-eye, working uses a tablet, and approval folds her arms. Speaking reacts to output audio without inventing speech or progress.
 - Cached sprite frames animate at a modest update rate, with visible idle breathing, blinking and gentle sway. Dragging adds a small lift, bob and tilt; non-idle activity poses remain recognizable and speaking still follows actual audio. Reduce Motion pauses the timeline and uses a static pose even during dragging; status text, captions and real task progress remain available.
-- When shown while idle, Ivy occasionally checks a phone, types on a laptop or dances using additional
+- When shown while idle, Ivy occasionally checks a phone, types on a laptop or blushes with her hands
+  clasped together at her chest using additional
   matching pixel-art frames. A seed chosen for each idle episode gives repeatable frame sampling with
-  random activity/timing: one 5–11-second moment per 48-second window, after 12–24 seconds of quiet.
-  Phone/laptop moments are more frequent than dancing. These are decorative; status stays Ready,
+  random activity/timing: one 8–11-second moment per 48-second window, after 12–24 seconds of quiet.
+  Blushing uses a gentle four-frame blink/cheek-colour loop over eight seconds. Dancing remains removed.
+  These are decorative; status stays Ready,
   no tools or devices are accessed, and real activity/approval or dragging takes priority immediately.
   Hidden companions pause animation; Reduce Motion uses the ordinary static idle pose. Returning
-  to idle or turning motion back on starts with a quiet interval rather than resuming an interrupted dance.
+  to idle or turning motion back on starts with a quiet interval rather than resuming an interrupted activity.
 - Drag the character or status pill freely; a four-point threshold distinguishes dragging from clicking. A drag never opens the app. Dropped positions are remembered relative to their display and clamped by visible content bounds, allowing the character and status pill to reach the screen edges despite the panel's transparent margins. Bounds adapt when captions change size; a main-display fallback handles a saved display disappearing. There is no automatic corner snap. The panel is non-activating; a normal click opens Ivy and right-click provides Open Ivy, end voice, stop task and hide actions. Animation stops while hidden. All approvals remain in the existing confirmation flow.
 - A pending chat/task or Live tool approval replaces the companion's status pill below the character
-  with only its action reason and Do it / Cancel buttons in a 240×96-point bubble. The original request
+  with only its action reason and Do it / Cancel buttons in a 228×88-point bubble. The compact reason
+  uses smaller medium-weight type; both buttons have equal widths and 28-point targets with readable
+  neutral/accent text even when the panel is inactive. Approval and speech/error bubbles use opaque
+  adaptive surfaces and a subtle outline, as do status pills, so desktop colours cannot wash out their text. Speech captions
+  are left-aligned at 13 points with comfortable line spacing; status pills use 12-point type. The original request
   is available on hover, keeping long commands out of the default bubble. It mirrors the same
   identity-bound request as the main-window sheet; it never creates or approves another request.
   Showing, dragging, hiding or clicking the character does not approve. Buttons stay outside the drag
   surface, and repeated/stale responses are ignored. The panel grows while reviewing and returns to its
   normal size afterward, keeping its complete visible content inside the selected display. When the
-  companion is disabled/hidden, the existing main-window approval remains available.
+  companion is disabled/hidden, the existing main-window approval remains available. In background mode the workspace sheet is suppressed so it cannot bring back the hidden window; hiding an existing sheet hands the same pending request to the companion instead of denying it. Reopening the workspace restores its detailed review if the request is still pending.
 
 ---
 
@@ -417,7 +434,7 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 ## 9. Permissions & Entitlements (Phase 6+)
 
 ### Info.plist Keys:
-- `LSUIElement = NO`: Runs as a regular Mac app with a Dock icon and a main window.
+- `LSUIElement = YES`: Runs as a companion/menu-bar Mac app; the workspace is available on demand.
 - `NSAppleEventsUsageDescription`: "Ivy needs permission to automate macOS applications via AppleScript."
 - `NSMicrophoneUsageDescription`: "Ivy needs access to your microphone for push-to-talk voice commands."
 - `NSSpeechRecognitionUsageDescription`: "Ivy uses speech recognition to transcribe your voice."
@@ -460,8 +477,9 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 ## 12. Success Criteria for Phase 1 (Core Loop)
 - [ ] Swift Package compiles cleanly with `swift build -Xswiftc -strict-concurrency=complete`.
 - [ ] Unit tests pass via `swift test` with zero failures.
-- [ ] Ivy opens its main window at launch and remains in the Dock when that window closes.
-- [ ] The menu bar shortcut and Dock reopen the same main window.
+- [ ] Ivy launches/reopens into companion mode without a workspace, Dock icon or Command-Tab entry.
+- [ ] Work in Background and closing the workspace preserve running voice/chat/tasks and show companion progress/approval. Suggestions do not reopen it. Open Ivy/companion restores the workspace; Quit shuts down.
+- [ ] The menu bar Open Ivy action and companion open the same workspace.
 - [ ] User can enter an API key via UI or environment variable (`GEMINI_API_KEY`).
 - [ ] Sending a message sends the turn history + Ivy system prompt to `gemini-3.8-flash`.
 - [ ] Model responds in Ivy's distinctive sarcastic tone and appears in the chat scroll.
@@ -469,6 +487,10 @@ Confirmation uses a native sheet in the desktop window or an in-popover confirma
 
 ### v1.1 release integration (2026-10-03)
 - Display-only, session-scoped tool cards show redacted arguments, status and bounded output in chat;
+  cards link to their triggering user message and appear directly below it, even when a Live voice
+  transcription arrives after execution starts. Late chunks of that voice turn merge into one user
+  message with stable identity. Missing/unsaved transcripts and legacy unlinked cards retain
+  chronological placement; request links do not persist raw card payloads.
   raw tool payloads never enter persisted history or request context. Chat/tasks/Live share display events.
 - Diff Apply opens a target sheet and appends a reviewable file_op proposal to the existing composer;
   the actual write still requires SafetyGate approval and the full updated file, not a diff as content.

@@ -1,17 +1,21 @@
 > **v1.1 integration — 2026-10-03:** Session-only collapsible tool cards now show masked arguments/status/output; diff Apply drafts a reviewed file_op proposal; the Command Bar previews front-window captures via local ⌘⇧S; point_at draws a display-local screen-edge arrow. These controls retain explicit submission/action approval and memory-only screen attachments.
+>
+> **Chat ordering — 2026-10-07, build 8:** Cards link to the triggering request rather than sorting
+> ahead of late voice transcripts. Stable IDs keep expansion/status updates on the same card.
+> See [verification](../../tasks/chat-feed-ordering.md).
 
 > **Desktop shell revision — 2026-10-02:** The user's request supersedes the original menu-bar-first activation design below. Ivy now uses a native SwiftUI main Window, opens at launch and stays in the Dock after closing it. The menu bar is a shortcut menu. Settings uses searchable sidebar navigation. Legacy implementation status below is retained as history; the current UI contract is in SPEC.md §5. Native render checks and composer regressions live in `Tests/IvyUITests`.
 
-> **Idle companion update — 2026-10-07:** Matching phone, laptop and dancing sprites add brief,
+> **Idle companion update — 2026-10-07, build 10:** Matching phone, laptop and blushing/clasped-hands sprites add brief,
 > randomly timed idle moments. Real activity and dragging interrupt immediately; Reduce Motion
-> remains static. No tools or microphone access are implied by the decorative poses.
+> remains static. Dancing has been removed. No tools or microphone access are implied by the decorative poses.
 
 # Phase 17 — Ivy UI/UX 2.0: a real Ivy app
 
 ## Goal
 Current implementation (2026-10-02): native desktop navigation has Home, Chat, Tasks and Settings. Home offers six everyday assistant shortcuts; developer command/code shortcuts and redundant Files, Code, Browser, Clipboard and Tools destinations have been removed. File attachments, explicit paste and research remain available in Chat; shortcuts only draft prompts and open Chat. Native Liquid Glass now spans cards, controls, message bubbles, attachments, the command bar and companion labels on macOS 26+, grouped where appropriate. Main and Settings panes use behind-window vibrancy. Reduce Transparency/increased contrast select opaque surfaces and bordered controls; older systems use regular material. Long replies, code and text editors keep readable text treatments.
 
-The main window uses a hidden title bar and hidden toolbar to remove the large top strip. Native traffic-light controls remain; New Conversation is in the sidebar header and File menu, Settings in the sidebar, and Chat Instructions in the Conversation menu. The professional app icon is shared across in-app surfaces and the Dock, with a matching two-leaf template in the menu bar.
+The main window uses a hidden title bar and hidden toolbar to remove the large top strip. Native traffic-light controls remain; New Conversation is in the sidebar header and File menu, Settings in the sidebar, and Chat Instructions in the Conversation menu. The professional app icon is shared across in-app surfaces and the app bundle, with a matching two-leaf template in the menu bar.
 
 The pixel companion is freely draggable through a native mouse surface on its visible content. Four points of movement distinguishes a drag from a click; only a click opens Ivy. Free placement is persisted relative to the display's usable area, replacing corner snapping. Clamping uses the measured character, status and caption bounds rather than transparent panel margins, so Ivy can reach every edge; caption size changes preserve relative placement. Idle sways and blinks; dragging adds a modest bob and tilt, retaining real activity poses. Reduce Motion keeps all poses still while allowing normal user-controlled dragging.
 

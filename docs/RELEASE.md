@@ -10,7 +10,7 @@ The public-release target is a signed, notarized macOS application bundle with *
 
 - **Target OS**: macOS 14.0 (Sonoma) and later (Apple Silicon & Intel)
 - **Bundle Identifier**: `com.ivy.assistant`
-- **Application Type**: Desktop assistant (`LSUIElement = false`)
+- **Application Type**: Companion/menu-bar assistant (`LSUIElement = true`); workspace opens on demand
 - **Distribution Format**: Mountable Disk Image (`Ivy-<version>.dmg`) containing `Ivy.app` and `/Applications` symlink
 - **Security Profile**: Developer ID Application with Hardened Runtime (`--options runtime`) and Apple Notarization ticket stapled
 

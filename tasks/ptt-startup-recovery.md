@@ -1,7 +1,7 @@
 # Push-to-talk startup recovery — 2026-10-05
 
 Build 4 is now preserved in `dist/Previous-Builds/Before-Task-Panel-Build5-2026-10-07-ziOkxd/`.
-The current artifacts are build 7; see [idle companion verification](companion-idle-animation.md).
+The current artifacts are build 17; see [latest package verification](voice-reply-recovery.md).
 The results and checksums below describe the original build 4 verification.
 
 ## Report and reproduced failure path

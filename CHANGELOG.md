@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+- Local v1.1.0 build 18 replaces the Personalization personality and answer-length segments with
+  explanatory option cards, selected checkmarks and adaptive stacking. Existing profile values,
+  persistence, keyboard selection and prompt behavior are preserved. Companion UI is unchanged.
+
+- Local v1.1.0 build 17 recovers stalled voice turns: 8 seconds without confirmation of a PTT request,
+  or 15 seconds without model reply progress, closes the stale voice session with a retry notice.
+  Reply content renews the deadline. Pending approvals, running tools and completed generation
+  playback are excluded; stale deadlines are cancelled on interruption, reconnect and shutdown.
+  Executed actions are never automatically replayed.
+
+- Local v1.1.0 build 16 separates detailed workspace approvals from the compact companion card.
+  The app shows the original explanation and selectable action details in a scrollable review area,
+  with pinned Cancel / Do it controls. Long requests fit the minimum window; explicit approval,
+  cancellation and request identity guards remain intact. Companion UI is unchanged.
+
+- Local v1.1.0 build 15 refines companion text: compact 228×88-point approval bubbles, equal-width
+  28-point decision controls, readable inactive-window text, larger left-aligned speech captions and
+  clearer status type. Adaptive opaque surfaces prevent wallpaper colour washout; approval identity,
+  shortcuts and drag routing are unchanged.
+
+- Local v1.1.0 build 14 refreshes Live conversation preferences with explanatory option cards,
+  subtle selection tint, checkmarks, hover/press feedback, narrow-window stacking and arrow-key
+  navigation. Existing saved voice values and restart guidance are retained.
+
+- Local v1.1.0 build 13 fixes disabled New task buttons and starter cards while voice/chat or another
+  task is active. Preparing a draft preserves ongoing work and per-task follow-up drafts; sending
+  waits for the current request to finish. Plan and tool approvals remain explicit.
+
+- Local v1.1.0 build 12 adds Work in Background in the sidebar, File menu and menu bar. It hides
+  the workspace while app-owned voice/chat/approved tasks continue, keeps the companion visible,
+  and hands pending approval to the same companion card without answering it. Closing the workspace
+  also enters background mode; suggestions do not reopen it. Open Ivy restores it; Quit still shuts down.
+
+- Local v1.1.0 build 11 lets a new push-to-talk hold interrupt a pending or spoken reply and record
+  a replacement question. It stops the old playback, retains interrupted transcripts, cancels pending
+  approval, and isolates old socket/tool events. Release closes input and submits once; repeat,
+  quick-release, explicit Stop and physical-release recovery retain their safety behavior.
+
+- Local v1.1.0 build 10 adds a gentle blushing/clasped-hands idle animation with four original
+  matching transparent sprites and a soft blink. It joins phone/laptop moments, lasts eight seconds,
+  and yields to real activity, dragging, hiding and Reduce Motion. Dance frames remain unavailable.
+
+- Local v1.1.0 build 9 removes companion dancing at the user's request. Idle selection now chooses
+  only phone or laptop, and the retired dance frames are not cached or available to the sprite view.
+  Quiet intervals, ordinary idle motion, real activity priority and Reduce Motion remain.
+
+- Local v1.1.0 build 8 links tool/script cards to their triggering typed or voice request. Late voice
+  transcripts no longer put a card above its question; fragments of the same request merge without
+  changing its identity or initial timestamp. Missing/unsaved transcripts and legacy unlinked cards
+  retain chronological placement. Card details remain session-only and redacted.
+
 - Local v1.1.0 build 7 adds matching phone, laptop and dance idle sprites with randomly timed,
   brief activities and quiet pauses. Real activity, dragging, hiding and Reduce Motion take
   priority; returning to idle restarts the quiet interval. Idle props do not access any device or tool.
