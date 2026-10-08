@@ -42,7 +42,7 @@ struct CompanionView: View {
                     if presentation.approval == nil {
                         VStack(spacing: 4) {
                             Label(status, systemImage: symbol)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(statusColor)
                             if case .working(let progress) = mood {
                                 ProgressView(value: max(0, min(1, progress)))
@@ -50,8 +50,9 @@ struct CompanionView: View {
                                     .tint(IvyTheme.leaf).accessibilityHidden(true)
                             }
                         }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .ivyGlass(cornerRadius: 100, interactive: true)
+                          .padding(.horizontal, 12).padding(.vertical, 7)
+                          .ivyGlass(cornerRadius: 100, forceOpaque: true, interactive: true)
+                          .overlay { Capsule().strokeBorder(Color.primary.opacity(0.08)) }
                     }
                 }
                 .contentShape(Rectangle())
@@ -78,8 +79,11 @@ struct CompanionView: View {
                 ConfirmationCardView(request: approval.request, compact: true) { approved in
                     onConfirm(approval, approved)
                 }
-                .frame(width: 240, height: 96)
-                .ivyGlass(cornerRadius: IvyTheme.cardRadius)
+                .frame(width: 228, height: 88)
+                .ivyGlass(cornerRadius: 16, forceOpaque: true)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.08))
+                }
                 .id(approval.id)
                 .accessibilityIdentifier("ivy.companion.approval")
             }
@@ -97,10 +101,14 @@ struct CompanionView: View {
     }
 
     private func bubble(_ text: String, lines: Int) -> some View {
-        Text(text).font(.system(size: 12)).lineLimit(lines)
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .ivyGlass(cornerRadius: 12)
-            .frame(maxWidth: 260, alignment: .trailing)
+        Text(text).font(.system(size: 13)).foregroundStyle(.primary)
+            .multilineTextAlignment(.leading).lineSpacing(2).lineLimit(lines)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .frame(maxWidth: 260, alignment: .leading)
+            .ivyGlass(cornerRadius: 16, forceOpaque: true)
+            .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.08)) }
+            .help(text)
     }
 
     private var status: String {

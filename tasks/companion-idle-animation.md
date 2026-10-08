@@ -1,5 +1,9 @@
 # Idle companion animations — 2026-10-07
 
+Current artifacts are build 20, retaining phone/laptop animations and [chat ordering](chat-feed-ordering.md),
+and adding [blushing/clasped hands](companion-blush-animation.md).
+[Dancing has been removed](companion-dance-removal.md). The measurements below describe the original build 7 delivery.
+
 ## Delivered in 1.1.0, build 7
 
 Ivy now has three additional idle activities: checking a phone, typing on an open laptop and a

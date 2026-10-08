@@ -2,14 +2,16 @@ import Foundation
 
 /// Decorative idle moments never represent a tool, task, microphone or approval state.
 enum CompanionIdleActivity: Int, CaseIterable {
-    case phone, laptop, dance
+    case phone, laptop
+    // Keep retired dance indices 24–27 unavailable; blush has its own artwork.
+    case blush = 3
 
     var firstFrame: Int { 16 + rawValue * 4 }
     var duration: TimeInterval {
         switch self {
         case .phone: 9
         case .laptop: 11
-        case .dance: 5
+        case .blush: 8
         }
     }
 }
@@ -29,17 +31,15 @@ struct CompanionIdleMoment: Equatable {
         random ^= random >> 31
         let start = TimeInterval(12 + random % 13)
         let position = elapsed.truncatingRemainder(dividingBy: 48) - start
-        let choice = (random >> 8) % 5
-        let activity: CompanionIdleActivity = choice < 2 ? .phone : (choice < 4 ? .laptop : .dance)
+        let activity = CompanionIdleActivity.allCases[Int((random >> 8) % 3)]
         guard position >= 0, position < activity.duration else { return nil }
         return Self(activity: activity, elapsed: position)
     }
 
     var animation: CompanionAnimationSample {
-        let dancing = activity == .dance
-        let beat = sin(elapsed * .pi / 0.6)
-        let frame = activity.firstFrame + Int(elapsed / (dancing ? 0.24 : 0.4)) % 4
-        return CompanionAnimationSample(frame: frame, verticalOffset: dancing ? -abs(beat) * 3 : 0,
-                                        scale: 1, rotationDegrees: dancing ? beat * 3 : 0)
+        let frame = activity.firstFrame + Int(elapsed / (activity == .blush ? 0.65 : 0.4)) % 4
+        // Tight-cut blush artwork fits the same character height/baseline as the padded idle sheet.
+        return CompanionAnimationSample(frame: frame, verticalOffset: activity == .blush ? -4 : 0,
+                                        scale: activity == .blush ? 0.88 : 1)
     }
 }

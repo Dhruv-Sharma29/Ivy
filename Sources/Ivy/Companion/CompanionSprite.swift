@@ -91,7 +91,8 @@ enum CompanionSpriteSheet {
         guard let url = Bundle.module.url(forResource: "IvyCompanionIdleSprites", withExtension: "png"),
               let image = NSImage(contentsOf: url),
               let sheet = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return [] }
-        return (0..<12).compactMap { index in
+        // Only the phone and laptop rows are extracted; the retired third row is unused.
+        return (0..<8).compactMap { index in
             let left = sheet.width * (index % 4) / 4
             let right = sheet.width * (index % 4 + 1) / 4
             let top = sheet.height * (index / 4) / 3
@@ -101,10 +102,28 @@ enum CompanionSpriteSheet {
         }
     }()
 
+    static let blushFrames: [NSImage] = {
+        guard let url = Bundle.module.url(forResource: "IvyCompanionBlushSprites", withExtension: "png"),
+              let image = NSImage(contentsOf: url),
+              let sheet = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return [] }
+        // Source-sheet frame rectangles remove uneven transparent gutters, keeping feet aligned.
+        // Each cutout has the same dimensions; the view preserves its aspect ratio at companion size.
+        let frameBounds = [CGRect(x: 116, y: 58, width: 468, height: 547),
+                           CGRect(x: 665, y: 58, width: 468, height: 547),
+                           CGRect(x: 116, y: 656, width: 468, height: 547),
+                           CGRect(x: 665, y: 656, width: 468, height: 547)]
+        return frameBounds.compactMap { bounds in
+            guard let frame = sheet.cropping(to: bounds) else { return nil }
+            return NSImage(cgImage: frame, size: NSSize(width: CGFloat(frame.width), height: CGFloat(frame.height)))
+        }
+    }()
+
     static func image(for frame: Int) -> NSImage? {
         if frames.indices.contains(frame) { return frames[frame] }
         let idleIndex = frame - 16
         if idleFrames.indices.contains(idleIndex) { return idleFrames[idleIndex] }
+        let blushIndex = frame - 28
+        if blushFrames.indices.contains(blushIndex) { return blushFrames[blushIndex] }
         return nil
     }
 }

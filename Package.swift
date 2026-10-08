@@ -28,7 +28,7 @@ let package = Package(
                 "Resources/AppIcon.icns"
             ],
             resources: [.copy("Resources/IvyAppIcon.png"), .copy("Resources/IvyCompanionSprites.png"),
-                        .copy("Resources/IvyCompanionIdleSprites.png")],
+                        .copy("Resources/IvyCompanionIdleSprites.png"), .copy("Resources/IvyCompanionBlushSprites.png")],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ],
