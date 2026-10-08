@@ -93,6 +93,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public let hotkeyManager: GlobalHotkeyManaging?
     public let toolDispatcher: ToolDispatcher
     private let setupTimeout: Duration
+    private let recognitionTimeout: Duration
+    private let responseTimeout: Duration
+    private let voiceResponseWait: @Sendable (Duration) async throws -> Void
+    private var responseWatchdogTask: Task<Void, Never>?
+    private var responseWatchdogID: UUID?
+    /// Transcription, a tool call or reply content confirms that the server processed this turn.
+    private var hasVoiceTurnProgress = false
     /// Production key source; nil when a session was injected with its own key (tests).
     private var credentials: CredentialProvider? = nil
 
@@ -100,6 +107,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public var onTranscript: ((String, Bool, Bool) -> Void)?
     /// Receives every tool a voice session ran, with its result, so the conversation can remember it.
     public var onToolResult: ((FunctionCall, FunctionResponse) -> Void)?
+    /// Stable through one voice turn; only used to link display cards to the late user transcript.
+    public private(set) var transcriptTurnID = UUID()
     /// Invoked when a voice user issues a stop or cancel command to halt active desktop/multi-step tasks.
     public var onStopRequested: (@MainActor () -> Void)?
     private var heardText = ""
@@ -128,7 +137,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// Background tasks currently owned by a session. Must be 0 whenever the coordinator is idle (leak invariant).
     var activeTaskCount: Int {
         [captureTask, eventTask, drainTask, toolExecutionTask, setupWatchdogTask, wakeWatchdogTask, reconnectTask,
-         pushToTalkReleaseWatchdogTask]
+         pushToTalkReleaseWatchdogTask, responseWatchdogTask]
             .filter { $0 != nil }.count
     }
 
@@ -143,6 +152,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     private var pushToTalkReleasePending = false
     private var pushToTalkInputClosed = false
     private var pushToTalkPressID: UUID?
+    /// Owns an explicit interruption while the old socket/audio resources are being released.
+    private var pushToTalkRestartID: UUID?
     private var pushToTalkReleaseWatchdogTask: Task<Void, Never>?
     private let pushToTalkPoll: @Sendable () async throws -> Void
     /// Started by the idle "Hey Ivy" wake word: ends after one answered turn, or after silence.
@@ -202,6 +213,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         hotkeyManager: GlobalHotkeyManaging? = nil,
         toolDispatcher: ToolDispatcher? = nil,
         setupTimeout: Duration = .seconds(15),
+        recognitionTimeout: Duration = .seconds(8),
+        responseTimeout: Duration = .seconds(15),
+        voiceResponseWait: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        },
         wakeSilenceTimeout: Duration = .seconds(8),
         pushToTalkPoll: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(50))
@@ -218,6 +234,9 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         self.wakeWordDetector = wakeWordDetector
         self.hotkeyManager = hotkeyManager
         self.setupTimeout = setupTimeout
+        self.recognitionTimeout = recognitionTimeout
+        self.responseTimeout = responseTimeout
+        self.voiceResponseWait = voiceResponseWait
         self.wakeSilenceTimeout = wakeSilenceTimeout
         self.pushToTalkPoll = pushToTalkPoll
         self.maxReconnectAttempts = maxReconnectAttempts
@@ -326,9 +345,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     /// Begins push-to-talk listening (idempotent key-down event).
     public func beginPushToTalk() async {
-        // A released one-shot request owns the connection until its reply finishes.
-        guard !(wasSessionStartedByPushToTalk && !isPushToTalkActive && state.isLive) else { return }
-        guard !isPushToTalkActive, pushToTalkPressID == nil else {
+        guard !isPushToTalkActive, pushToTalkPressID == nil, pushToTalkRestartID == nil else {
             // Idempotent: already active, duplicate key-down ignored
             return
         }
@@ -344,12 +361,19 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             pushToTalkInputClosed = false
             pushToTalkReleasePending = false
             await startSession()
-        case .listening:
+        case .listening where !wasSessionStartedByPushToTalk:
             // Already listening (e.g. continuous hands-free session); do not restart
             wasSessionStartedByPushToTalk = false
-        case .connecting, .thinking, .speaking, .interrupting, .toolConfirmation, .toolExecution, .reconnecting:
-            // Active session or transition in progress; do not start duplicate or interrupt speaking
-            break
+        case .listening, .connecting, .thinking, .speaking, .interrupting, .toolConfirmation, .toolExecution, .reconnecting:
+            // A new hold explicitly abandons the old reply. Disconnect it so late audio/tool events
+            // cannot reach the new request, and stop its original playback engine before switching modes.
+            pushToTalkRestartID = pressID
+            await tearDown(then: .idle, preservingPushToTalkPress: true)
+            // Stop, shutdown or a monitoring failure during teardown cancels this restart.
+            guard pushToTalkRestartID == pressID else { return }
+            pushToTalkRestartID = nil
+            wasSessionStartedByPushToTalk = true
+            await startSession()
         }
     }
 
@@ -455,10 +479,11 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         isPushToTalkActive = false
         cancelPushToTalkReleaseWatchdog()
 
-        guard wasSessionStartedByPushToTalk, let token = currentSessionToken else { return }
+        guard wasSessionStartedByPushToTalk || pushToTalkRestartID != nil else { return }
         // The server may start its reply or request approval before the shortcut is released.
         // A one-shot session still releases its microphone in those states.
         pushToTalkInputClosed = true
+        guard let token = currentSessionToken else { return }
         // Capture may be returning its stream on another executor. Its startup path completes release
         // once the consumer exists, so already queued speech isn't mistaken for a silent press.
         guard captureTask != nil else { return }
@@ -514,6 +539,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     }
 
     deinit {
+        responseWatchdogTask?.cancel()
         pushToTalkReleaseWatchdogTask?.cancel()
         captureTask?.cancel()
         eventTask?.cancel()
@@ -536,6 +562,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         }
         let token = UUID()
         self.currentSessionToken = token
+        hasVoiceTurnProgress = false
         transition(to: .connecting)
         latestTranscript = ""
         latency = LiveLatencyMetrics()
@@ -683,6 +710,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         let spoken = spokenText.trimmingCharacters(in: .whitespacesAndNewlines)
         spokenText = ""
         if !spoken.isEmpty { onTranscript?(spoken, false, interrupted) }
+        transcriptTurnID = UUID()
     }
 
     private func flushHeard() {
@@ -691,12 +719,16 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         if !heard.isEmpty { onTranscript?(heard, true, false) }
     }
 
-    private func tearDown(then finalState: VoiceSessionState) async {
-        isPushToTalkActive = false
-        if case .error = finalState, pushToTalkPressID != nil, hotkeyManager?.isRegistered == true {
-            // Keep only the hold check after a failure. Key-repeat cannot reconnect before release.
-        } else {
-            cancelPushToTalkReleaseWatchdog()
+    private func tearDown(then finalState: VoiceSessionState, preservingPushToTalkPress: Bool = false) async {
+        // Key-up/watchdog remains live during an explicit interruption; quick release is remembered.
+        if !preservingPushToTalkPress {
+            isPushToTalkActive = false
+            pushToTalkRestartID = nil
+            if case .error = finalState, pushToTalkPressID != nil, hotkeyManager?.isRegistered == true {
+                // Keep only the hold check after a failure. Key-repeat cannot reconnect before release.
+            } else {
+                cancelPushToTalkReleaseWatchdog()
+            }
         }
         pushToTalkInputClosed = false
         pushToTalkReleasePending = false
@@ -704,6 +736,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         // A session that ends mid-reply still keeps what was said so far.
         flushTranscripts(interrupted: isModelTurnOpen)
         currentSessionToken = nil
+        cancelResponseWatchdog()
         captureTask?.cancel()
         eventTask?.cancel()
         drainTask?.cancel()
@@ -754,6 +787,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
         // A session started during the awaits above owns the state now.
         guard currentSessionToken == nil else { return }
+        // Stop or a release-monitor failure owns the final state after cancelling this restart.
+        guard !preservingPushToTalkPress || pushToTalkRestartID != nil else { return }
         transition(to: finalState)
         latestTranscript = ""
         wasSessionStartedByPushToTalk = false
@@ -881,6 +916,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 return
             }
             executedToolCallIds.insert(callKey)
+            hasVoiceTurnProgress = true
 
             // A call queued behind one that is still running (or awaiting its card) leaves the state alone until
             // its own turn comes, so an open approval card is never shown as "thinking".
@@ -889,12 +925,15 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 executingToolName = call.name
             }
             pendingToolCalls += 1
+            // The model deadline never limits a real tool or the user's approval review.
+            cancelResponseWatchdog()
 
             // Several calls in one turn run one after another, each with its own card. Starting a new call must
             // not cancel the previous one: that used to deny its pending card without the user ever seeing it.
             // Cancelling the newest task (interruption, reconnect, teardown) cancels everything queued before it.
             let previousTool = toolExecutionTask
             let toolEpoch = connectionEpoch
+            let requestMessageID = transcriptTurnID
             toolExecutionTask = Task { [weak self, session] in
                 await withTaskCancellationHandler {
                     await previousTool?.value
@@ -906,6 +945,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 if let id = call.id, self.cancelledToolCallIds.contains(id) {
                     // The server withdrew this call before its turn came: it is never run or shown.
                     self.pendingToolCalls = max(0, self.pendingToolCalls - 1)
+                    self.refreshResponseWatchdog()
                     return
                 }
                 self.executingToolName = call.name
@@ -918,7 +958,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                     }
                 }
 
-                let response = await self.toolDispatcher.dispatch(call)
+                let response = await self.toolDispatcher.dispatch(call, requestMessageID: requestMessageID)
                 self.onToolResult?(call, response)
 
                 guard self.currentSessionToken == token else {
@@ -929,10 +969,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 }
                 self.pendingToolCalls = max(0, self.pendingToolCalls - 1)
                 // State stays TOOL_EXECUTION until the spoken reply arrives (no THINKING flicker in between).
+                self.refreshResponseWatchdog()
 
                 do {
                     try await session.sendToolResponse(response)
+                    guard self.currentSessionToken == token, self.connectionEpoch == toolEpoch else { return }
                     self.turnReferenceAt = self.clock.now
+                    self.refreshResponseWatchdog()
                 } catch {
                     guard self.currentSessionToken == token else { return }
                     await self.handleFailure(error, token: token, epoch: toolEpoch)
@@ -940,11 +983,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             }
 
         case .audioChunk(let data):
+            guard !data.isEmpty else { return }
             if isDiscardingInterruptedTurn {
                 // Leftover audio of a turn the user interrupted with "Hey Ivy": never play it.
                 return
             }
             if await interceptCommand(token: token) { return }
+            hasVoiceTurnProgress = true
             drainTask?.cancel()
             drainTask = nil
             if !isModelTurnOpen {
@@ -959,6 +1004,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
                 executingToolName = nil
                 transition(to: .speaking)
             }
+            refreshResponseWatchdog()
 
             let epoch = playbackEpoch
             do {
@@ -982,9 +1028,17 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
         case .textTurn(let text):
             latestTranscript = text
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                hasVoiceTurnProgress = true
+                refreshResponseWatchdog()
+            }
 
         case .inputTranscript(let text):
             heardText += text
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                hasVoiceTurnProgress = true
+                refreshResponseWatchdog()
+            }
 
         case .outputTranscript(let text):
             // The rest of a reply the user cut off with "Hey Ivy" was never heard: don't record it.
@@ -994,8 +1048,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
             if spokenText.isEmpty { flushHeard() }
             spokenText += text
             caption = String(spokenText.suffix(160))
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                hasVoiceTurnProgress = true
+                refreshResponseWatchdog()
+            }
 
         case .turnComplete:
+            cancelResponseWatchdog()
             if isDiscardingInterruptedTurn {
                 // The interrupted turn is finally closed; the next audio belongs to a fresh reply.
                 isDiscardingInterruptedTurn = false
@@ -1067,6 +1126,8 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
 
     /// Ends a model turn: back to LISTENING, or closes a push-to-talk session whose key is already released.
     private func finishTurn() async {
+        cancelResponseWatchdog()
+        hasVoiceTurnProgress = false
         await wakeWordDetector.reset()
         if (wasSessionStartedByPushToTalk && !isPushToTalkActive) || wasSessionStartedByWakeWord {
             await stopSession()
@@ -1083,6 +1144,51 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         print("[VOICE] \(state.debugName) -> \(next.debugName)")
         #endif
         state = next
+        refreshResponseWatchdog()
+    }
+
+    /// Bounds server inactivity, not task duration, approval review or local audio playback.
+    private var isWaitingForVoiceReply: Bool {
+        guard pendingToolCalls == 0, !isDiscardingInterruptedTurn else { return false }
+        switch state {
+        case .thinking, .toolExecution: return true
+        case .speaking: return isModelTurnOpen
+        default: return false
+        }
+    }
+
+    private func cancelResponseWatchdog() {
+        responseWatchdogTask?.cancel()
+        responseWatchdogTask = nil
+        responseWatchdogID = nil
+    }
+
+    private func refreshResponseWatchdog() {
+        cancelResponseWatchdog()
+        guard isWaitingForVoiceReply, let token = currentSessionToken else { return }
+        let id = UUID()
+        let epoch = connectionEpoch
+        let waitingForRecognition = wasSessionStartedByPushToTalk && !hasVoiceTurnProgress
+        let timeout = waitingForRecognition ? recognitionTimeout : responseTimeout
+        responseWatchdogID = id
+        responseWatchdogTask = Task { [weak self, voiceResponseWait] in
+            do {
+                try await voiceResponseWait(timeout)
+            } catch {
+                // Progress, interruption, completion or shutdown cancels the wait normally.
+                guard !Task.isCancelled, let self, self.responseWatchdogID == id,
+                      self.currentSessionToken == token, self.connectionEpoch == epoch else { return }
+                await self.tearDown(then: .error("Couldn't monitor Ivy's voice reply: \(error.localizedDescription)"))
+                return
+            }
+            guard let self, self.responseWatchdogID == id, self.currentSessionToken == token,
+                  self.connectionEpoch == epoch, self.isWaitingForVoiceReply else { return }
+            let message = waitingForRecognition
+                ? "I couldn't confirm what you said. Please try again."
+                : "Ivy's voice reply stalled. Please try again."
+            // Close the stale connection rather than replaying a possibly executed command.
+            await self.tearDown(then: .error(message))
+        }
     }
 
     private func stopPlayback() async {
@@ -1249,6 +1355,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     /// confirmation (denied — a tool is never executed for a connection that no longer exists).
     private func reconnect(after error: Error, token: UUID) async {
         var lastError = error
+        cancelResponseWatchdog()
         eventTask?.cancel()
         eventTask = nil
         drainTask?.cancel()

@@ -80,6 +80,42 @@ private actor GatedAudioCapture: AudioCaptureProtocol {
     func stopCapture() async { await inner.stopCapture() }
 }
 
+/// Pauses one disconnect so release/Stop can race an explicit PTT interruption deterministically.
+private final class GatedDisconnectSession: GeminiLiveSession, @unchecked Sendable {
+    let inner = MockGeminiLiveSession()
+    private struct Gate {
+        var armed = false
+        var waiter: CheckedContinuation<Void, Never>?
+    }
+    private let gate = OSAllocatedUnfairLock(initialState: Gate())
+    var isWaiting: Bool { gate.withLock { $0.waiter != nil } }
+    func arm() { gate.withLock { $0.armed = true } }
+    func resume() {
+        let waiter = gate.withLock { g in
+            defer { g.waiter = nil }
+            return g.waiter
+        }
+        waiter?.resume()
+    }
+    func connect() async throws { try await inner.connect() }
+    func sendAudio(_ data: Data) async throws { try await inner.sendAudio(data) }
+    func endAudioInput() async throws { try await inner.endAudioInput() }
+    func sendToolResponses(_ responses: [FunctionResponse]) async throws { try await inner.sendToolResponses(responses) }
+    func receiveEvents() -> AsyncThrowingStream<LiveEvent, Error> { inner.receiveEvents() }
+    func disconnect() async {
+        await inner.disconnect()
+        await withCheckedContinuation { continuation in
+            let wait = gate.withLock { g in
+                guard g.armed else { return false }
+                g.armed = false
+                g.waiter = continuation
+                return true
+            }
+            if !wait { continuation.resume() }
+        }
+    }
+}
+
 /// Idle listener fake with a pre-roll to hand over.
 private final class PreRollWakeListener: WakeWordListening, @unchecked Sendable {
     private struct State {
@@ -945,9 +981,8 @@ struct PushToTalkSubmissionTests {
         #expect(c.state == .thinking)
         await c.endPushToTalk()
         #expect(session.audioInputEndCount == 1)
-        // A second press during this reply cannot turn it into an unattended open microphone.
-        await c.beginPushToTalk()
-        #expect(!c.isPushToTalkActive)
+        // No new hold: input stays closed throughout the reply.
+        #expect(!c.isPushToTalkActive && !capture.isCapturing)
         session.simulateEvent(.audioChunk(Data([1, 2])))
         #expect(await waitUntil { c.state == .speaking })
         session.simulateEvent(.turnComplete)
@@ -1032,6 +1067,87 @@ struct PushToTalkSubmissionTests {
         #expect(session.audioInputEndCount == 0)
         await c.stopSession()
     }
+
+    @Test("A fresh PTT hold interrupts thinking, speech or approval and submits a new question",
+          arguments: ["thinking", "speaking", "hands-free", "approval"])
+    func interruptWithNewQuestion(stage: String) async {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let continuous = MockLiveAudioPlayer(autoDrain: false)
+        let outputOnly = MockLiveAudioPlayer(autoDrain: false)
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: continuous, pushToTalkAudioPlayer: outputOnly,
+            wakeWordDetector: MockWakeWordDetector())
+        var transcripts: [(String, Bool)] = []
+        c.onTranscript = { text, isUser, interrupted in
+            if !isUser { transcripts.append((text, interrupted)) }
+        }
+        if stage == "hands-free" {
+            await c.startSession()
+        } else {
+            await c.beginPushToTalk()
+            capture.simulateAudioChunk(loud)
+            await c.endPushToTalk()
+        }
+        if stage == "approval" {
+            session.simulateEvent(.toolCall(FunctionCall(name: "run_shell",
+                args: ["command": "echo fixture"], id: "interrupt-approval")))
+            #expect(await waitUntil { c.state == .toolConfirmation })
+        } else if stage != "thinking" {
+            session.simulateEvent(.outputTranscript("Old reply"))
+            session.simulateEvent(.audioChunk(Data([1, 2])))
+            #expect(await waitUntil { c.state == .speaking })
+        }
+        await c.beginPushToTalk()
+        #expect(c.state == .listening && c.isPushToTalkActive && capture.isCapturing)
+        #expect(c.wasSessionStartedByPushToTalk)
+        #expect((stage == "hands-free" ? continuous : outputOnly).isStopped)
+        #expect(!continuous.isPlaying && !outputOnly.isPlaying)
+        #expect(c.pendingConfirmation == nil)
+        if stage == "speaking" || stage == "hands-free" {
+            #expect(transcripts.contains { $0.0 == "Old reply" && $0.1 })
+        }
+        await c.beginPushToTalk() // held key-repeat must not restart again
+        #expect(capture.startCaptureCallCount == 2)
+        c.respondToPendingConfirmation(approved: true) // withdrawn request cannot run
+        capture.simulateAudioChunk(loud)
+        await c.endPushToTalk()
+        await c.endPushToTalk()
+        #expect(!capture.isCapturing && !c.isPushToTalkActive && c.state == .thinking)
+        #expect(session.audioInputEndCount == (stage == "hands-free" ? 1 : 2))
+        session.simulateEvent(.audioChunk(Data([3, 4])))
+        #expect(await waitUntil { outputOnly.playedChunks.last == Data([3, 4]) })
+        #expect(!continuous.isPlaying)
+        session.simulateEvent(.turnComplete)
+        outputOnly.finishPlayback()
+        #expect(await waitUntil { c.state == .idle && c.activeTaskCount == 0 })
+        #expect(!capture.isCapturing && !session.isConnected)
+        await c.shutdown()
+    }
+
+    @Test("Release or Stop during interruption cannot reopen an unattended microphone", arguments: [false, true])
+    func releaseDuringInterruption(stop: Bool) async {
+        let session = GatedDisconnectSession()
+        let capture = MockAudioCapture()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(autoDrain: false), wakeWordDetector: MockWakeWordDetector())
+        await c.beginPushToTalk()
+        capture.simulateAudioChunk(loud)
+        await c.endPushToTalk()
+        session.arm()
+        let interruption = Task { await c.beginPushToTalk() }
+        #expect(await waitUntil { session.isWaiting })
+        #expect(c.isPushToTalkActive && !capture.isCapturing)
+        if stop { await c.stopSession() } else { await c.endPushToTalk() }
+        if !stop { await c.beginPushToTalk() } // duplicate before teardown returns stays harmless
+        session.resume()
+        await interruption.value
+        #expect(c.state == .idle && !c.isPushToTalkActive && !capture.isCapturing)
+        #expect(!session.inner.isConnected && c.activeTaskCount == 0)
+        #expect(session.inner.audioInputEndCount == 1)
+        #expect(capture.startCaptureCallCount == (stop ? 1 : 2))
+        await c.shutdown()
+    }
 }
 
 /// Tests advance release polling explicitly, without relying on real keyboard events or elapsed time.
@@ -1065,6 +1181,73 @@ private final class PushToTalkPollClock: @unchecked Sendable {
 @Suite("Push-to-talk recovers a missed shortcut release")
 @MainActor
 struct PushToTalkReleaseRecoveryTests {
+    @Test("A release-monitor failure during interruption remains visible and cancels restart")
+    func failedInterruptionMonitor() async throws {
+        let session = GatedDisconnectSession()
+        let capture = MockAudioCapture()
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture,
+            audioPlayer: MockLiveAudioPlayer(), wakeWordDetector: MockWakeWordDetector(),
+            hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.setShortcutHeld(true)
+        await c.beginPushToTalk()
+        capture.simulateAudioChunk(loud)
+        await c.endPushToTalk()
+        session.arm()
+        let interruption = Task { await c.beginPushToTalk() }
+        #expect(await waitUntil { session.isWaiting })
+        clock.fail()
+        #expect(await waitUntil { if case .error = c.state { return true }; return false })
+        session.resume()
+        await interruption.value
+        guard case .error(let message) = c.state else {
+            Issue.record("Interruption cleanup must not overwrite the monitoring error")
+            await c.shutdown()
+            return
+        }
+        #expect(message.contains("Couldn't monitor push-to-talk release"))
+        #expect(capture.startCaptureCallCount == 1)
+        #expect(!capture.isCapturing && !session.inner.isConnected && !c.isPushToTalkActive)
+        #expect(c.activeTaskCount == 0)
+        await c.shutdown()
+    }
+
+    @Test("The registered shortcut interrupts playback and a lost release submits the replacement once")
+    func interruptThenMissedRelease() async throws {
+        let session = MockGeminiLiveSession()
+        let capture = MockAudioCapture()
+        let player = MockLiveAudioPlayer(autoDrain: false)
+        let hotkey = MockGlobalHotkeyManager()
+        let clock = PushToTalkPollClock()
+        let c = GeminiLiveVoiceCoordinator(session: session, audioCapture: capture, audioPlayer: player,
+            wakeWordDetector: MockWakeWordDetector(), hotkeyManager: hotkey, pushToTalkPoll: clock.poll)
+        try c.registerHotkey()
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening })
+        capture.simulateAudioChunk(loud)
+        hotkey.simulateKeyUp()
+        #expect(await waitUntil { c.state == .thinking && !capture.isCapturing })
+        session.simulateEvent(.audioChunk(Data([1, 2])))
+        #expect(await waitUntil { c.state == .speaking && player.isPlaying })
+        hotkey.simulateKeyDown()
+        #expect(await waitUntil { c.state == .listening && c.isPushToTalkActive && capture.isCapturing })
+        #expect(!player.isPlaying && capture.startCaptureCallCount == 2)
+        capture.simulateAudioChunk(loud)
+        #expect(await waitUntil { session.sentAudioChunks.count == 2 })
+        hotkey.setShortcutHeld(false)
+        clock.advance()
+        #expect(await waitUntil { c.state == .thinking && !capture.isCapturing && !c.isPushToTalkActive })
+        #expect(session.audioInputEndCount == 2)
+        hotkey.simulateKeyUp()
+        await c.endPushToTalk()
+        #expect(session.audioInputEndCount == 2)
+        session.simulateEvent(.turnComplete)
+        #expect(await waitUntil { c.state == .idle && c.activeTaskCount == 0 })
+        await c.shutdown()
+    }
+
     @Test("An unknown initial hardware reading keeps listening until the real release callback")
     func unknownInitialHold() async throws {
         let session = MockGeminiLiveSession()

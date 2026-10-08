@@ -7,6 +7,11 @@
 > fixtures cover held/released state, connection buffering, early replies, approval, shortcut removal
 > and polling failures; real keyboard/TCC behavior still requires the manual release check.
 
+> **Explicit shortcut interruption — 2026-10-08, build 11:** A fresh PTT hold stops a pending or spoken
+> reply, denies any pending approval and starts a fresh held request. Physical release closes input and
+> submits once. Quick release during cleanup is remembered; explicit Stop cancels the restart.
+> See [verification](../../tasks/ptt-interrupt-reply.md). Completed side effects are not rolled back.
+
 ## Goal
 Talking to Ivy should feel like talking to a person: it notices when you've finished, stops the instant you
 cut in, hears "Hey Ivy" reliably, shows that it's listening, and survives device switches and sleep — while
@@ -130,6 +135,8 @@ Latency targets met on fixtures and on-device; all slices accepted; manual check
 - [ ] From another app, hold Command–Shift–Space, speak and release Space first; repeat releasing a
   modifier first. PTT capture closes, the companion changes from Listening to Thinking/Speaking, and
   Ivy finishes its reply. Repeat with silence, during an early reply and while approval is pending.
+- [ ] While Ivy is answering, hold Command–Shift–Space, ask a different question and release. The old
+  reply stops and the new question gets one answer; repeat with a quick silent release and with Stop.
 - [ ] Stop a held PTT session, then release and press again; no stuck Listening or blocked next request.
 - [ ] Pause mid-sentence for ~1 s — Ivy waits; finish — Ivy answers.
 - [ ] "Hey Ivy" mid-answer on speakers and on headphones — stops within a beat.
@@ -177,3 +184,13 @@ the PTT-only changed lines were 72/86 (83.72%). This does not replace the real-k
 - Idle wake listener with the pre-roll converter installed (only runs when "Hey Ivy" is enabled).
 - On-device in-session recognition: barge-in speed and accuracy versus before.
 - Settings panel layout (now scrolls) and the level halo.
+
+### Voice reply recovery (2026-10-08, build 17)
+
+PTT turns without recognized transcription, a tool call or reply content recover after 8 seconds.
+Once progress is confirmed, 15 seconds of model inactivity closes the stale session with a retry
+notice. Reply chunks renew the deadline. Pending/queued tools, approval review and playback after
+turn completion are excluded. Completion, interruption, reconnect and shutdown cancel the deadline;
+request and connection identity checks prevent old timeouts from closing a replacement turn.
+This bounds failure recovery; it does not claim a measured provider response-time improvement.
+See [verification and manual checks](../../tasks/voice-reply-recovery.md).
