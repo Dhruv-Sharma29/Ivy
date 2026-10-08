@@ -18,8 +18,8 @@ public final class ToolDispatcher: Sendable {
     }
 
     /// Dispatches a single FunctionCall and produces a FunctionResponse.
-    public func dispatch(_ call: FunctionCall) async -> FunctionResponse {
-        let id = await activity.begin(call)
+    public func dispatch(_ call: FunctionCall, requestMessageID: UUID? = nil) async -> FunctionResponse {
+        let id = await activity.begin(call, requestMessageID: requestMessageID)
         let response = await execute(call)
         await activity.complete(id, response: response)
         return response

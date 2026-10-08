@@ -10,6 +10,8 @@ public struct ToolExecution: Identifiable, Equatable, Sendable {
     public let startedAt: Date
     public var status: Status
     public var output: String?
+    /// Display-only link to the request that caused this call, including late voice transcripts.
+    public var requestMessageID: UUID? = nil
 
     public static func displayJSON(_ values: [String: AnyCodable], toolName: String? = nil) -> String {
         func maskKeyAndValue(key: String, value: AnyCodable) -> AnyCodable {
@@ -77,10 +79,10 @@ public final class ToolActivity: ObservableObject {
     public var destination: ToolActivity?
     public nonisolated init() {}
 
-    public func begin(_ call: FunctionCall, now: Date = Date()) -> UUID {
-        if let destination { return destination.begin(call, now: now) }
+    public func begin(_ call: FunctionCall, now: Date = Date(), requestMessageID: UUID? = nil) -> UUID {
+        if let destination { return destination.begin(call, now: now, requestMessageID: requestMessageID) }
         let record = ToolExecution(id: UUID(), name: call.name, arguments: ToolExecution.displayJSON(call.args, toolName: call.name),
-                                   startedAt: now, status: .running, output: nil)
+                                   startedAt: now, status: .running, output: nil, requestMessageID: requestMessageID)
         records.append(record)
         if records.count > 100 { records.removeFirst(records.count - 100) }
         return record.id

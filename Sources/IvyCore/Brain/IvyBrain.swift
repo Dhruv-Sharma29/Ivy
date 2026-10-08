@@ -186,7 +186,7 @@ public final class IvyBrain: ObservableObject {
                             toolResponse = enableTools(call)
                         } else {
                             // Execute tool via dispatcher
-                            toolResponse = await toolDispatcher.dispatch(call)
+                            toolResponse = await toolDispatcher.dispatch(call, requestMessageID: userMessage.id)
                             guard conversationID == turnConversation else { return }
                             recordToolNote(call: call, response: toolResponse)
                         }
@@ -291,12 +291,18 @@ public final class IvyBrain: ObservableObject {
     }
 
     /// Adds a finished Live utterance to the active conversation. No audio is stored.
-    public func appendVoiceTranscript(_ text: String, fromUser: Bool, interrupted: Bool = false) {
+    public func appendVoiceTranscript(_ text: String, fromUser: Bool, interrupted: Bool = false, requestMessageID: UUID? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard savesVoiceTranscripts, !trimmed.isEmpty else { return }
-        let message = ChatMessage(role: fromUser ? .user : .model, text: interrupted ? "\(trimmed) (interrupted)" : trimmed)
-        messages.append(message)
-        voiceKinds[message.id] = fromUser ? .voiceUser : .voiceModel
+        let id = fromUser ? (requestMessageID ?? UUID()) : UUID()
+        if fromUser, let index = messages.firstIndex(where: { $0.id == id && $0.role == .user }) {
+            let original = messages[index]
+            messages[index] = ChatMessage(id: id, role: .user, text: original.text + " " + trimmed, timestamp: original.timestamp)
+        } else {
+            messages.append(ChatMessage(id: id, role: fromUser ? .user : .model,
+                                        text: interrupted ? "\(trimmed) (interrupted)" : trimmed))
+        }
+        voiceKinds[id] = fromUser ? .voiceUser : .voiceModel
         persistConversation()
     }
 

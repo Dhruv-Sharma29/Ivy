@@ -58,28 +58,8 @@ struct ChatFeedView: View {
     @ObservedObject var voice: VoicePlaybackManager
     var onApplyDiff: ((String) -> Void)?
 
-    private enum Item: Identifiable {
-        case message(ChatMessage), tool(ToolExecution)
-        var id: String {
-            switch self { case .message(let value): "message-\(value.id)"; case .tool(let value): "tool-\(value.id)" }
-        }
-        var date: Date {
-            switch self { case .message(let value): value.timestamp; case .tool(let value): value.startedAt }
-        }
-    }
-
-    private var items: [Item] {
-        let messageItems: [Item] = messages.map { .message($0) }
-        let toolItems: [Item] = activity.records.map { .tool($0) }
-        let combined: [Item] = messageItems + toolItems
-        return combined.sorted { lhs, rhs in
-            if lhs.date == rhs.date { return lhs.id < rhs.id }
-            return lhs.date < rhs.date
-        }
-    }
-
     var body: some View {
-        ForEach(items) { item in
+        ForEach(ChatFeedTimeline.items(messages: messages, records: activity.records)) { item in
             switch item {
             case .message(let message):
                 MessageRowView(message: message, voiceManager: voice, onApplyDiff: onApplyDiff)
