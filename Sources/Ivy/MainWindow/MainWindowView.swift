@@ -12,6 +12,9 @@ struct MainWindowView: View {
     @ObservedObject var tasks: TaskEngine
     @ObservedObject var workspaces: WorkspaceModel
     @ObservedObject var router: AppRouter
+    let windowController: MainWindowController?
+    /// A value snapshot invalidates this subtree when the observed root changes window presentation.
+    let isWorkingInBackground: Bool
     @State private var columns = NavigationSplitViewVisibility.all
     @State private var destination: WorkspaceDestination
     @State private var selectedTaskID: UUID?
@@ -20,7 +23,8 @@ struct MainWindowView: View {
 
     init(brain: IvyBrain, library: ConversationLibrary, voiceManager: VoicePlaybackManager,
          liveVoiceCoordinator: GeminiLiveVoiceCoordinator, proactive: ProactiveEngine,
-         attachments: AttachmentTray, tasks: TaskEngine, workspaces: WorkspaceModel, router: AppRouter = AppRouter()) {
+         attachments: AttachmentTray, tasks: TaskEngine, workspaces: WorkspaceModel, router: AppRouter = AppRouter(),
+         windowController: MainWindowController? = nil) {
         self.brain = brain
         self.library = library
         self.voiceManager = voiceManager
@@ -30,6 +34,8 @@ struct MainWindowView: View {
         self.tasks = tasks
         self.workspaces = workspaces
         self.router = router
+        self.windowController = windowController
+        self.isWorkingInBackground = windowController?.isWorkingInBackground ?? false
         // Seed a newly opened window from the active session; subsequent navigation stays view-owned.
         self._destination = State(initialValue: liveVoiceCoordinator.state.isLive || router.chatNavigationID != nil ? .chat : .home)
     }
@@ -56,6 +62,7 @@ struct MainWindowView: View {
                 ChatPaneView(brain: brain, voiceManager: voiceManager, liveVoiceCoordinator: liveVoiceCoordinator,
                              proactive: proactive, attachments: attachments, tasks: tasks,
                              library: library, destination: destination, selectedTaskID: selectedTaskID, promptRequest: promptRequest,
+                             windowController: windowController,
                              onShowChat: { destination = .chat }, onShowTask: {
                                  selectedTaskID = $0; isNewTaskDraft = $0 == nil; destination = .tasks
                              })
@@ -87,6 +94,8 @@ struct ChatPaneView: View {
     var destination: WorkspaceDestination? = nil
     var selectedTaskID: UUID? = nil
     var promptRequest: WorkspacePrompt? = nil
+    let windowController: MainWindowController?
+    let isWorkingInBackground: Bool
     var onShowChat: (() -> Void)? = nil
     var onShowTask: ((UUID?) -> Void)? = nil
     @StateObject private var taskSession: TaskWorkspaceSession
@@ -101,11 +110,14 @@ struct ChatPaneView: View {
          proactive: ProactiveEngine, attachments: AttachmentTray, tasks: TaskEngine,
          library: ConversationLibrary? = nil, showsHome: Bool = false, destination: WorkspaceDestination? = nil,
          selectedTaskID: UUID? = nil, promptRequest: WorkspacePrompt? = nil,
+         windowController: MainWindowController? = nil,
          onShowChat: (() -> Void)? = nil, onShowTask: ((UUID?) -> Void)? = nil) {
         self.brain = brain; self.voiceManager = voiceManager; self.liveVoiceCoordinator = liveVoiceCoordinator
         self.proactive = proactive; self.attachments = attachments; self.tasks = tasks
         self.library = library; self.showsHome = showsHome; self.destination = destination
         self.selectedTaskID = selectedTaskID; self.promptRequest = promptRequest
+        self.windowController = windowController
+        self.isWorkingInBackground = windowController?.isWorkingInBackground ?? false
         self.onShowChat = onShowChat; self.onShowTask = onShowTask
         _taskSession = StateObject(wrappedValue: TaskWorkspaceSession(engine: tasks))
     }
@@ -203,6 +215,7 @@ struct ChatPaneView: View {
         .onAppear(perform: takeSuggestedPrompt)
         .onChange(of: attachments.suggestedPrompt) { takeSuggestedPrompt() }
         .onChange(of: proactive.pendingPrompt) { takeSuggestedPrompt() }
+        .onChange(of: isWorkingInBackground) { if !isWorkingInBackground { takeSuggestedPrompt() } }
         .onChange(of: brain.conversationID) { old, new in
             drafts[old] = inputText
             inputText = drafts[new] ?? ""
@@ -213,7 +226,7 @@ struct ChatPaneView: View {
     func routePrompt(_ prompt: String) {
         let command = prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if command == "/agent" || command.hasPrefix("/agent ") {
-            guard !isBlocked else { return }
+            guard !taskSession.isSubmitting else { return }
             taskSession.newTask(prompt: prompt == "/agent " ? "" : prompt)
             onShowTask?(nil)
         } else {
@@ -223,6 +236,7 @@ struct ChatPaneView: View {
     }
 
     var presentedSheet: ChatSheet? {
+        guard windowController?.isWorkingInBackground != true else { return nil }
         if let request = liveVoiceCoordinator.pendingConfirmation { return .approval(request, live: true) }
         if let request = brain.pendingConfirmation { return .approval(request, live: false) }
         return editingInstructions ? .instructions : nil
@@ -232,7 +246,11 @@ struct ChatPaneView: View {
         // Capture the displayed identity: dismissing an old sheet must never answer a newer request.
         let displayed = presentedSheet
         return Binding(get: { presentedSheet }, set: { value in
-            if value == nil, let displayed { respond(to: displayed, approved: false) }
+            // Hiding the workspace hands review to the companion, not an implicit Cancel.
+            // Consult the live controller even when SwiftUI dismisses a binding from the prior view.
+            if value == nil, windowController?.isWorkingInBackground != true, let displayed {
+                respond(to: displayed, approved: false)
+            }
         })
     }
 
@@ -454,6 +472,7 @@ struct ChatPaneView: View {
     /// A suggestion (proactive notification, screen-help hotkey) goes into an empty composer; it is never sent
     /// for the user.
     private func takeSuggestedPrompt() {
+        guard windowController?.isWorkingInBackground != true else { return }
         guard let prompt = proactive.pendingPrompt ?? attachments.suggestedPrompt else { return }
         guard inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         inputText = prompt

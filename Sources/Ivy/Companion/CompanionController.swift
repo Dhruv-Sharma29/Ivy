@@ -41,6 +41,18 @@ final class CompanionController: NSObject {
             .store(in: &subscriptions)
     }
 
+    /// An explicit background action keeps a visible way to check work, approve or stop it.
+    func showForBackground() {
+        var settings = environment.settings.settings
+        if !settings.companionEnabled || !settings.companionShowWhileIdle {
+            settings.companionEnabled = true
+            settings.companionShowWhileIdle = true
+            environment.settings.settings = settings
+        }
+        hiddenMood = nil
+        update()
+    }
+
     private func update() {
         let e = environment
         let settings = e.settings.settings

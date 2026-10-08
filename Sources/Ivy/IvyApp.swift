@@ -10,6 +10,7 @@ struct IvyApp: App {
     @ObservedObject private var wakeWord: WakeWordController
     @ObservedObject private var library: ConversationLibrary
     private let environment: IvyAppEnvironment
+    private let mainWindowController: MainWindowController
 
     init() {
         self.init(environment: IvyAppEnvironment.production(annotationPresenter: AnnotationOverlay()))
@@ -20,7 +21,7 @@ struct IvyApp: App {
 
     /// The same app shell can be verified with isolated credentials and storage.
     init(environment: IvyAppEnvironment) {
-        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.setActivationPolicy(.accessory)
         if let icon = IvyLogoImage.appIcon { NSApplication.shared.applicationIconImage = icon }
         self._brain = ObservedObject(wrappedValue: environment.brain)
         self._liveVoiceCoordinator = ObservedObject(wrappedValue: environment.liveCoordinator)
@@ -30,7 +31,11 @@ struct IvyApp: App {
         // Audible cue that Ivy woke up and is now listening for the request (like Siri's chime).
         environment.wakeWord.onWake = { NSSound(named: "Tink")?.play() }
         IvyAppDelegate.shutdown = { await environment.shutdown() }
-        MainWindowController.shared = MainWindowController(proactive: environment.proactive)
+        let mainWindowController = MainWindowController(proactive: environment.proactive, startsInBackground: true) {
+            IvyAppDelegate.companion?.showForBackground()
+        }
+        self.mainWindowController = mainWindowController
+        MainWindowController.shared = mainWindowController
         IvyAppDelegate.openURL = { url in
             guard AppRouter.parse(url) != nil else { return }
             let busy = environment.brain.isThinking || environment.brain.pendingConfirmation != nil
@@ -58,12 +63,13 @@ struct IvyApp: App {
 
     var body: some Scene {
         Window("Ivy", id: "main") {
-            IvyWindowRoot(environment: environment)
+            IvyWindowRoot(environment: environment, windowController: mainWindowController)
         }
         .defaultSize(width: 1080, height: 760)
         .defaultPosition(.center)
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
+        .ivyCompanionLaunch()
         .commands {
             SidebarCommands()
             IvyConversationCommands()
@@ -75,12 +81,14 @@ struct IvyApp: App {
                 .keyboardShortcut("n")
                 Button("Open Ivy") { MainWindowController.shared?.show() }
                     .keyboardShortcut("o")
+                Button("Work in Background") { MainWindowController.shared?.workInBackground() }
             }
         }
 
         MenuBarExtra {
             Button("Open Ivy") { MainWindowController.shared?.show() }
                 .keyboardShortcut("o")
+            Button("Work in Background") { MainWindowController.shared?.workInBackground() }
             Button("New Conversation") {
                 library.newConversation()
                 MainWindowController.shared?.show()
@@ -95,8 +103,7 @@ struct IvyApp: App {
                 .keyboardShortcut("q")
         } label: {
             // Keep the app recognizable while requests, approvals and errors change its state.
-            Image(systemName: "leaf")
-                .accessibilityLabel("Ivy")
+            IvyMenuBarLabel(windowController: mainWindowController)
         }
         .menuBarExtraStyle(.menu)
 
@@ -104,6 +111,30 @@ struct IvyApp: App {
             SettingsWindowView(environment: environment, settings: settings, wakeWord: wakeWord)
         }
         .windowStyle(.hiddenTitleBar)
+        .ivyCompanionLaunch()
+    }
+}
+
+/// Install workspace routing before the workspace exists; companion/menu actions must work on first launch.
+struct IvyMenuBarLabel: View {
+    let windowController: MainWindowController
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: "leaf")
+            .accessibilityLabel("Ivy")
+            .onAppear { windowController.openWindow = { openWindow(id: "main") } }
+    }
+}
+
+extension Scene {
+    func ivyCompanionLaunch() -> some Scene {
+        if #available(macOS 15, *) {
+            return SceneBuilder.buildOptional(SceneBuilder.buildLimitedAvailability(
+                self.defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled)))
+        } else {
+            return SceneBuilder.buildOptional(SceneBuilder.buildLimitedAvailability(self))
+        }
     }
 }
 
@@ -132,9 +163,14 @@ final class IvyAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        MainWindowController.shared?.workInBackground()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        MainWindowController.shared?.show()
-        return true
+        MainWindowController.shared?.workInBackground()
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

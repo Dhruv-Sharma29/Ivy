@@ -26,11 +26,11 @@
     <key>CFBundleShortVersionString</key>
     <string>1.1.0</string>
     <key>CFBundleVersion</key>
-    <string>7</string>
+    <string>20</string>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 Dhruv Sharma. All rights reserved.</string>
     <key>LSUIElement</key>
-    <false/>
+    <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Ivy needs access to your microphone for live voice conversations.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

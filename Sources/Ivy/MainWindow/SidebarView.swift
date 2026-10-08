@@ -121,7 +121,7 @@ struct SidebarView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(IvyNavigationButtonStyle())
-                .disabled(brain.isThinking || tasks.run?.isActive == true)
+                .accessibilityIdentifier("ivy.tasks.new.sidebar")
                 if searchVisible {
                     TextField("Search tasks", text: $query).textFieldStyle(.roundedBorder).focused($searchFocused)
                 }

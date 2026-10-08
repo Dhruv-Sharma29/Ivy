@@ -173,8 +173,9 @@ public final class IvyAppEnvironment {
         self.liveCoordinator = makeLiveCoordinator(credentials, settings.settings)
         liveCoordinator.toolDispatcher.activity.destination = brain.toolDispatcher.activity
         // Voice sessions become part of the written conversation (text only).
-        liveCoordinator.onTranscript = { [weak brain] text, fromUser, interrupted in
-            brain?.appendVoiceTranscript(text, fromUser: fromUser, interrupted: interrupted)
+        liveCoordinator.onTranscript = { [weak brain, weak coordinator = liveCoordinator] text, fromUser, interrupted in
+            brain?.appendVoiceTranscript(text, fromUser: fromUser, interrupted: interrupted,
+                                         requestMessageID: fromUser ? coordinator?.transcriptTurnID : nil)
         }
         liveCoordinator.onToolResult = { [weak brain] call, response in
             brain?.recordToolNote(call: call, response: response)
