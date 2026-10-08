@@ -1,6 +1,6 @@
 # Background companion workspace — 2026-10-08
 
-Current artifacts are build 20; [companion-first launch](companion-first-launch.md) is now the default. The sidebar background icon was removed; File/menu-bar actions and
+Current artifacts are build 24; [companion-first launch](companion-first-launch.md) is now the default. The sidebar background icon was removed; File/menu-bar actions and
 closing the workspace still support this behavior. See [removal verification](sidebar-background-button-removal.md).
 The release measurements below describe the original build 12 delivery.
 

@@ -4,7 +4,17 @@ Ivy combines text chat, live voice, screen help and local Mac tools in a native 
 
 ## Current status
 
-The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 20)**, with an updated app and DMG in `dist/`.
+The desktop app, saved conversations, live voice, task engine and core Mac tools are implemented. The current local build is **1.1.0 (build 24)**, with an updated app and DMG in `dist/`.
+
+**Companion placement (build 24):** Ivy can reach the usable screen’s top edge without reserving invisible panel space. Captions and approval controls retain screen bounds. See [verification](tasks/companion-top-edge.md).
+
+**Next development plan:** [Reliability and model readiness](docs/roadmap/phase-21-model-readiness.md) covers voice acceptance, model adapters, evaluations, a floating task panel, computer control, generated files, memory controls, usage diagnostics and reviewed training examples. The placement fix starts the reliability slice; the remaining slices are planned.
+
+**Script approval purpose (build 23):** The companion shows the script or command’s plain-language purpose, such as “Open YouTube in Safari,” above Cancel / Do it. The app retains the technical title, purpose and complete script/command for review. See [verification](tasks/script-approval-purpose.md).
+
+**Push-to-talk recognition fix (build 22):** Fresh push-to-talk sessions explicitly mark speech start/end, so release submits the recorded request without waiting for server VAD. The Tavi voice remains. Silent holds, interruption, reconnects and approvals retain their safeguards. See [verification](tasks/ptt-activity-boundaries.md).
+
+**Tavi voice (build 21):** Live conversation and push-to-talk now use Google AI Studio’s commercial Tavi voice (`en-us-tavi`) on Gemini 3.8 Live. Tool calls continue to wait for approval and their results. Quit and reopen Ivy to use the new voice. See [verification and testing](tasks/tavi-live-voice.md).
 
 **Companion-first launch (build 20):** Opening Ivy starts only its on-screen companion and menu-bar icon. Choose **Open Ivy** from the menu bar or click the companion to open the workspace; it stays out of the Dock. Closing the workspace keeps voice and approved work running. First-run setup can open onboarding. See [verification and testing](tasks/companion-first-launch.md).
 
@@ -40,11 +50,11 @@ identity as their status changes. See [chat ordering verification](tasks/chat-fe
 The local package includes the initial Ivy UI refresh: shared rounded cards in Home,
 Library, Tasks and Settings, roomier navigation, and a floating quick-chat bar with draft suggestions
 and explicit Send/Open/Close controls. The app and DMG were updated on **2026-10-08** to
-**1.1.0 (build 20)**, including companion-only launch, the sidebar background-button removal, personalization card refresh, detailed app approvals and voice reply recovery. The companion
+**1.1.0 (build 24)**, including the companion top-edge placement fix, script approval purposes, explicit push-to-talk turn submission, the Tavi voice switch, companion-only launch, the sidebar background-button removal, personalization card refresh, detailed app approvals and voice reply recovery. The companion
 keeps its compact approval layout. Quit and relaunch Ivy after installing an update; closing the
 workspace only switches to background work. Older packages remain in `dist/Previous-Builds/`.
 See [the UI refresh report](tasks/ui-refresh.md) for the changes and verification limits.
-See [the latest package verification](tasks/companion-first-launch.md) for artifact checks and rollback location.
+See [the latest package verification](tasks/companion-top-edge.md) for artifact checks and rollback location.
 
 **Idle companion animations:** Ivy occasionally checks a phone, types on a laptop or blushes with clasped hands
 while idle. Enable the companion and its idle visibility in Settings → General, then leave
@@ -103,7 +113,7 @@ Autonomous clicking, typing, scrolling and dragging are not available in this pa
 - **Native workspace:** resizable main window, outline-leaf menu bar shortcut, Home, Library, Tasks and searchable Settings.
 - **Conversation history:** search, pinned conversations, export and an Archived section that expands when opened.
 - **Compact composer:** attachments, microphone and send controls. Return sends; Shift–Return inserts a newline at the cursor. Drafts are retained per conversation while the main view remains open.
-- **Live voice:** Gemini voice sessions, local “Hey Ivy” interruption and global push-to-talk. Hold **Command–Shift–Space** while speaking, then release; Ivy submits the captured speech and stays connected to answer. Press again during a reply to interrupt it and record a new question. Silent presses cancel. Speech queued during microphone or connection startup is preserved.
+- **Live voice:** Gemini 3.8 Live with Tavi (`en-us-tavi`), local “Hey Ivy” interruption and global push-to-talk. Hold **Command–Shift–Space** while speaking, then release; Ivy submits the captured speech and stays connected to answer. Press again during a reply to interrupt it and record a new question. Silent presses cancel. Speech queued during microphone or connection startup is preserved.
   Push-to-talk replies use output-only playback, so releasing the shortcut closes the microphone even if Ivy has already started answering or is waiting for approval. If idle “Hey Ivy” listening is enabled, that separate feature continues using the microphone.
   A physical-key check while the shortcut is held also recovers missed release events. Releasing Space
   or a required modifier stops PTT capture; Stop resets the shortcut state for the next request.
@@ -290,17 +300,20 @@ git diff --check
 
 Tests use isolated fixtures for network, credentials and audio. Native interface tests render previews in `/private/tmp/ivy-ui-review`; those tests do not establish behavior on a real microphone, AirPods or another Mac.
 
-The **2026-10-08 build 20** passed **1,321 core tests and 43 native interface tests** (1,364 total;
-combined execution 39.618 seconds). Changed executable source lines across the local working tree
-were **98.31% covered (524/533)**; all 14 changed executable lines in the personalization panel were
-covered. These figures describe changed lines, not total project coverage. Strict debug and release
-builds passed without compiler warnings or errors; the final incremental build took 2.03 seconds.
+The **2026-10-08 build 24** passed **1,333 core tests and 45 native interface tests** (1,378 total;
+combined execution 39.297 seconds). All **119/119 changed executable source lines were covered (100%)**
+across the local working tree. These figures describe changed lines, not total project coverage.
+Strict debug and release builds passed without compiler warnings or errors; the final incremental
+build took 0.18 seconds. Native companion tests reproduce the old upper drag limit and verify top-edge
+placement, caption/approval expansion and preserved keyboard routing. Existing light/dark previews pass.
 
 Signature, DMG integrity, checksum and mounted/installed executable comparisons passed. The installed
-app and DMG contain the same build 20 executable. Real keyboard/microphone behavior in other apps,
-Gemini screen pointing, accessibility, performance and broader release acceptance checks remain
-pending. See [the current verification report](tasks/companion-first-launch.md) and
-[remaining work](tasks/remaining.md).
+app and DMG contain the same build 24 executable. The verified Tavi/PTT activity protocol remains;
+the latest relaunch waits for existing Keychain access before creating its companion (local prompt
+handling is pending). The native placement tests pass independently of that startup wait.
+physical microphone/keyboard listening, long voice sessions, Gemini screen pointing, accessibility,
+performance and broader release acceptance checks remain pending. See
+[the current verification report](tasks/companion-top-edge.md) and [remaining work](tasks/remaining.md).
 
 To package from source:
 

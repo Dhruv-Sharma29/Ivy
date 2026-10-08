@@ -1,6 +1,6 @@
 # Chat request and tool-card ordering — 2026-10-07
 
-Current artifacts are build 20, retaining this fix and [dance removal](companion-dance-removal.md),
+Current artifacts are build 24, retaining this fix and [dance removal](companion-dance-removal.md),
 and adding [blushing/clasped hands](companion-blush-animation.md).
 The verification below describes the original build 8 delivery.
 

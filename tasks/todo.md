@@ -82,7 +82,7 @@
 - [x] **Task 19: Popover Audio Playback Controls** (Inline audio play/stop toggle button on message bubbles, error banners, synthesis state indicator)
 
 ### Phase 4B: Gemini Live WebSocket Client & Interruption
-- [x] **Task 20: Gemini Live Multimodal Protocol & Client** (`GeminiLiveClient` WebSocket client connecting to `GenerativeService.BidiGenerateContent`, 16kHz PCM mono audio streaming, Kore voice locked)
+- [x] **Task 20: Gemini Live Multimodal Protocol & Client** (`GeminiLiveClient` WebSocket client connecting to `GenerativeService.BidiGenerateContent`, 16kHz PCM mono audio streaming, Tavi voice locked)
 - [x] **Task 21: Native Audio Capture & Streaming** (`AudioCaptureProtocol`, `SystemAudioCapture` using `AVAudioEngine`, 16kHz format conversion, error resilience)
 - [x] **Task 22: Live Audio Player with Smooth Playback** (`LiveAudioPlayerProtocol`, `SystemLiveAudioPlayer` with chunk queueing, format conversions, and instant drain)
 - [x] **Task 23: On-Device "Hey Ivy" Interruption** (`WakeWordDetectorProtocol`, `SystemWakeWordDetector`, `WakePhraseMatcher`, partial transcription matching, instant playback stop and buffer purge)

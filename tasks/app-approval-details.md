@@ -1,6 +1,6 @@
 # Detailed app approvals
 
-Current artifacts are build 20, retaining this app/companion UI and adding [voice reply recovery](voice-reply-recovery.md).
+Current artifacts are build 24, retaining this app/companion UI and adding [voice reply recovery](voice-reply-recovery.md).
 
 
 Implemented 2026-10-08 in v1.1.0 build 16.

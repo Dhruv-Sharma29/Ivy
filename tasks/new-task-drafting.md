@@ -1,6 +1,6 @@
 # New task drafting fix — 2026-10-08
 
-Current artifacts are build 20, retaining this fix and [refreshing voice settings](voice-settings-refresh.md).
+Current artifacts are build 24, retaining this fix and [refreshing voice settings](voice-settings-refresh.md).
 The release measurements below describe the original build 13 delivery.
 
 ## Behavior in 1.1.0 (13)

@@ -15,7 +15,7 @@
 ## Goal
 Talking to Ivy should feel like talking to a person: it notices when you've finished, stops the instant you
 cut in, hears "Hey Ivy" reliably, shows that it's listening, and survives device switches and sleep — while
-Kore stays the voice.
+Tavi stays the voice.
 
 ## Baseline
 - Live: `GeminiLiveVoiceCoordinator` state machine (IDLE → CONNECTING → LISTENING → THINKING →
@@ -35,7 +35,7 @@ Kore stays the voice.
 **In:** turn-taking tuning, client VAD, faster/more reliable barge-in and wake word, wake pre-roll,
 audio level indicators + state animations, voice settings (TTS speed/stability, response length/pace),
 device selection and switching, background session recovery (sleep/wake, network), local voice commands.
-**Out:** changing the Live voice (Kore locked), custom wake-word training, new third-party audio libraries.
+**Out:** changing the Live voice (Tavi locked), custom wake-word training, new third-party audio libraries.
 
 ## Design
 
@@ -70,7 +70,7 @@ device selection and switching, background session recovery (sleep/wake, network
 
 ### 10.5 Voice settings
 - ElevenLabs: speed (0.7–1.2), stability, style — sent as `voice_settings`; preview button.
-- Live (Kore locked): "response length" (brief / normal / detailed) and "speaking pace" hints added to the
+- Live (Tavi locked): "response length" (brief / normal / detailed) and "speaking pace" hints added to the
   Live system instruction; no voice change.
 - Voice input device picker (CoreAudio device list, "System default" default); output follows system.
 
@@ -105,7 +105,7 @@ Voice commands can never approve, and "yes/confirm/do it" is never a command.
 | 10.2 | On-device barge-in + tuning | ≤ 300 ms p50 barge-in on fixtures; false-positive rate measured and documented |
 | 10.3 | Pre-roll + warm-up + energy gate | One-breath "Hey Ivy, <request>" answered; idle CPU with wake word < 3 % |
 | 10.4 | AudioLevelMeter + indicators | Levels update at ≥ 20 Hz without main-thread hitches |
-| 10.5 | Voice settings | TTS speed/stability persisted and applied; Kore unchanged (test) |
+| 10.5 | Voice settings | TTS speed/stability persisted and applied; Tavi unchanged (test) |
 | 10.6 | Device picker + mid-session switching | Switching input device mid-session keeps the session |
 | 10.7 | Sleep/wake/lock handling | Sleep during Live: clean end; wake: listener restarts |
 | 10.8 | Local voice commands | Each command works in its state; none can approve a tool (tests) |
@@ -141,7 +141,7 @@ Latency targets met on fixtures and on-device; all slices accepted; manual check
 - [ ] Pause mid-sentence for ~1 s — Ivy waits; finish — Ivy answers.
 - [ ] "Hey Ivy" mid-answer on speakers and on headphones — stops within a beat.
 - [ ] "Hey Ivy, what's the weather like?" in one breath from idle — answered.
-- [ ] Change TTS speed; Kore still the Live voice.
+- [ ] Change TTS speed; Tavi still the Live voice.
 - [ ] Switch AirPods ↔ built-in mid-session.
 - [ ] Close the lid during Live; reopen — clean state, wake word listening again.
 - [ ] "Hey Ivy, cancel" during a confirmation — denied, nothing runs.
@@ -153,7 +153,7 @@ Latency targets met on fixtures and on-device; all slices accepted; manual check
 | 10.2 Barge-in | Partly done | In-session recogniser uses on-device recognition when the Mac supports it (server fallback otherwise). Lone-"Ivy" heuristic exists behind `loneIvyBargeIn` (off, no UI). **Not done:** double-talk / AGC A/B, the ≤ 300 ms p50 measurement, false-positive rate. |
 | 10.3 Wake reliability | Partly done | Idle listener keeps a 1.5 s pre-roll and hands it to the wake session; the mic now opens before the socket and up to 3 s spoken while connecting is sent first. Unanswered wakes are counted and shown in diagnostics. **Not done:** energy gate for the recogniser, idle-CPU measurement. |
 | 10.4 Levels | Done (logic) | `AudioLevelMeter` (≤ 30 Hz on the main actor); halo around the Live icon follows the user while listening and Ivy while speaking; Reduce Motion hides it. Ivy's level is scheduled against playback time from the PCM, not tapped from the output device. |
-| 10.5 Voice settings | Partly done | ElevenLabs speed / stability / style (sent only when changed) with a preview button; Live answer length and pace as instruction hints; Kore untouched. **Not done:** input-device picker. |
+| 10.5 Voice settings | Partly done | ElevenLabs speed / stability / style (sent only when changed) with a preview button; Live answer length and pace as instruction hints; Tavi untouched. **Not done:** input-device picker. |
 | 10.6 Device switching | Not started here | Mid-session route changes were already handled in Phase 8.3. No picker, no AirPods preference. |
 | 10.7 Sleep / wake / lock | Done (logic) | `IvyAppEnvironment.handle(_:)` + `observeSystemEvents()`. |
 | 10.8 Voice commands | Done, with a deviation | stop, cancel, end/goodbye, mute/unmute, repeat that. See below. |

@@ -1,6 +1,6 @@
 # Voice settings refresh — 2026-10-08
 
-Current artifacts are build 20, retaining this design and [refining companion text](companion-text-refresh.md).
+Current artifacts are build 24, retaining this design and [refining companion text](companion-text-refresh.md).
 The release measurements below describe the original build 14 delivery.
 
 ## Delivered in 1.1.0 (14)

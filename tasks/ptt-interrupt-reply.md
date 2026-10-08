@@ -1,6 +1,6 @@
 # Push-to-talk reply interruption — 2026-10-08
 
-Current artifacts are build 20, retaining this change and [adding background companion work](background-companion.md).
+Current artifacts are build 24, retaining this change and [adding background companion work](background-companion.md).
 
 ## Behavior in 1.1.0, build 11
 

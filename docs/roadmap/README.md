@@ -2,6 +2,11 @@
 
 Current source audit and prioritized backlog: [remaining work](../../tasks/remaining.md). Historical phase checklists may predate the desktop UI and later integration fixes.
 
+New delivery priority: [Phase 21 — Reliability and model readiness](phase-21-model-readiness.md)
+orders voice acceptance, replaceable model support, evaluations, the floating task panel, production
+computer control, generated files, memory controls, usage diagnostics and reviewed training examples.
+The companion upper drag-limit fix starts the reliability slice; the other slices remain planned.
+
 Planned next capabilities: [Phase 19 — Computer Control](phase-19-computer-control.md) and
 [Phase 20 — Assistant Workspace](phase-20-assistant-workspace.md). Together they cover Mac input,
 adaptive tasks, a floating panel, generated files, routines, screen-aware dictation, goal interviews,
@@ -11,7 +16,7 @@ complete capability matrix, fourteen active workstreams (20.12 cancelled) and co
 not shipped; the first milestone is reviewed Calculator/TextEdit control with a shared floating panel.
 
 v1.0 (Phases 1–7) shipped the core: menu-bar chat on Gemini REST, five SafetyGate-guarded macOS tools,
-ElevenLabs TTS, Gemini Live voice (Kore) with "Hey Ivy" barge-in and idle wake, ⌘⇧Space push-to-talk,
+ElevenLabs TTS, Gemini Live voice (Tavi) with "Hey Ivy" barge-in and idle wake, ⌘⇧Space push-to-talk,
 Keychain credentials, persisted settings/history and hardened-runtime packaging. The current friend-testing
 package is ad-hoc signed; notarization is deferred.
 
@@ -71,7 +76,7 @@ Numbering is kept as agreed, but a few dependencies shape the build order:
 1. **SafetyGate is authoritative.** Every tool call: Gemini → argument validation → safety classification →
    SafetyGate → explicit user confirmation if risky → execution → result → Gemini. Natural language, voice,
    macros, plans, schedules and personalization can never approve a risky action.
-2. **Kore stays the locked Live voice** (`models/gemini-3.1-flash-live-preview`). ElevenLabs stays for TTS.
+2. **Tavi stays the locked Live voice** (`models/gemini-3.8-live`). ElevenLabs stays for TTS.
 3. **Privacy by default.** Microphone, screen and background features are opt-in, visibly indicated, and
    on-device wherever possible. Screenshots and audio are never persisted.
 4. **Secrets live only in the Keychain.** Never in settings, history, logs, exports, prompts or files.

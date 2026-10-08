@@ -1,9 +1,22 @@
 # Remaining work
 
-Updated 2026-10-08 for the v1.1.0 build-20 friend-testing build. Original phase checklists are acceptance criteria,
+Updated 2026-10-08 for the v1.1.0 build-24 friend-testing build. Original phase checklists are acceptance criteria,
 not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.md) for implemented scope.
 
 ## Implemented in this release
+
+- Build 24 fixes the companion upper drag limit by allowing transparent panel space above the
+  display. Visible content retains the existing screen bounds. See [verification](companion-top-edge.md).
+
+- Build 23 shows script/command purposes in the compact companion approval; the app retains
+  complete payload review. See [verification](script-approval-purpose.md).
+
+- Build 22 explicitly marks PTT audio activity start/end; synthetic audio recognition and Tavi reply
+  were verified after automatic-VAD input stalled. See [verification](ptt-activity-boundaries.md).
+
+- Build 21 uses Google’s commercial Tavi voice on Gemini 3.8 Live with blocking Live tools.
+  Google setup and short audio generation were verified; physical microphone/PTT listening remains manual.
+  See [verification and testing](tavi-live-voice.md).
 
 - Build 20 makes the companion the default launch surface without a Dock/Command-Tab entry.
   The workspace opens on demand. See [verification](companion-first-launch.md).
@@ -66,6 +79,16 @@ not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.
   task panel and unattended/recurring execution remain pending.
 
 ## Before broader distribution
+
+- Build 24 is installed and verified, but the latest relaunch waits in an existing Keychain read
+  before companion creation. macOS SecurityAgent is running; handle the access prompt locally,
+  then verify visible launch and real dragging. Automated placement tests pass. No credential or
+  Keychain permission was modified by this task.
+
+- [Phase 21 — Reliability and model readiness](../docs/roadmap/phase-21-model-readiness.md) is the
+  current phased delivery plan. Companion upper drag-limit repair starts 21.1; voice hardware acceptance,
+  provider support/evaluations and the floating task panel are the first milestone. Existing Phase 19/20
+  scope and cancelled Pointer work remain unchanged.
 
 - Test the rebuilt DMG's UI refresh, compact companion Cancel / Do it card and PTT release on hardware.
   The companion card implements tool approval access; the full Phase 20 floating task panel remains pending.

@@ -313,7 +313,7 @@ public protocol GeminiClientProtocol: Sendable {
 - Replies: selectable Markdown, horizontally scrolling code/diff blocks, copy and read-aloud actions. Action buttons briefly pulse on click; Copy shows a checkmark and “Copied” for two seconds, resetting on repeated clicks. Read Aloud immediately shows cancellable “Preparing…” progress, then Stop Reading during playback. Reduce Motion suppresses movement while retaining status feedback. User messages use a subtle indigo-tinted bubble.
 - Empty state: a next action for setting up credentials, or suggestions that prefill the composer without sending anything.
 - Composer: multiline text, Return to send, Shift-Return to insert a newline; text or attachments enable sending.
-- Push-to-talk records while the shortcut is held. Releasing it stops microphone input, drains the last recorded frames and sends the Live API audio-stream-end marker. Ivy remains connected to answer, then closes after playback or a silent completed turn. Speech captured while connecting is submitted once the socket is ready. A silent press cancels; an existing hands-free session remains continuous. Repeated release never submits twice, and a new hold during thinking, speech or approval interrupts the old session and starts a fresh PTT request. The original playback stops, partial reply transcripts are retained as interrupted, pending approval is denied, and stale events from the old socket cannot reach the new request. Key repeat cannot restart a held request. Release during interruption cleanup is retained; explicit Stop/shutdown or a monitor failure cancels the restart. A silent replacement closes without a turn, and every replacement release closes microphone input.
+- Push-to-talk records while the shortcut is held. Releasing it stops microphone input, drains the last recorded frames and sends the Live API activity-end marker. Fresh PTT connections disable automatic activity detection and send activity-start before the first audio frame; duplicate release and silent input cannot create a second turn. Existing hands-free sessions retain automatic detection and audio-stream-end flushing. Ivy remains connected to answer, then closes after playback or a silent completed turn. Speech captured while connecting is submitted once the socket is ready. A silent press cancels; an existing hands-free session remains continuous. Repeated release never submits twice, and a new hold during thinking, speech or approval interrupts the old session and starts a fresh PTT request. The original playback stops, partial reply transcripts are retained as interrupted, pending approval is denied, and stale events from the old socket cannot reach the new request. Key repeat cannot restart a held request. Release during interruption cleanup is retained; explicit Stop/shutdown or a monitor failure cancels the restart. A silent replacement closes without a turn, and every replacement release closes microphone input.
   Release also closes capture if the server has already started its reply or requested approval, without cancelling either or submitting the same utterance again. Push-to-talk replies use an output-only audio engine so playback cannot reopen the microphone. Session teardown always releases capture-engine resources, including an engine restarted after its input stream closed. Opt-in idle wake listening remains a separate microphone user.
   While a registered PTT shortcut is held, a 50-ms release watchdog checks its actual key/modifier state
   independently of Carbon/flagsChanged callbacks. Releasing the key or a required modifier, or removing
@@ -322,6 +322,10 @@ public protocol GeminiClientProtocol: Sendable {
   failure releases voice resources but retains the hold check until release, preventing key-repeat from
   reconnecting. Stop resets the held state so a missed callback cannot block the next press. The check
   never answers an approval or cancels a reply.
+- Live speech uses Gemini 3.8 Live (`models/gemini-3.8-live`) with Google's commercial Tavi voice
+  (`en-us-tavi`). Initial setup and reconnects use the same voice ID. Live tool declarations explicitly
+  use `BLOCKING` so replies wait for Ivy's existing approval and execution result; REST schemas are
+  unchanged. Session setup omits unsupported thinking/proactive/affective options.
 - Voice replies have a session/connection/turn-bound inactivity deadline. After PTT release, a turn
   without recognized transcription, a tool call or reply content times out after 8 seconds with a
   retry notice. Once progress is confirmed, 15 seconds without further reply content or completion
@@ -362,8 +366,15 @@ public protocol GeminiClientProtocol: Sendable {
   Hidden companions pause animation; Reduce Motion uses the ordinary static idle pose. Returning
   to idle or turning motion back on starts with a quiet interval rather than resuming an interrupted activity.
 - Drag the character or status pill freely; a four-point threshold distinguishes dragging from clicking. A drag never opens the app. Dropped positions are remembered relative to their display and clamped by visible content bounds, allowing the character and status pill to reach the screen edges despite the panel's transparent margins. Bounds adapt when captions change size; a main-display fallback handles a saved display disappearing. There is no automatic corner snap. The panel is non-activating; a normal click opens Ivy and right-click provides Open Ivy, end voice, stop task and hide actions. Animation stops while hidden. All approvals remain in the existing confirmation flow.
+  AppKit's full-window top-edge constraint is overridden for this transparent companion panel;
+  the controller owns visible-content clamping. Empty panel space may extend above the display,
+  while the character, caption and approval controls remain below the menu bar in the usable area.
 - A pending chat/task or Live tool approval replaces the companion's status pill below the character
-  with only its action reason and Do it / Cancel buttons in a 228×88-point bubble. The compact reason
+  with only its action reason and Do it / Cancel buttons in a 228×88-point bubble. Script/command tools
+  include a plain-language `reason` describing the goal and material changes; the companion displays
+  that reason instead of a generic execution title. The app keeps the technical title, purpose and full
+  script/command. Reasons are whitespace-normalized and credential-redacted; older calls without one
+  show a neutral requested-script/command fallback. A reason never authorizes execution. The compact reason
   uses smaller medium-weight type; both buttons have equal widths and 28-point targets with readable
   neutral/accent text even when the panel is inactive. Approval and speech/error bubbles use opaque
   adaptive surfaces and a subtle outline, as do status pills, so desktop colours cannot wash out their text. Speech captions

@@ -1,6 +1,6 @@
 # Idle companion animations — 2026-10-07
 
-Current artifacts are build 20, retaining phone/laptop animations and [chat ordering](chat-feed-ordering.md),
+Current artifacts are build 24, retaining phone/laptop animations and [chat ordering](chat-feed-ordering.md),
 and adding [blushing/clasped hands](companion-blush-animation.md).
 [Dancing has been removed](companion-dance-removal.md). The measurements below describe the original build 7 delivery.
 

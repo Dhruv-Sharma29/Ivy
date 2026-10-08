@@ -1,6 +1,6 @@
 # Companion dance removal — 2026-10-07
 
-Current artifacts are build 20, retaining dance removal and [adding blushing/clasped hands](companion-blush-animation.md).
+Current artifacts are build 24, retaining dance removal and [adding blushing/clasped hands](companion-blush-animation.md).
 The verification below describes the original build 9 delivery.
 
 ## Delivered in 1.1.0, build 9

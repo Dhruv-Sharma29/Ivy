@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Local v1.1.0 build 24 lets the visible companion reach the usable screen's top edge.
+  AppKit no longer reserves the transparent panel margin above Ivy; existing visible-content
+  placement keeps captions and approvals onscreen. Adds native regression tests and the phased
+  reliability/model-readiness delivery plan.
+
+- Local v1.1.0 build 23 displays a specific purpose on companion script/command approvals instead
+  of generic execution titles. Model tool declarations require a short reason; older calls remain
+  compatible with neutral fallback text. The app retains the technical title and complete payload.
+  Purpose text is normalized/redacted and never approves execution. Bubble layout is unchanged.
+
+- Local v1.1.0 build 22 restores push-to-talk recognition by disabling server automatic VAD for
+  fresh PTT connections and sending explicit activity-start/end markers around the audio.
+  Duplicate/silent release cannot create extra turns; reconnects retain the selected input mode.
+  Existing hands-free input, tool approvals, interruption and retry deadlines remain.
+
+- Local v1.1.0 build 21 switches Live conversation and push-to-talk to Google’s commercial Tavi
+  voice (`en-us-tavi`). Gemini 3.8 Live is required: the old 3.1 model rejects this voice. Initial
+  connections and reconnects retain the voice; Live tools explicitly use blocking behavior to
+  preserve approval and result ordering. REST tools and optional ElevenLabs Read Aloud are unchanged.
+
 - Local v1.1.0 build 18 replaces the Personalization personality and answer-length segments with
   explanatory option cards, selected checkmarks and adaptive stacking. Existing profile values,
   persistence, keyboard selection and prompt behavior are preserved. Companion UI is unchanged.

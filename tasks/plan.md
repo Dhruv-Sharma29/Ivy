@@ -1,5 +1,20 @@
 # Implementation Plan: Ivy macOS Assistant
 
+> Next delivery plan (2026-10-08): [Reliability and model readiness](../docs/roadmap/phase-21-model-readiness.md)
+> covers the requested improvements while Ivy's own LLM is developed. The reported companion upper
+> drag limit is the first reliability fix; model support, evaluations and floating task panel follow.
+
+> Script approvals (2026-10-08, build 23): The companion displays the action purpose above its
+> existing buttons; full app review and explicit decisions remain. See [verification](script-approval-purpose.md).
+
+> Push-to-talk recovery (2026-10-08, build 22): Fresh PTT connections use explicit activity markers
+> and disable automatic server VAD. Recognition and Tavi audio work in the synthetic input test.
+> See [verification](ptt-activity-boundaries.md).
+
+> Live voice update (2026-10-08, build 21): Google commercial Tavi (`en-us-tavi`) uses Gemini 3.8 Live.
+> Blocking tool declarations preserve the existing approval/result flow; REST tool schemas remain unchanged.
+> See [verification and testing](tavi-live-voice.md).
+
 > Companion launch (2026-10-08, build 20): Launch/reopen shows only the companion, with no Dock icon.
 > Menu/companion actions open the full workspace on demand; first-run onboarding remains available.
 > See [verification](companion-first-launch.md).
@@ -93,7 +108,7 @@ Ivy is a native macOS menu bar assistant built with Swift and SwiftUI that conne
 
 ### 3. Voice & Audio Architecture (Phase 4)
 - **ElevenLabs TTS**: `ElevenLabsSpeechSynthesizer` communicating with ElevenLabs REST endpoint for reading chat messages aloud with custom voice (`GO7CKs5ENqIU2xXLHrtL`) or default fallback (`EXAVITQu4vr4xnSDxMaL`). Managed by `VoicePlaybackManager`.
-- **Gemini Live Multimodal Voice**: `GeminiLiveClient` bidirectional WebSocket client running over `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent`. Real-time audio streaming at 16kHz PCM mono with prebuilt voice (`Kore`).
+- **Gemini Live Multimodal Voice**: `GeminiLiveClient` bidirectional WebSocket client running over `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`. Real-time audio streaming at 16kHz PCM mono with prebuilt voice (`en-us-tavi`, Tavi).
 - **Interruption System**: `SystemWakeWordDetector` with `WakePhraseMatcher` monitoring speech for "Hey Ivy" variants during assistant playback, immediately stopping audio and clearing pending audio buffers.
 - **Push-to-Talk Hotkey**: `SystemGlobalHotkeyManager` using Carbon Event Manager registering `⌘ + ⇧ + Space` (`Command + Shift + Space`) with zero Accessibility permission requirements.
 - **Voice Tool Calling**: `GeminiLiveVoiceCoordinator` routes live tool calls through `SafetyGate` and `ToolDispatcher`, rendering in-character confirmation cards in the popover and returning `toolResponse` over the WebSocket.

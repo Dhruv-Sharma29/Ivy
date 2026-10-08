@@ -1,6 +1,6 @@
 # Companion text refresh — 2026-10-08
 
-Current artifacts are build 20, retaining this companion design and adding [detailed app approvals](app-approval-details.md).
+Current artifacts are build 24, retaining this companion design and adding [detailed app approvals](app-approval-details.md).
 
 
 ## Delivered in 1.1.0 (15)
