@@ -174,4 +174,10 @@ class CompanionPanel: NSPanel {
     var allowsKeyboard = false
     override var canBecomeKey: Bool { allowsKeyboard }
     override var canBecomeMain: Bool { false }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // The controller bounds the visible stack, including captions and approval buttons.
+        // AppKit's full-window top clamp would reserve the transparent margin above idle Ivy.
+        frameRect
+    }
 }
