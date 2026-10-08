@@ -18,7 +18,8 @@ struct TasksWorkspaceView: View {
                 }
                 Spacer(minLength: 12)
                 Button(action: newTask) { Label("New task", systemImage: "plus") }
-                    .ivyGlassButtonStyle().disabled(blocked || session.isSubmitting)
+                    .ivyGlassButtonStyle().disabled(session.isSubmitting)
+                    .accessibilityIdentifier("ivy.tasks.new")
             }
             .padding(24).frame(maxWidth: 900).frame(maxWidth: .infinity)
             ScrollViewReader { proxy in
@@ -73,7 +74,7 @@ struct TasksWorkspaceView: View {
                 MessageInputBar(text: $session.draft, isThinking: blocked || session.isSubmitting,
                     placeholder: session.selectedRun == nil ? "Describe a task…" : "Plan a follow-up…",
                     onSend: send)
-                Text(blocked ? "Finish or stop the active request before sending another task." : "Send a goal to draft a plan. Review it before choosing Run this plan.")
+                Text(blocked ? "You can draft a task now. Finish or stop the active request before sending it." : "Send a goal to draft a plan. Review it before choosing Run this plan.")
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.bottom, 12)
             }
             .frame(maxWidth: 900).frame(maxWidth: .infinity)
@@ -115,7 +116,7 @@ struct TasksWorkspaceView: View {
                         .contentShape(RoundedRectangle(cornerRadius: IvyTheme.cardRadius))
                         .ivyGlass(cornerRadius: IvyTheme.cardRadius, interactive: true)
                     }
-                    .buttonStyle(IvyNavigationButtonStyle()).disabled(blocked || session.isSubmitting)
+                    .buttonStyle(IvyNavigationButtonStyle()).disabled(session.isSubmitting)
                     .accessibilityHint("Draft this goal in Tasks without sending it")
                 }
             }
@@ -123,13 +124,13 @@ struct TasksWorkspaceView: View {
     }
 
     func newTask() {
-        guard !blocked, !session.isSubmitting else { return }
+        guard !session.isSubmitting else { return }
         session.newTask()
         onSelect?(nil)
     }
 
     func draft(_ prompt: String) {
-        guard !blocked, !session.isSubmitting else { return }
+        guard !session.isSubmitting else { return }
         session.newTask(prompt: prompt)
         onSelect?(nil)
     }

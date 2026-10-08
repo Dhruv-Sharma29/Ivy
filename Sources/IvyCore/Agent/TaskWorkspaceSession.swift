@@ -46,9 +46,9 @@ public final class TaskWorkspaceSession: ObservableObject {
         error = nil
     }
 
-    /// Starter cards only draft text. They never ask the planner or execute a tool.
+    /// Drafting is independent of active work. Sending still waits for the engine to be free.
     public func newTask(prompt: String? = nil, blocked: Bool = false) {
-        guard !blocked, !isSubmitting, engine.run?.isActive != true else { return }
+        guard !blocked, !isSubmitting else { return }
         saveDraft()
         selectedTaskID = nil
         isNewTask = true
