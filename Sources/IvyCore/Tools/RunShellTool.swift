@@ -19,9 +19,13 @@ public final class RunShellTool: IvyTool, Sendable {
                 "command": ToolProperty(
                     type: "STRING",
                     description: "The shell command to execute (e.g. 'sw_vers', 'git status', 'uname -a')."
+                ),
+                "reason": ToolProperty(
+                    type: "STRING",
+                    description: "Always include a short, specific plain-language sentence explaining what this command will do and why, for the approval bubble. Name the target and material changes. Do not use a generic command-execution label."
                 )
             ],
-            required: ["command"]
+            required: ["command", "reason"]
         )
     )
 

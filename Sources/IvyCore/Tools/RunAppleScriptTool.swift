@@ -18,9 +18,13 @@ public final class RunAppleScriptTool: IvyTool, Sendable {
                 "script": ToolProperty(
                     type: "STRING",
                     description: "The valid AppleScript code string to execute."
+                ),
+                "reason": ToolProperty(
+                    type: "STRING",
+                    description: "Always include a short, specific plain-language sentence explaining what this script will do and why, for the approval bubble. Name the target app or item and material changes. Example: Open YouTube in Safari. Do not use a generic script-execution label."
                 )
             ],
-            required: ["script"]
+            required: ["script", "reason"]
         )
     )
 

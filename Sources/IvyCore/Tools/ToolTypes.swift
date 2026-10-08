@@ -503,7 +503,7 @@ public enum ToolValidation {
             throw ToolError.invalidArgument("Argument 'command' must be a string.")
         }
 
-        let allowedKeys: Set<String> = ["command"]
+        let allowedKeys: Set<String> = ["command", "reason"]
         for key in args.keys {
             if !allowedKeys.contains(key) {
                 throw ToolError.invalidArgument("Unexpected argument: '\(key)'.")
@@ -513,5 +513,4 @@ public enum ToolValidation {
         return try validateShellCommand(commandString)
     }
 }
-
 

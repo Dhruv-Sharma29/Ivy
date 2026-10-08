@@ -26,7 +26,7 @@ struct RunAppleScriptToolTests {
         #expect(tool.safetyClassification == .risky)
         #expect(tool.declaration.name == "run_applescript")
         #expect(tool.declaration.parameters?.properties["script"]?.type == "STRING")
-        #expect(tool.declaration.parameters?.required == ["script"])
+        #expect(tool.declaration.parameters?.required == ["script", "reason"])
     }
 
     @Test("Successful execution returns output in ToolResult")

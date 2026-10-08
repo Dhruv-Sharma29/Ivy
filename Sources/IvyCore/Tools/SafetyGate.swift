@@ -9,6 +9,21 @@ public struct ConfirmationRequest: Identifiable, Sendable, Equatable {
     public let title: String
     public let prompt: String
     public let detail: String
+    public let reason: String?
+
+    /// The compact companion explains intent while the workspace retains the complete action payload.
+    public var companionReason: String {
+        if let reason { return reason }
+        if toolName == "run_applescript" { return "Run the requested script" }
+        if toolName == "run_shell", title == "Run Shell Command" { return "Run the requested command" }
+        return title
+    }
+
+    static func normalizedReason(_ reason: String?) -> String? {
+        guard let reason else { return nil }
+        let text = reason.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        return text.isEmpty ? nil : SecretRedactor.redact(text)
+    }
 
     public init(
         id: UUID = UUID(),
@@ -17,7 +32,8 @@ public struct ConfirmationRequest: Identifiable, Sendable, Equatable {
         toolName: String,
         title: String,
         prompt: String,
-        detail: String
+        detail: String,
+        reason: String? = nil
     ) {
         self.id = id
         self.callId = callId
@@ -26,6 +42,7 @@ public struct ConfirmationRequest: Identifiable, Sendable, Equatable {
         self.title = title
         self.prompt = prompt
         self.detail = detail
+        self.reason = Self.normalizedReason(reason)
     }
 }
 
@@ -156,12 +173,15 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
     private func buildConfirmationRequest(tool: IvyTool, call: FunctionCall) -> ConfirmationRequest {
         if tool.name == "run_applescript" {
             let script = call.args["script"]?.stringValue ?? "(empty script)"
+            let reason = ConfirmationRequest.normalizedReason(call.args["reason"]?.stringValue)
             return ConfirmationRequest(
                 callId: call.id,
                 toolName: tool.name,
                 title: "AppleScript Execution",
-                prompt: "You're about to run an AppleScript. If you regret this, don't blame me. Do it or chicken out?",
-                detail: script
+                prompt: reason.map { "\($0)\nReview the full script below before approving." }
+                    ?? "You're about to run an AppleScript. If you regret this, don't blame me. Do it or chicken out?",
+                detail: script,
+                reason: reason
             )
         } else if tool.name == "calendar_event" {
             let title = call.args["title"]?.stringValue ?? "(untitled event)"
@@ -220,12 +240,15 @@ public final class InteractiveSafetyGate: SafetyGateProtocol, Sendable {
         } else if tool.name == "run_shell" {
             let rawCommand = call.args["command"]?.stringValue ?? "(empty command)"
             let command = (try? ToolValidation.validateShellCommand(rawCommand)) ?? rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            let reason = ConfirmationRequest.normalizedReason(call.args["reason"]?.stringValue)
             return ConfirmationRequest(
                 callId: call.id,
                 toolName: tool.name,
                 title: "Run Shell Command",
-                prompt: "You're about to run a shell command. If this breaks your system, don't blame me. Do it or chicken out?",
-                detail: command
+                prompt: reason.map { "\($0)\nReview the full command below before approving." }
+                    ?? "You're about to run a shell command. If this breaks your system, don't blame me. Do it or chicken out?",
+                detail: command,
+                reason: reason
             )
         } else if let custom = tool.confirmation(for: call.args) {
             return ConfirmationRequest(callId: call.id, toolName: tool.name, title: custom.title, prompt: custom.prompt, detail: custom.detail)

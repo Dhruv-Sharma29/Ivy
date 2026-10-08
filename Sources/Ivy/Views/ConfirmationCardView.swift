@@ -15,12 +15,12 @@ public struct ConfirmationCardView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(request.title)
+            Text(compact ? request.companionReason : request.title)
                 .font(.system(size: compact ? 12 : 13, weight: .medium))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .help([request.title, request.prompt, request.detail].joined(separator: "\n\n"))
+                .help([request.companionReason, request.title, request.prompt, request.detail].joined(separator: "\n\n"))
                 .accessibilityIdentifier("ivy.approval.reason")
             HStack(spacing: 8) {
                 if !compact { Spacer(minLength: 0) }

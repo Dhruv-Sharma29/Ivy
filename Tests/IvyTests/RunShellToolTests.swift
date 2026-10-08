@@ -177,7 +177,7 @@ struct RunShellToolExecutionTests {
         #expect(tool.safetyClassification == .risky)
         #expect(tool.declaration.name == "run_shell")
         #expect(tool.declaration.parameters?.properties["command"]?.type == "STRING")
-        #expect(tool.declaration.parameters?.required == ["command"])
+        #expect(tool.declaration.parameters?.required == ["command", "reason"])
     }
 
     @Test("Successful execution returns successful ToolResult")
