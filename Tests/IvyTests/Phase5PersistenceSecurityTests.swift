@@ -641,11 +641,11 @@ struct Phase5SecurityAuditTests {
         }
     }
 
-    @Test("Live model and Kore voice stay locked")
+    @Test("Live model and Tavi voice stay locked")
     @MainActor
     func liveLocked() {
-        #expect(GeminiLiveClient(apiKey: "test").model == "models/gemini-3.1-flash-live-preview")
-        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "Kore")
+        #expect(GeminiLiveClient(apiKey: "test").model == "models/gemini-3.8-live")
+        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "en-us-tavi")
     }
 }
 

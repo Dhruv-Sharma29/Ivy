@@ -901,9 +901,9 @@ struct Phase4DVoiceToolCallingTests {
         #expect(synthesizer.configuration.voiceID == "test_voice")
     }
 
-    @Test("26. Gemini Live voice name remains strictly configured as Kore")
-    func testLiveVoiceNameStrictlyKore() {
-        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "Kore")
-        #expect(GeminiLiveClient.liveVoiceName == "Kore")
+    @Test("26. Gemini Live voice name remains strictly configured as Tavi")
+    func testLiveVoiceNameStrictlyTavi() {
+        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "en-us-tavi")
+        #expect(GeminiLiveClient.liveVoiceName == "en-us-tavi")
     }
 }

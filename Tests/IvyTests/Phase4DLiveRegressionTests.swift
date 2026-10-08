@@ -120,7 +120,7 @@ struct Phase4DLiveRegressionTests {
         let setupData = try #require(setupStr.data(using: .utf8))
         let decoded = try JSONDecoder().decode(BidiClientMessage.self, from: setupData)
         #expect(decoded.setup != nil)
-        #expect(decoded.setup?.model == "models/gemini-3.1-flash-live-preview")
+        #expect(decoded.setup?.model == "models/gemini-3.8-live")
 
         await client.disconnect()
     }
@@ -425,13 +425,13 @@ struct Phase4DLiveRegressionTests {
         #expect(coordinator.state == .idle)
     }
 
-    @Test("13. Kore regression: Live voice name remains strictly configured as Kore")
-    func testLiveVoiceNameIsKore() {
-        #expect(GeminiLiveClient.liveVoiceName == "Kore")
-        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "Kore")
+    @Test("13. Tavi regression: Live voice name remains strictly configured as Tavi")
+    func testLiveVoiceNameIsTavi() {
+        #expect(GeminiLiveClient.liveVoiceName == "en-us-tavi")
+        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "en-us-tavi")
 
         let client = GeminiLiveClient(apiKey: "key")
-        #expect(client.voiceName == "Kore")
+        #expect(client.voiceName == "en-us-tavi")
     }
 
     @Test("14. TCC safety: SystemWakeWordDetector returns false safely without crashing outside .app bundle")

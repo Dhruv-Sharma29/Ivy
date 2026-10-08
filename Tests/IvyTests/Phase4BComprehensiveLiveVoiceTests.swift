@@ -406,7 +406,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
         #expect(!msg.contains("Gemini Live"))
     }
 
-    @Test("13. Voice Lock: Restart and interruption followed by new turn preserves Kore voice")
+    @Test("13. Voice Lock: Restart and interruption followed by new turn preserves Tavi voice")
     func testVoiceLockOnRestartAndInterruption() async throws {
         let transportsLock = OSAllocatedUnfairLock(initialState: [MockWebSocketTransport]())
         let client = GeminiLiveClient(
@@ -437,7 +437,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
             return
         }
         let decoded1 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setup1.data(using: .utf8)))
-        #expect(decoded1.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+        #expect(decoded1.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "en-us-tavi")
 
         // Simulate server setupComplete
         firstTransport.enqueueReceiveString("{\"setupComplete\": {}}")
@@ -452,7 +452,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
             return
         }
         let decoded2 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setup2.data(using: .utf8)))
-        #expect(decoded2.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+        #expect(decoded2.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "en-us-tavi")
 
         await coordinator.stopSession()
     }
@@ -651,8 +651,8 @@ struct Phase4BComprehensiveLiveVoiceTests {
         await coordinator.stopSession()
     }
 
-    @Test("18. Interruption preserves session and post-interruption reconnect strictly uses Kore voice")
-    func testInterruptionAndPostInterruptionRestartRetainsKoreVoice() async throws {
+    @Test("18. Interruption preserves session and post-interruption reconnect strictly uses Tavi voice")
+    func testInterruptionAndPostInterruptionRestartRetainsTaviVoice() async throws {
         let transportsLock = OSAllocatedUnfairLock(initialState: [MockWebSocketTransport]())
         let client = GeminiLiveClient(
             apiKey: "test-api-key",
@@ -684,7 +684,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
             return
         }
         let decoded1 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setupStr1.data(using: .utf8)))
-        #expect(decoded1.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+        #expect(decoded1.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "en-us-tavi")
 
         // 2. Transition to speaking, interrupt via Hey Ivy
         transport1.enqueueReceiveString("{\"setupComplete\": {}}")
@@ -744,7 +744,7 @@ struct Phase4BComprehensiveLiveVoiceTests {
             return
         }
         let decoded2 = try JSONDecoder().decode(BidiClientMessage.self, from: try #require(setupStr2.data(using: .utf8)))
-        #expect(decoded2.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+        #expect(decoded2.setup?.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "en-us-tavi")
 
         await coordinator.stopSession()
     }

@@ -687,20 +687,20 @@ struct Phase4BInterruptionHotfixTests {
     @Test("22. Existing Gemini Live tests remain passing")
     func test22_existingGeminiLiveTestsRemainPassing() {
         let client = GeminiLiveClient(apiKey: "test-api-key")
-        #expect(client.model == "models/gemini-3.1-flash-live-preview")
-        #expect(client.voiceName == "Kore")
+        #expect(client.model == "models/gemini-3.8-live")
+        #expect(client.voiceName == "en-us-tavi")
     }
 
-    @Test("23. Kore voice tests remain passing")
+    @Test("23. Tavi voice tests remain passing")
     func test23_koreVoiceTestsRemainPassing() {
         let config = BidiPrebuiltVoiceConfig(voiceName: "Aoede")
-        #expect(config.voiceName == "Kore")
+        #expect(config.voiceName == "en-us-tavi")
 
         let setup = BidiSetup()
-        #expect(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+        #expect(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "en-us-tavi")
 
         let client = GeminiLiveClient(apiKey: "key", voiceName: "Fenrir")
-        #expect(client.voiceName == "Kore")
+        #expect(client.voiceName == "en-us-tavi")
     }
 
     @Test("24. ElevenLabs tests remain passing")

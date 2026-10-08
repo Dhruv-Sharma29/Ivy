@@ -633,12 +633,12 @@ struct Phase4EVoiceUXTests {
 
     // MARK: - Regression guards for preserved behavior
 
-    @Test("Gemini Live model and Kore voice are preserved")
+    @Test("Gemini Live model and Tavi voice are preserved")
     func liveModelAndVoicePreserved() {
         let client = GeminiLiveClient(apiKey: "test")
-        #expect(client.model == "models/gemini-3.1-flash-live-preview")
-        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "Kore")
-        #expect(client.voiceName == "Kore")
+        #expect(client.model == "models/gemini-3.8-live")
+        #expect(GeminiLiveVoiceCoordinator.liveVoiceName == "en-us-tavi")
+        #expect(client.voiceName == "en-us-tavi")
     }
 
     // MARK: - Extended Verification for Phase 4E Requirements

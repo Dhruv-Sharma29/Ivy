@@ -31,13 +31,15 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         var continuation: AsyncThrowingStream<LiveEvent, Error>.Continuation? = nil
         var receiveTask: Task<Void, Never>? = nil
         var pendingSendContinuations: [CheckedContinuation<WebSocketTransport, Error>] = []
+        var manualActivityDetection = false
+        var audioActivityOpen = false
     }
 
     private let state: OSAllocatedUnfairLock<State>
 
     public init(
         apiKey: String,
-        model: String = "models/gemini-3.1-flash-live-preview",
+        model: String = BidiSetup.liveModelName,
         voiceName: String = liveVoiceName,
         systemInstruction: String? = nil,
         tools: [ToolDeclarationWrapper]? = nil,
@@ -120,6 +122,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             s.isConnected = false
             s.isClosed = false
             s.isSetupSent = false
+            s.audioActivityOpen = false
             let ws = s.webSocket
             let task = s.receiveTask
             let sends = s.pendingSendContinuations
@@ -152,6 +155,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
             s.isClosed = false
             s.isConnected = false
             s.isSetupSent = false
+            s.audioActivityOpen = false
         }
         print("[LIVE] socket created id=\(id)")
 
@@ -183,7 +187,8 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                 systemInstruction: systemInstruction.map { BidiSystemInstruction(text: $0) },
                 tools: filteredTools,
                 transcribesAudio: transcribesAudio,
-                silenceDurationMs: silenceDurationMs
+                silenceDurationMs: silenceDurationMs,
+                manualActivityDetection: state.withLock { $0.manualActivityDetection }
             )
             let setupMessage = BidiClientMessage(setup: setup)
 
@@ -192,7 +197,7 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
                 guard let jsonString = String(data: data, encoding: .utf8) else {
                     throw LiveError.setupFailed("Failed to encode setup payload.")
                 }
-                print("[LIVE VOICE] voice=Kore")
+                print("[LIVE VOICE] voice=\(Self.liveVoiceName)")
                 try await ws.send(.string(jsonString))
                 print("[LIVE] setup sent id=\(id)")
             } catch {
@@ -206,6 +211,16 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         startReceiveLoop(transport: ws, connectionId: connectionId)
     }
 
+    /// Session setup cannot change VAD mode after connection. Reconnects retain the chosen mode.
+    public func configurePushToTalkInput(_ enabled: Bool) throws {
+        try state.withLock { s in
+            guard s.webSocket == nil || s.isClosed else {
+                throw LiveError.setupFailed("Input mode cannot change during a connected voice session.")
+            }
+            s.manualActivityDetection = enabled
+        }
+    }
+
     public func sendAudio(_ data: Data) async throws {
         let ws = try await getConnectedWebSocket()
 
@@ -213,6 +228,15 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
         let message = BidiClientMessage(realtimeInput: input)
 
         do {
+            let needsStart = state.withLock { s -> Bool in
+                guard s.manualActivityDetection, !s.audioActivityOpen else { return false }
+                s.audioActivityOpen = true
+                return true
+            }
+            if needsStart {
+                let startData = try JSONEncoder().encode(BidiClientMessage(realtimeInput: BidiRealtimeInput(activityStarted: true)))
+                try await ws.send(.string(String(decoding: startData, as: UTF8.self)))
+            }
             let jsonData = try JSONEncoder().encode(message)
             guard let jsonString = String(data: jsonData, encoding: .utf8) else {
                 throw LiveError.audioEncodingFailed
@@ -225,7 +249,15 @@ public final class GeminiLiveClient: GeminiLiveSession, @unchecked Sendable {
 
     public func endAudioInput() async throws {
         let ws = try await getConnectedWebSocket()
-        let message = BidiClientMessage(realtimeInput: BidiRealtimeInput(audioStreamEnd: true))
+        let mode = state.withLock { s -> (manual: Bool, shouldEnd: Bool) in
+            let manual = s.manualActivityDetection
+            let shouldEnd = !manual || s.audioActivityOpen
+            s.audioActivityOpen = false
+            return (manual, shouldEnd)
+        }
+        guard mode.shouldEnd else { return }
+        let input = mode.manual ? BidiRealtimeInput(activityStarted: false) : BidiRealtimeInput(audioStreamEnd: true)
+        let message = BidiClientMessage(realtimeInput: input)
         do {
             let data = try JSONEncoder().encode(message)
             guard let json = String(data: data, encoding: .utf8) else { throw LiveError.audioEncodingFailed }

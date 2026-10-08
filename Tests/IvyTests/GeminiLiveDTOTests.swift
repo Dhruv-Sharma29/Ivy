@@ -5,6 +5,59 @@ import Foundation
 @Suite("Phase 4B - Gemini Live DTO and Session Protocol Tests")
 struct GeminiLiveDTOTests {
 
+    @Test("Tavi uses the verified Live 3.8 model without unsupported thinking configuration")
+    func taviLiveDefaults() throws {
+        let setup = BidiSetup(transcribesAudio: true, silenceDurationMs: 500)
+        #expect(setup.model == "models/gemini-3.8-live")
+        #expect(GeminiLiveClient(apiKey: "test").model == setup.model)
+        let json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(setup)) as? [String: Any])
+        let generation = try #require(json["generationConfig"] as? [String: Any])
+        #expect(generation["thinkingConfig"] == nil)
+        #expect(generation["responseModalities"] as? [String] == ["AUDIO"])
+        let speech = try #require(generation["speechConfig"] as? [String: Any])
+        let config = try #require(speech["voiceConfig"] as? [String: Any])
+        let prebuilt = try #require(config["prebuiltVoiceConfig"] as? [String: Any])
+        #expect(prebuilt["voiceName"] as? String == "en-us-tavi")
+        #expect(json["inputAudioTranscription"] != nil)
+        #expect(json["outputAudioTranscription"] != nil)
+    }
+
+    @Test("Live tool declarations remain blocking without changing REST schemas or arguments")
+    func liveToolsWaitForApprovalAndResult() throws {
+        let parameters = ToolParameters(properties: ["name": ToolProperty(type: "STRING", description: "App name")], required: ["name"])
+        let tools = [ToolDeclarationWrapper(functionDeclarations: [
+            FunctionDeclaration(name: "open_app", description: "Open the named app", parameters: parameters),
+            FunctionDeclaration(name: "get_time", description: "Read the time")
+        ])]
+        let setup = BidiSetup(tools: tools)
+        let data = try JSONEncoder().encode(setup)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let wrappers = try #require(json["tools"] as? [[String: Any]])
+        let declarations = try #require(wrappers[0]["functionDeclarations"] as? [[String: Any]])
+        #expect(declarations.count == 2)
+        #expect(declarations.allSatisfy { $0["behavior"] as? String == "BLOCKING" })
+        #expect(declarations[0]["name"] as? String == "open_app")
+        #expect(declarations[0]["description"] as? String == "Open the named app")
+        let encodedParameters = try #require(declarations[0]["parameters"] as? [String: Any])
+        #expect(encodedParameters["required"] as? [String] == ["name"])
+        #expect(declarations[1]["parameters"] == nil)
+        #expect(try JSONDecoder().decode(BidiSetup.self, from: data) == setup)
+        let restJSON = try #require(String(data: JSONEncoder().encode(tools), encoding: .utf8))
+        #expect(!restJSON.contains("behavior"))
+    }
+
+    @Test("Live setups preserve absent and empty tool lists")
+    func liveToolsOptionalSerialization() throws {
+        for tools: [ToolDeclarationWrapper]? in [nil, []] {
+            let setup = BidiSetup(tools: tools)
+            let data = try JSONEncoder().encode(setup)
+            #expect(try JSONDecoder().decode(BidiSetup.self, from: data) == setup)
+            let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            if tools == nil { #expect(json["tools"] == nil) }
+            else { #expect((json["tools"] as? [Any])?.isEmpty == true) }
+        }
+    }
+
     @Test("BidiClientMessage setup encodes correctly")
     func testSetupSerialization() throws {
         let setup = BidiSetup(
@@ -13,7 +66,7 @@ struct GeminiLiveDTOTests {
                 responseModalities: ["AUDIO"],
                 speechConfig: BidiSpeechConfig(
                     voiceConfig: BidiVoiceConfig(
-                        prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: "Kore")
+                        prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: "en-us-tavi")
                     )
                 )
             ),
@@ -35,7 +88,7 @@ struct GeminiLiveDTOTests {
         let speechConfig = try #require(genConfig["speechConfig"] as? [String: Any])
         let voiceConfig = try #require(speechConfig["voiceConfig"] as? [String: Any])
         let prebuiltConfig = try #require(voiceConfig["prebuiltVoiceConfig"] as? [String: Any])
-        #expect(prebuiltConfig["voiceName"] as? String == "Kore")
+        #expect(prebuiltConfig["voiceName"] as? String == "en-us-tavi")
 
         let sysInstruction = try #require(setupDict["systemInstruction"] as? [String: Any])
         let parts = try #require(sysInstruction["parts"] as? [[String: Any]])

@@ -9,7 +9,7 @@ public protocol GeminiLiveSession: Sendable {
     /// Streams raw PCM audio data (16kHz 16-bit mono) to Gemini Live.
     func sendAudio(_ data: Data) async throws
 
-    /// Flushes automatic voice activity detection when the microphone input ends, without closing the reply socket.
+    /// Finalizes the current audio turn when microphone input ends, without closing the reply socket.
     func endAudioInput() async throws
 
     /// Sends tool execution results back to Gemini Live.

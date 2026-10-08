@@ -181,7 +181,7 @@ public enum VoiceSpeakingPace: String, Codable, CaseIterable, Sendable {
     case slow, normal, fast
 }
 
-/// Spoken-style hints for Live. These only add text to the system instruction: the voice itself stays Kore.
+/// Spoken-style hints for Live. These only add text to the system instruction: the voice itself stays Tavi.
 public enum LiveVoiceStyle {
     public static func instruction(base: String, length: VoiceResponseLength, pace: VoiceSpeakingPace) -> String {
         var hints: [String] = []

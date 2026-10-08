@@ -245,7 +245,7 @@ struct Phase4DSocketLifecycleTests {
         #expect(session.sentAudioChunks.isEmpty)
     }
 
-    @Test("Restart after failure creates exactly one new connection, streams each chunk once, and keeps Kore")
+    @Test("Restart after failure creates exactly one new connection, streams each chunk once, and keeps Tavi")
     func testRestartAfterFailure() async throws {
         let (client, transports) = makeClient()
         let capture = MockAudioCapture(isPermissionGranted: true)
@@ -271,7 +271,7 @@ struct Phase4DSocketLifecycleTests {
         try await Task.sleep(nanoseconds: 20_000_000)
         #expect(sentStrings(second).count == 2)
         #expect(first.sentMessages.count == firstSent)
-        #expect(sentStrings(second).first?.contains("\"Kore\"") == true)
+        #expect(sentStrings(second).first?.contains("\"en-us-tavi\"") == true)
 
         await coordinator.stopSession()
         #expect(!capture.isCapturing)

@@ -524,21 +524,21 @@ struct Phase10VoiceSettingsTests {
         #expect(decoded.voiceSpeakingPace == .slow && decoded.wakeWordEnabled)
     }
 
-    @Test("length and pace only add text to the instruction; the Live voice is still Kore")
-    func liveStyleKeepsKore() throws {
+    @Test("length and pace only add text to the instruction; the Live voice is still Tavi")
+    func liveStyleKeepsTavi() throws {
         #expect(LiveVoiceStyle.instruction(base: "BASE", length: .normal, pace: .normal) == "BASE")
         let styled = LiveVoiceStyle.instruction(base: "BASE", length: .brief, pace: .slow)
         #expect(styled.hasPrefix("BASE\n\nSpeaking style: "))
         #expect(styled.contains("one or two short sentences") && styled.contains("slowly"))
 
         let client = GeminiLiveClient(apiKey: "k", voiceName: "Puck", systemInstruction: styled, silenceDurationMs: 300)
-        #expect(client.voiceName == "Kore")
+        #expect(client.voiceName == "en-us-tavi")
         let setup = BidiSetup(generationConfig: BidiGenerationConfig(speechConfig: BidiSpeechConfig(
             voiceConfig: BidiVoiceConfig(prebuiltVoiceConfig: BidiPrebuiltVoiceConfig(voiceName: "Puck")))),
                               systemInstruction: BidiSystemInstruction(text: styled), transcribesAudio: true, silenceDurationMs: 300)
         let json = String(decoding: try JSONEncoder().encode(setup), as: UTF8.self)
-        #expect(json.contains("\"voiceName\":\"Kore\"") && !json.contains("Puck"))
-        #expect(json.contains("models\\/gemini-3.1-flash-live-preview") || json.contains("models/gemini-3.1-flash-live-preview"))
+        #expect(json.contains("\"voiceName\":\"en-us-tavi\"") && !json.contains("Puck"))
+        #expect(json.contains("models\\/gemini-3.8-live") || json.contains("models/gemini-3.8-live"))
     }
 }
 

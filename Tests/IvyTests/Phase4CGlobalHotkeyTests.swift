@@ -1656,16 +1656,16 @@ struct Phase4CGlobalHotkeyTests {
     // MARK: - 11. Core Regression Tests
     // =========================================================================
 
-    @Test("53. Existing Gemini Live Kore voice lock is strictly preserved")
-    func testExistingGeminiLiveKoreVoiceLockPreserved() {
+    @Test("53. Existing Gemini Live Tavi voice lock is strictly preserved")
+    func testExistingGeminiLiveTaviVoiceLockPreserved() {
         let config = BidiPrebuiltVoiceConfig(voiceName: "Charon")
-        #expect(config.voiceName == "Kore")
+        #expect(config.voiceName == "en-us-tavi")
 
         let setup = BidiSetup()
-        #expect(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "Kore")
+        #expect(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName == "en-us-tavi")
 
         let client = GeminiLiveClient(apiKey: "test-key", voiceName: "Fenrir")
-        #expect(client.voiceName == "Kore")
+        #expect(client.voiceName == "en-us-tavi")
     }
 
     @Test("54. Existing ElevenLabs TTS configuration remains functional")

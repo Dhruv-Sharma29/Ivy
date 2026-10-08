@@ -23,6 +23,7 @@ public struct BidiClientMessage: Codable, Sendable, Equatable {
 }
 
 public struct BidiSetup: Codable, Sendable, Equatable {
+    public static let liveModelName = "models/gemini-3.8-live"
     public let model: String
     public let generationConfig: BidiGenerationConfig
     public let systemInstruction: BidiSystemInstruction?
@@ -34,15 +35,20 @@ public struct BidiSetup: Codable, Sendable, Equatable {
     public let realtimeInputConfig: BidiRealtimeInputConfig?
 
     public init(
-        model: String = "models/gemini-3.1-flash-live-preview",
+        model: String = liveModelName,
         generationConfig: BidiGenerationConfig? = nil,
         systemInstruction: BidiSystemInstruction? = nil,
         tools: [ToolDeclarationWrapper]? = nil,
         transcribesAudio: Bool = false,
-        silenceDurationMs: Int? = nil
+        silenceDurationMs: Int? = nil,
+        manualActivityDetection: Bool = false
     ) {
-        self.realtimeInputConfig = silenceDurationMs.map {
-            BidiRealtimeInputConfig(automaticActivityDetection: BidiActivityDetection(silenceDurationMs: $0))
+        if manualActivityDetection {
+            self.realtimeInputConfig = BidiRealtimeInputConfig(automaticActivityDetection: BidiActivityDetection(disabled: true))
+        } else {
+            self.realtimeInputConfig = silenceDurationMs.map {
+                BidiRealtimeInputConfig(automaticActivityDetection: BidiActivityDetection(silenceDurationMs: $0))
+            }
         }
         self.model = model
         self.generationConfig = generationConfig ?? BidiGenerationConfig()
@@ -78,10 +84,32 @@ public struct BidiSetup: Codable, Sendable, Equatable {
         try container.encode(model, forKey: .model)
         try container.encode(generationConfig, forKey: .generationConfig)
         try container.encodeIfPresent(systemInstruction, forKey: .systemInstruction)
-        try container.encodeIfPresent(tools, forKey: .tools)
+        // Live 3.8 defaults to asynchronous tools. Keep Ivy's approval/result-before-reply contract.
+        try container.encodeIfPresent(tools?.map(BlockingTool.init), forKey: .tools)
         try container.encodeIfPresent(inputAudioTranscription, forKey: .inputAudioTranscription)
         try container.encodeIfPresent(outputAudioTranscription, forKey: .outputAudioTranscription)
         try container.encodeIfPresent(realtimeInputConfig, forKey: .realtimeInputConfig)
+    }
+
+    private struct BlockingTool: Encodable {
+        let functionDeclarations: [BlockingFunction]
+
+        init(_ tool: ToolDeclarationWrapper) {
+            functionDeclarations = tool.functionDeclarations.map(BlockingFunction.init)
+        }
+    }
+
+    private struct BlockingFunction: Encodable {
+        let name: String
+        let description: String
+        let parameters: ToolParameters?
+        let behavior = "BLOCKING"
+
+        init(_ function: FunctionDeclaration) {
+            name = function.name
+            description = function.description
+            parameters = function.parameters
+        }
     }
 }
 
@@ -95,11 +123,13 @@ public struct BidiRealtimeInputConfig: Codable, Sendable, Equatable {
 
 /// Server-side voice activity detection. Only the fields Ivy tunes are modelled.
 public struct BidiActivityDetection: Codable, Sendable, Equatable {
+    public let disabled: Bool?
     /// How long the user must be silent before the server treats the turn as finished.
     public let silenceDurationMs: Int?
 
-    public init(silenceDurationMs: Int? = nil) {
+    public init(silenceDurationMs: Int? = nil, disabled: Bool? = nil) {
         self.silenceDurationMs = silenceDurationMs
+        self.disabled = disabled
     }
 }
 
@@ -191,11 +221,11 @@ public struct BidiVoiceConfig: Codable, Sendable, Equatable {
 }
 
 public struct BidiPrebuiltVoiceConfig: Codable, Sendable, Equatable {
-    public static let liveVoiceName: String = "Kore"
+    public static let liveVoiceName: String = "en-us-tavi"
     public let voiceName: String
 
     public init(voiceName: String = liveVoiceName) {
-        // Enforce Kore - no other Gemini voice or fallback is permitted
+        // Enforce Tavi - no other Gemini voice or fallback is permitted
         self.voiceName = Self.liveVoiceName
     }
 
@@ -206,7 +236,7 @@ public struct BidiPrebuiltVoiceConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         _ = try? container.decode(String.self, forKey: .voiceName)
-        // Hard-lock to Kore - no other Gemini voice or server override is permitted
+        // Hard-lock to Tavi - no other Gemini voice or server override is permitted
         self.voiceName = Self.liveVoiceName
     }
 
@@ -244,6 +274,8 @@ public struct BidiRealtimeInput: Codable, Sendable, Equatable {
     public let video: BidiBlob?
     public let audioStreamEnd: Bool?
     public let text: String?
+    public let activityStart: BidiActivityMarker?
+    public let activityEnd: BidiActivityMarker?
 
     public init(audio: BidiBlob) {
         self.audio = audio
@@ -251,6 +283,8 @@ public struct BidiRealtimeInput: Codable, Sendable, Equatable {
         self.video = nil
         self.audioStreamEnd = nil
         self.text = nil
+        self.activityStart = nil
+        self.activityEnd = nil
     }
 
     public init(mediaChunks: [BidiBlob]) {
@@ -259,6 +293,8 @@ public struct BidiRealtimeInput: Codable, Sendable, Equatable {
         self.video = nil
         self.audioStreamEnd = nil
         self.text = nil
+        self.activityStart = nil
+        self.activityEnd = nil
     }
 
     public init(jpegFrame: Data, context: String? = nil) {
@@ -267,6 +303,8 @@ public struct BidiRealtimeInput: Codable, Sendable, Equatable {
         self.mediaChunks = nil
         self.audioStreamEnd = nil
         self.text = context
+        self.activityStart = nil
+        self.activityEnd = nil
     }
 
     public init(audioStreamEnd: Bool) {
@@ -275,11 +313,27 @@ public struct BidiRealtimeInput: Codable, Sendable, Equatable {
         self.video = nil
         self.mediaChunks = nil
         self.text = nil
+        self.activityStart = nil
+        self.activityEnd = nil
+    }
+
+    public init(activityStarted: Bool) {
+        self.activityStart = activityStarted ? BidiActivityMarker() : nil
+        self.activityEnd = activityStarted ? nil : BidiActivityMarker()
+        self.audio = nil
+        self.video = nil
+        self.mediaChunks = nil
+        self.text = nil
+        self.audioStreamEnd = nil
     }
 
     public init(pcmData: Data, sampleRate: Int = 16000) {
         self.init(audio: BidiBlob(mimeType: "audio/pcm;rate=\(sampleRate)", data: pcmData.base64EncodedString()))
     }
+}
+
+public struct BidiActivityMarker: Codable, Sendable, Equatable {
+    public init() {}
 }
 
 public struct BidiBlob: Codable, Sendable, Equatable {

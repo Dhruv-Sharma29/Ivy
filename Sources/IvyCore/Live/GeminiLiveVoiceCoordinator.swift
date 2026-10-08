@@ -274,7 +274,7 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
     public convenience init(
         credentials: CredentialProvider = KeychainCredentialProvider(),
         echoCancellation: Bool = true,
-        model: String = "models/gemini-3.1-flash-live-preview",
+        model: String = BidiSetup.liveModelName,
         voiceName: String = liveVoiceName,
         systemInstruction: String = IvyPersona.systemPrompt,
         hotkeyManager: GlobalHotkeyManaging? = nil,
@@ -564,6 +564,13 @@ public final class GeminiLiveVoiceCoordinator: ObservableObject {
         self.currentSessionToken = token
         hasVoiceTurnProgress = false
         transition(to: .connecting)
+        do {
+            // PTT has an explicit press/release boundary; the server must not guess its end.
+            try (session as? GeminiLiveClient)?.configurePushToTalkInput(wasSessionStartedByPushToTalk)
+        } catch {
+            await tearDown(then: .error("Couldn't configure voice input: \(error.localizedDescription)"))
+            return
+        }
         latestTranscript = ""
         latency = LiveLatencyMetrics()
         sessionStartedAt = clock.now

@@ -23,7 +23,7 @@ public struct IvySettings: Codable, Equatable, Sendable {
     public var autoTitleConversations: Bool
     /// How long a pause Ivy waits through before answering in Live. Applies at launch.
     public var voicePatience: VoicePatience
-    /// Spoken-style hints for Live (the voice itself is always Kore). Apply at launch.
+    /// Spoken-style hints for Live (the voice itself is always Tavi). Apply at launch.
     public var voiceResponseLength: VoiceResponseLength
     public var voiceSpeakingPace: VoiceSpeakingPace
     /// ElevenLabs read-aloud voice settings.
