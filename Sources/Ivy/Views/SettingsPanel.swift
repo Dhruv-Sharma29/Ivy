@@ -151,12 +151,15 @@ struct VoiceSettingsSection: View {
             SettingsCard(title: "Live conversation", symbol: "waveform", subtitle: "Choose how Ivy speaks during a voice session.") {
                 SettingsToggle(title: "Show live transcript", detail: "See your conversation as you speak.", isOn: $settings.settings.showLiveTranscript)
                 Divider()
-                choice("Pause tolerance", $settings.settings.voicePatience,
-                       [(.short, "Short"), (.normal, "Normal"), (.long, "Long")])
-                choice("Answer length", $settings.settings.voiceResponseLength,
-                       [(.brief, "Brief"), (.normal, "Normal"), (.detailed, "Detailed")])
-                choice("Speaking pace", $settings.settings.voiceSpeakingPace,
-                       [(.slow, "Slow"), (.normal, "Normal"), (.fast, "Fast")])
+                SettingsChoiceCards(title: "Pause tolerance", detail: "How long Ivy waits when you pause.",
+                    selection: $settings.settings.voicePatience,
+                    options: [(.short, "Short", "Quick turns"), (.normal, "Normal", "Natural pauses"), (.long, "Long", "More time to think")])
+                SettingsChoiceCards(title: "Answer length", detail: "How much detail to include in a reply.",
+                    selection: $settings.settings.voiceResponseLength,
+                    options: [(.brief, "Brief", "Just the essentials"), (.normal, "Normal", "Enough context"), (.detailed, "Detailed", "More explanation")])
+                SettingsChoiceCards(title: "Speaking pace", detail: "The rhythm of Ivy’s spoken replies.",
+                    selection: $settings.settings.voiceSpeakingPace,
+                    options: [(.slow, "Slow", "Unhurried"), (.normal, "Normal", "Natural rhythm"), (.fast, "Fast", "Quicker delivery")])
                 Text("Speaking preferences take effect after restarting Ivy.")
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -186,12 +189,6 @@ struct VoiceSettingsSection: View {
             }
         }
         .font(.body)
-    }
-
-    private func choice<Value: Hashable>(_ label: String, _ value: Binding<Value>, _ options: [(Value, String)]) -> some View {
-        SettingsControlRow(title: label) {
-            SettingsSegmentedPicker(title: label, selection: value, options: options)
-        }
     }
 
     private func slider(_ label: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {

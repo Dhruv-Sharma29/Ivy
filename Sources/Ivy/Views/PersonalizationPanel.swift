@@ -20,16 +20,8 @@ struct PersonalizationPanel: View {
         SettingsCard(title: "Personality & preferences", symbol: "person.crop.circle") {
         VStack(alignment: .leading, spacing: 18) {
 
-            SettingsControlRow(title: "Personality") {
-                SettingsSegmentedPicker(title: "Personality", selection: Binding(
-                    get: { model.profile.sass }, set: { model.setSass($0) }),
-                    options: [(0, "Polite"), (1, "Light"), (2, "Ivy"), (3, "Roast")])
-            }
-            SettingsControlRow(title: "Answer length") {
-                SettingsSegmentedPicker(title: "Answer length", selection: Binding(
-                    get: { model.profile.responseLength }, set: { model.setResponseLength($0) }),
-                    options: [(.brief, "Brief"), (.balanced, "Balanced"), (.detailed, "Detailed")])
-            }
+            personalityChoices
+            answerLengthChoices
 
             SettingsToggle(title: "Occasional emoji", isOn: Binding(get: { model.profile.useEmoji }, set: { model.setUseEmoji($0) }))
             Divider()
@@ -136,6 +128,20 @@ struct PersonalizationPanel: View {
         .font(.body)
         .disclosureGroupStyle(SettingsDisclosureStyle())
         .onAppear(perform: loadDrafts)
+    }
+
+    var personalityChoices: SettingsChoiceCards<Int> {
+        SettingsChoiceCards(title: "Personality", detail: "Choose Ivy’s tone.",
+            selection: Binding(get: { model.profile.sass }, set: { model.setSass($0) }),
+            options: [(0, "Polite", "Kind and direct"), (1, "Light", "Gentle humor"),
+                      (2, "Ivy", "Playful sarcasm"), (3, "Roast", "Sharper teasing")])
+    }
+
+    var answerLengthChoices: SettingsChoiceCards<PersonalizationProfile.ResponseLength> {
+        SettingsChoiceCards(title: "Answer length", detail: "How much detail to include in a reply.",
+            selection: Binding(get: { model.profile.responseLength }, set: { model.setResponseLength($0) }),
+            options: [(.brief, "Brief", "Just the essentials"), (.balanced, "Balanced", "Helpful context"),
+                      (.detailed, "Detailed", "More explanation")])
     }
 
     // MARK: - Drafts

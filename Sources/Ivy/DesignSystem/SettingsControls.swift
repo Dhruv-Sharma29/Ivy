@@ -125,6 +125,105 @@ struct SettingsToggle: View {
     }
 }
 
+/// Single-choice cards explain a preference without a heavy segmented-control bezel.
+struct SettingsChoiceCards<Value: Hashable>: View {
+    let title: String
+    let detail: String
+    @Binding var selection: Value
+    let options: [(value: Value, title: String, detail: String)]
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.body.weight(.medium))
+                Text(detail).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(options, id: \.value) { option in
+                        optionButton(option).frame(minWidth: 110, maxWidth: .infinity)
+                    }
+                }
+                VStack(spacing: 8) {
+                    ForEach(options, id: \.value) { option in optionButton(option) }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
+        .onKeyPress(.leftArrow) { isEnabled && moveSelection(by: -1) ? .handled : .ignored }
+        .onKeyPress(.rightArrow) { isEnabled && moveSelection(by: 1) ? .handled : .ignored }
+    }
+
+    private func optionButton(_ option: (value: Value, title: String, detail: String)) -> some View {
+        let selected = selection == option.value
+        return Button { select(option.value) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(option.title).font(.body.weight(selected ? .semibold : .medium))
+                    Spacer(minLength: 0)
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.callout).foregroundStyle(selected ? IvyTheme.leaf : Color.secondary)
+                        .accessibilityHidden(true)
+                }
+                Text(option.detail).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12).frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(SettingsChoiceButtonStyle(selected: selected))
+        .accessibilityLabel(title + ", " + option.title)
+        .accessibilityHint(option.detail)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    func select(_ value: Value) {
+        guard options.contains(where: { $0.value == value }) else { return }
+        selection = value
+    }
+
+    @discardableResult
+    func moveSelection(by offset: Int) -> Bool {
+        guard !options.isEmpty else { return false }
+        let current = options.firstIndex { $0.value == selection } ?? 0
+        select(options[min(options.count - 1, max(0, current + offset))].value)
+        return true
+    }
+}
+
+private struct SettingsChoiceButtonStyle: ButtonStyle {
+    let selected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        SettingsChoiceButtonLabel(configuration: configuration, selected: selected)
+    }
+}
+
+private struct SettingsChoiceButtonLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let selected: Bool
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        configuration.label
+            .foregroundStyle(.primary)
+            .background(selected ? IvyTheme.leaf.opacity(0.10) : Color.primary.opacity(hovering && isEnabled ? 0.06 : 0.025),
+                        in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(selected ? IvyTheme.leaf : Color.secondary.opacity(contrast == .increased ? 0.8 : 0.18),
+                                  lineWidth: selected || contrast == .increased ? 1.5 : 1)
+            }
+            .opacity(!isEnabled ? 0.5 : configuration.isPressed ? 0.7 : 1)
+            .onHover { hovering = $0 }
+    }
+}
+
 /// Pickers and sliders share a label column; narrow containers reflow to stacked controls.
 struct SettingsControlRow<Content: View>: View {
     let title: String
