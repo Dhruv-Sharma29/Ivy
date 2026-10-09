@@ -64,6 +64,7 @@ public final class IvyAppEnvironment {
         credentials: CredentialProvider,
         conversationStore: ConversationStore,
         geminiClient: GeminiClientProtocol = URLSessionGeminiClient(),
+        modelProvider: (any ModelProvider)? = nil,
         voiceManager: VoicePlaybackManager? = nil,
         wakeWordListener: WakeWordListening = SystemWakeWordListener(),
         proactiveStore: ProactiveStore = InMemoryProactiveStore(),
@@ -98,7 +99,8 @@ public final class IvyAppEnvironment {
         self.workspaces = workspaces
         self.screenGeometry = screenGeometry
         self.commandBarHotkey = commandBarHotkey
-        let brain = IvyBrain(client: geminiClient,
+        let provider = modelProvider ?? GeminiModelProvider(client: geminiClient, credentials: credentials)
+        let brain = IvyBrain(client: geminiClient, modelProvider: provider,
                              toolRegistry: Self.toolRegistry(relay: proactiveRelay, memory: personalizationRelay, workspace: workspaceScope, git: gitRunner,
                                                              geometry: screenGeometry, presenter: annotationPresenter),
                              credentials: credentials, conversationStore: conversationStore)
@@ -129,7 +131,7 @@ public final class IvyAppEnvironment {
         self.screenHelpHotkey = screenHelpHotkey
         // Same dispatcher (and so the same SafetyGate and approval cards) as chat.
         let tasks = TaskEngine(
-            planner: taskPlanner ?? GeminiTaskPlanner(client: geminiClient, credentials: credentials),
+            planner: taskPlanner ?? ModelTaskPlanner(provider: provider),
             dispatcher: brain.toolDispatcher,
             denyPendingConfirmation: { [weak brain] in brain?.denyPendingConfirmation() },
             store: taskStore,

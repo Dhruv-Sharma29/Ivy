@@ -44,13 +44,14 @@ public final class IvyBrain: ObservableObject {
     public var workspaceContext: String?
 
     public let toolDispatcher: ToolDispatcher
-    private let client: GeminiClientProtocol
+    private let modelProvider: any ModelProvider
     private let systemPrompt: String
     private var confirmationContinuation: CheckedContinuation<Bool, Never>? = nil
     private let confirmationBridge: ConfirmationBridge?
 
     public init(
         client: GeminiClientProtocol = URLSessionGeminiClient(),
+        modelProvider: (any ModelProvider)? = nil,
         toolDispatcher: ToolDispatcher? = nil,
         toolRegistry: ToolRegistry? = nil,
         apiKey: String? = nil,
@@ -61,7 +62,6 @@ public final class IvyBrain: ObservableObject {
         systemPrompt: String = IvyPersona.systemPrompt,
         initialMessages: [ChatMessage] = []
     ) {
-        self.client = client
         self.systemPrompt = systemPrompt
         self.messages = initialMessages
         self.conversationStore = conversationStore
@@ -69,6 +69,7 @@ public final class IvyBrain: ObservableObject {
         self.contextBudget = contextBudget
         // An explicit key wins (tests, injection); otherwise Keychain with environment fallback.
         self.credentials = apiKey.map { FixedCredentialProvider([.geminiAPIKey: $0]) } ?? credentials ?? KeychainCredentialProvider()
+        self.modelProvider = modelProvider ?? GeminiModelProvider(client: client, credentials: self.credentials)
         self.geminiCredentialSource = self.credentials.source(for: .geminiAPIKey)
 
         if let toolDispatcher {
@@ -129,7 +130,7 @@ public final class IvyBrain: ObservableObject {
         defer { persistConversation() }
 
         refreshCredentialStatus()
-        guard let trimmedKey = credentials.credential(for: .geminiAPIKey) else {
+        if modelProvider.descriptor.requiresGeminiCredential, credentials.credential(for: .geminiAPIKey) == nil {
             let errorText = "I need a Gemini API key to reply. Open Settings → API Keys, add it, then try again."
             messages.append(ChatMessage(role: .model, text: errorText, isError: true))
             errorMessage = "API key missing"
@@ -156,16 +157,16 @@ public final class IvyBrain: ObservableObject {
 
             while turnCount < maxTurns {
                 turnCount += 1
-                let response = try await client.generateContent(
-                    history: currentHistory,
-                    systemPrompt: context.systemPrompt,
-                    tools: toolDispatcher.registry.toolDeclarations(for: enabledToolGroups),
-                    apiKey: trimmedKey
-                )
+                let response = try await modelProvider.response(to: ModelRequest(
+                    history: currentHistory, systemPrompt: context.systemPrompt,
+                    tools: modelProvider.descriptor.supportsTools
+                        ? toolDispatcher.registry.toolDeclarations(for: enabledToolGroups) : nil
+                ))
                 guard conversationID == turnConversation else { return }
 
                 if !response.functionCalls.isEmpty {
                     for (index, call) in response.functionCalls.enumerated() {
+                        try Task.checkCancellation()
                         let matchingPart = (index < response.functionCallParts.count)
                             ? response.functionCallParts[index]
                             : Part(functionCall: call, thoughtSignature: call.thoughtSignature)
@@ -203,16 +204,19 @@ public final class IvyBrain: ObservableObject {
                 } else if let reply = response.text, !reply.isEmpty {
                     messages.append(ChatMessage(role: .model, text: reply, thoughtSignature: response.thoughtSignature))
                     quotaStatus = nil
-                    scheduleMaintenance(apiKey: trimmedKey)
+                    scheduleMaintenance()
                     return
                 } else {
-                    throw GeminiClientError.emptyResponse
+                    throw ModelProviderError.emptyResponse
                 }
             }
 
             let loopError = "Tool execution limit reached."
             errorMessage = loopError
             messages.append(ChatMessage(role: .model, text: loopError, isError: true))
+        } catch is CancellationError {
+            // An interrupted request cannot append a late answer or dispatch more tools.
+            return
         } catch let err as GeminiClientError {
             noteQuota(from: err)
             guard conversationID == turnConversation else { return }
@@ -221,8 +225,9 @@ public final class IvyBrain: ObservableObject {
             messages.append(ChatMessage(role: .model, text: errorText, isError: true))
         } catch {
             guard conversationID == turnConversation else { return }
-            let errorText = "Something broke: \(error.localizedDescription)"
-            errorMessage = error.localizedDescription
+            let detail = SecretRedactor.redact(error.localizedDescription)
+            let errorText = "Something broke: \(detail)"
+            errorMessage = detail
             messages.append(ChatMessage(role: .model, text: errorText, isError: true))
         }
     }
@@ -318,10 +323,12 @@ public final class IvyBrain: ObservableObject {
     /// into; redacted here). Nil when there is no key, the quota is exhausted, or the call fails: the caller
     /// then shows the plain list.
     public func composeBriefing(from data: String) async -> String? {
-        guard !isQuotaLimited, let key = credentials.credential(for: .geminiAPIKey) else { return nil }
+        guard !isQuotaLimited else { return nil }
+        if modelProvider.descriptor.requiresGeminiCredential, credentials.credential(for: .geminiAPIKey) == nil { return nil }
         do {
-            let text = try await client.generateContent(
-                history: [ChatMessage(role: .user, text: SecretRedactor.redact(data))], systemPrompt: ContextBudget.briefingPrompt, apiKey: key)
+            let text = try await modelProvider.text(for: ModelRequest(
+                history: [ChatMessage(role: .user, text: SecretRedactor.redact(data))],
+                systemPrompt: ContextBudget.briefingPrompt, purpose: .briefing))
             let cleaned = SecretRedactor.redact(text.trimmingCharacters(in: .whitespacesAndNewlines))
             return cleaned.isEmpty ? nil : cleaned
         } catch {
@@ -333,12 +340,12 @@ public final class IvyBrain: ObservableObject {
 
     // MARK: - After-turn maintenance
 
-    private func scheduleMaintenance(apiKey: String) {
+    private func scheduleMaintenance() {
         // Still busy from the previous turn: this turn's work is picked up after the next one.
         guard maintenanceTask == nil else { return }
         maintenanceTask = Task { [weak self] in
-            await self?.generateTitleIfNeeded(apiKey: apiKey)
-            await self?.compactIfNeeded(apiKey: apiKey)
+            await self?.generateTitleIfNeeded()
+            await self?.compactIfNeeded()
             self?.maintenanceTask = nil
         }
     }
@@ -353,7 +360,7 @@ public final class IvyBrain: ObservableObject {
     }
 
     /// One short request after the first reply. A title the user typed is never replaced.
-    private func generateTitleIfNeeded(apiKey: String) async {
+    private func generateTitleIfNeeded() async {
         let replies = messages.filter { $0.role == .model && !$0.isError }
         guard autoTitles, !isQuotaLimited, conversation.title.isEmpty, conversation.titleSource == .auto,
               replies.count == 1, let reply = replies.first,
@@ -361,8 +368,9 @@ public final class IvyBrain: ObservableObject {
         let id = conversationID
         let exchange = "User: \(question.text.prefix(500))\nIvy: \(reply.text.prefix(500))"
         do {
-            let raw = try await client.generateContent(
-                history: [ChatMessage(role: .user, text: exchange)], systemPrompt: ContextBudget.titlePrompt, apiKey: apiKey)
+            let raw = try await modelProvider.text(for: ModelRequest(
+                history: [ChatMessage(role: .user, text: exchange)],
+                systemPrompt: ContextBudget.titlePrompt, purpose: .conversationTitle))
             let title = ContextBudget.cleanTitle(raw)
             guard conversationID == id, conversation.titleSource == .auto, !title.isEmpty else { return }
             conversation.title = title
@@ -377,7 +385,7 @@ public final class IvyBrain: ObservableObject {
     /// Folds the oldest turns into the rolling summary once the verbatim history outgrows the budget.
     /// Only the request gets shorter: every message stays on disk and on screen. On failure nothing changes
     /// (full history keeps being sent) and the next turn tries again.
-    private func compactIfNeeded(apiKey: String) async {
+    private func compactIfNeeded() async {
         let history = requestContext().history
         guard !isQuotaLimited, ContextBudget.estimateTokens(history) > contextBudget.targetTokens else { return }
         let turnStarts = history.indices.filter { history[$0].role == .user }
@@ -386,9 +394,9 @@ public final class IvyBrain: ObservableObject {
         guard let through = old.last?.id else { return }
         let id = conversationID
         do {
-            let raw = try await client.generateContent(
+            let raw = try await modelProvider.text(for: ModelRequest(
                 history: [ChatMessage(role: .user, text: ContextBudget.summaryRequest(previous: conversation.summary?.text, turns: old))],
-                systemPrompt: ContextBudget.summaryPrompt, apiKey: apiKey)
+                systemPrompt: ContextBudget.summaryPrompt, purpose: .summary))
             let text = ContextBudget.cleanSummary(raw)
             guard conversationID == id, !text.isEmpty else { return }
             conversation.summary = ConversationSummaryBlock(text: text, throughMessageID: through)

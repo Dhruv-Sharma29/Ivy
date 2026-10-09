@@ -108,6 +108,7 @@ public extension GeminiClientProtocol {
         apiKey: String
     ) async throws -> String {
         let response = try await generateContent(history: history, systemPrompt: systemPrompt, tools: nil, apiKey: apiKey)
+        guard response.functionCalls.isEmpty else { throw ModelProviderError.unexpectedToolCalls }
         guard let text = response.text, !text.isEmpty else {
             throw GeminiClientError.emptyResponse
         }
@@ -154,6 +155,7 @@ public final class URLSessionGeminiClient: GeminiClientProtocol, Sendable {
         apiKey: String
     ) async throws -> String {
         let response = try await generateContent(history: history, systemPrompt: systemPrompt, tools: nil, apiKey: apiKey)
+        guard response.functionCalls.isEmpty else { throw ModelProviderError.unexpectedToolCalls }
         guard let text = response.text, !text.isEmpty else {
             throw GeminiClientError.emptyResponse
         }

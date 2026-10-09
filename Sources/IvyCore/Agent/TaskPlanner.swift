@@ -9,18 +9,14 @@ public protocol TaskPlanning: Sendable {
 /// Plans with Gemini over REST. The prompt lists the real tools; the reply is parsed and validated before
 /// the user ever sees it, and nothing in it is executed without passing SafetyGate step by step.
 public struct GeminiTaskPlanner: TaskPlanning {
-    private let client: GeminiClientProtocol
-    private let credentials: CredentialProvider
+    private let planner: ModelTaskPlanner
 
     public init(client: GeminiClientProtocol, credentials: CredentialProvider) {
-        self.client = client
-        self.credentials = credentials
+        planner = ModelTaskPlanner(provider: GeminiModelProvider(client: client, credentials: credentials))
     }
 
     public func plan(goal: String, context: String, tools: [FunctionDeclaration]) async throws -> String {
-        guard let key = credentials.credential(for: .geminiAPIKey) else { throw GeminiClientError.missingAPIKey }
-        let request = Self.request(goal: goal, context: context, tools: tools)
-        return try await client.generateContent(history: [ChatMessage(role: .user, text: request)], systemPrompt: Self.systemPrompt, apiKey: key)
+        try await planner.plan(goal: goal, context: context, tools: tools)
     }
 
     static let systemPrompt = """
@@ -40,5 +36,18 @@ public struct GeminiTaskPlanner: TaskPlanning {
         var text = "Goal: \(SecretRedactor.redact(goal))\n\nTools:\n\(catalogue)"
         if !context.isEmpty { text += "\n\nSo far (plan only the remaining work):\n\(SecretRedactor.redact(context))" }
         return text
+    }
+}
+
+/// A plan is text to validate and review, never permission to execute a model's tool calls.
+public struct ModelTaskPlanner: TaskPlanning {
+    private let provider: any ModelProvider
+
+    public init(provider: any ModelProvider) { self.provider = provider }
+
+    public func plan(goal: String, context: String, tools: [FunctionDeclaration]) async throws -> String {
+        try await provider.text(for: ModelRequest(
+            history: [ChatMessage(role: .user, text: GeminiTaskPlanner.request(goal: goal, context: context, tools: tools))],
+            systemPrompt: GeminiTaskPlanner.systemPrompt, purpose: .taskPlan))
     }
 }

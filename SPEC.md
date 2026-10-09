@@ -236,6 +236,21 @@ public struct GeminiAPIError: Codable, Sendable {
 
 ## 4. Gemini API Abstraction
 
+### Model boundary (Phase 21)
+- Chat, task planning, titles, summaries and briefings use one injected `ModelProvider`.
+  `ModelRequest` carries history, prompt, optional tool declarations and purpose; credentials
+  remain inside the adapter. `ModelTurnResponse` preserves tool parts and opaque signatures.
+- The Gemini adapter retains the existing REST transport, credential lookup and quota errors.
+  Voice recognition and playback remain independent. No runtime provider switch or history
+  transfer is introduced; an own-model HTTP adapter requires its actual API contract.
+- Capabilities are explicit. Text-only chat omits tools; unsupported image inputs and unexpected
+  tool outputs fail visibly. Cancellation is checked before and after generation and before
+  dispatch. Every tool still passes the existing dispatcher and SafetyGate.
+- Task planning requests text JSON only; unexpected tool calls cannot execute while planning.
+- Initial task evaluations use versioned synthetic fixtures and offline tool drivers behind
+  production validation and SafetyGate. Reports identify the provider/model and fixture version,
+  observed actions, failures/refusals and latency. Offline passes do not imply hardware acceptance.
+
 ### Protocol Interface (`IvyCore/Services/GeminiClient.swift`)
 ```swift
 import Foundation
