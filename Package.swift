@@ -44,6 +44,7 @@ let package = Package(
         .testTarget(
             name: "IvyTests",
             dependencies: ["IvyCore"],
+            resources: [.copy("Fixtures/TaskEvaluations-v1.json")],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

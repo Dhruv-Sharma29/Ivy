@@ -54,14 +54,20 @@ Provider selection must not transfer private history to a different endpoint wit
 
 - [x] 21.1a Companion upper drag limit: native regression, fix and build-24 delivery.
 - [ ] 21.1b Voice/device/hardware reliability acceptance.
-- [ ] 21.2 Model boundary.
-- [ ] 21.3 Provider/task evaluation harness.
+- [x] 21.2a Shared model boundary, Gemini adapter and alternate-provider injection tests.
+- [ ] 21.2b Own-model HTTP adapter and reviewed provider selection (actual API contract needed).
+- [x] 21.3a Versioned offline chat/tool fixtures and reproducible JSON report.
+- [ ] 21.3b Live-provider comparisons, full task-engine evaluations and real-app acceptance.
 - [ ] 21.4 Floating task panel.
 - [ ] 21.5 Production computer control and hardware acceptance.
 - [ ] 21.6 Generated-file gallery.
 - [ ] 21.7 Memory controls audit and additions.
 - [ ] 21.8 Usage/performance dashboard audit and additions.
 - [ ] 21.9 Reviewed example export.
+
+Implementation and verification: [model readiness foundation](../../tasks/model-readiness-foundation.md).
+The evaluation script uses synthetic inputs and in-memory OS drivers through real tools, validation
+and InteractiveSafetyGate. It tests the harness; it does not benchmark a live model or the physical Mac.
 
 Related plans: [voice](phase-10-advanced-voice.md), [hardening](phase-08-production-hardening.md),
 [computer control](phase-19-computer-control.md), [assistant workspace](phase-20-assistant-workspace.md).

@@ -86,8 +86,10 @@ not proof that every proposed feature has shipped. See [CHANGELOG](../CHANGELOG.
   Keychain permission was modified by this task.
 
 - [Phase 21 — Reliability and model readiness](../docs/roadmap/phase-21-model-readiness.md) is the
-  current phased delivery plan. Companion upper drag-limit repair starts 21.1; voice hardware acceptance,
-  provider support/evaluations and the floating task panel are the first milestone. Existing Phase 19/20
+  current phased delivery plan. Companion upper drag-limit repair, the shared model boundary and initial
+  offline evaluations are implemented in source. Physical voice acceptance, own-model HTTP integration,
+  live-provider comparisons, full task-engine evaluations and the floating task panel remain pending.
+  See [foundation verification](model-readiness-foundation.md). Existing Phase 19/20
   scope and cancelled Pointer work remain unchanged.
 
 - Test the rebuilt DMG's UI refresh, compact companion Cancel / Do it card and PTT release on hardware.

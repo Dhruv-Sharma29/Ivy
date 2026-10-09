@@ -8,7 +8,7 @@ The desktop app, saved conversations, live voice, task engine and core Mac tools
 
 **Companion placement (build 24):** Ivy can reach the usable screen’s top edge without reserving invisible panel space. Captions and approval controls retain screen bounds. See [verification](tasks/companion-top-edge.md).
 
-**Next development plan:** [Reliability and model readiness](docs/roadmap/phase-21-model-readiness.md) covers voice acceptance, model adapters, evaluations, a floating task panel, computer control, generated files, memory controls, usage diagnostics and reviewed training examples. The placement fix starts the reliability slice; the remaining slices are planned.
+**Next development plan:** [Reliability and model readiness](docs/roadmap/phase-21-model-readiness.md) covers voice acceptance, model adapters, evaluations, a floating task panel, computer control, generated files, memory controls, usage diagnostics and reviewed training examples. The placement fix starts the reliability slice. The shared chat/planning model boundary and eight-case offline evaluation foundation are implemented in source; own-model connection, physical voice checks and the floating task panel remain pending. See [verification and evaluation instructions](tasks/model-readiness-foundation.md).
 
 **Script approval purpose (build 23):** The companion shows the script or command’s plain-language purpose, such as “Open YouTube in Safari,” above Cancel / Do it. The app retains the technical title, purpose and complete script/command for review. See [verification](tasks/script-approval-purpose.md).
 
@@ -299,6 +299,10 @@ git diff --check
 ```
 
 Tests use isolated fixtures for network, credentials and audio. Native interface tests render previews in `/private/tmp/ivy-ui-review`; those tests do not establish behavior on a real microphone, AirPods or another Mac.
+
+Run the synthetic model/tool evaluations separately with `./scripts/run-task-evaluations.sh /tmp/ivy-task-evaluations.json`. The report records fixture/provider/model versions, outcomes, wrong-action attempts, unexpected effects, refusals, failures and elapsed time. It uses in-memory OS drivers; these timings are not live-model or hardware measurements.
+
+The **2026-10-09 source milestone** passed **1,387 tests** in **42.203 seconds**, with **107/107 changed executable source lines covered**. See [model/evaluation verification](tasks/model-readiness-foundation.md). The installed app and packaged DMG remain build 24.
 
 The **2026-10-08 build 24** passed **1,333 core tests and 45 native interface tests** (1,378 total;
 combined execution 39.297 seconds). All **119/119 changed executable source lines were covered (100%)**

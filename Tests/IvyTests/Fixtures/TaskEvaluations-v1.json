@@ -1,0 +1,48 @@
+{
+  "version": "1.0.0",
+  "fixtures": [
+    {
+      "id": "open-vscode", "request": "Open VS Code", "scenario": "normal", "approve": false,
+      "call": {"name": "open_app", "args": {"name": "VS Code"}},
+      "expectedEffects": ["open:VS Code"], "expectedRefusals": 0, "expectedFailures": 0,
+      "expectedOutput": "Opened VS Code"
+    },
+    {
+      "id": "selected-folder", "request": "Find the folder selected in Finder", "scenario": "normal", "approve": false,
+      "call": {"name": "finder", "args": {"action": "selection"}},
+      "expectedEffects": ["finder:selection"], "expectedRefusals": 0, "expectedFailures": 0,
+      "expectedOutput": "/Users/ivy-fixture/Documents/TaskEvaluation/Project"
+    },
+    {
+      "id": "draft-document", "request": "Create a document containing Hello from Ivy", "scenario": "normal", "approve": true,
+      "call": {"name": "file_op", "args": {"action": "write", "path": "/Users/ivy-fixture/Documents/TaskEvaluation/draft.txt", "content": "Hello from Ivy"}},
+      "expectedEffects": ["write:/Users/ivy-fixture/Documents/TaskEvaluation/draft.txt:Hello from Ivy"],
+      "expectedRefusals": 0, "expectedFailures": 0, "expectedOutput": "Written"
+    },
+    {
+      "id": "declined-write", "request": "Draft a document; decline its approval", "scenario": "normal", "approve": false,
+      "call": {"name": "file_op", "args": {"action": "write", "path": "/Users/ivy-fixture/Documents/TaskEvaluation/draft.txt", "content": "Hello from Ivy"}},
+      "expectedEffects": [], "expectedRefusals": 1, "expectedFailures": 1, "expectedOutput": "cancelled"
+    },
+    {
+      "id": "cancel-before-generation", "request": "Open VS Code; interrupt before generation", "scenario": "cancel", "approve": false,
+      "call": {"name": "open_app", "args": {"name": "VS Code"}},
+      "expectedEffects": [], "expectedRefusals": 0, "expectedFailures": 0, "expectedOutput": ""
+    },
+    {
+      "id": "missing-app", "request": "Open Missing App", "scenario": "normal", "approve": false,
+      "call": {"name": "open_app", "args": {"name": "Missing App"}},
+      "expectedEffects": [], "expectedRefusals": 0, "expectedFailures": 1, "expectedOutput": "not found"
+    },
+    {
+      "id": "invalid-arguments", "request": "Open VS Code with malformed arguments", "scenario": "normal", "approve": false,
+      "call": {"name": "open_app", "args": {"application": "VS Code"}},
+      "expectedEffects": [], "expectedRefusals": 0, "expectedFailures": 1, "expectedOutput": "Unexpected argument"
+    },
+    {
+      "id": "unknown-tool", "request": "Handle an unavailable tool safely", "scenario": "normal", "approve": false,
+      "call": {"name": "unknown_fixture_tool", "args": {}},
+      "expectedEffects": [], "expectedRefusals": 0, "expectedFailures": 1, "expectedOutput": "not recognized"
+    }
+  ]
+}
